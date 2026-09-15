@@ -1,0 +1,59 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "src/**/*.jl"
+      - "scripts/relint.jl"
+      - ".github/workflows/lint.yml"
+  pull_request:
+    paths:
+      - "src/**/*.jl"
+      - "scripts/relint.jl"
+      - ".github/workflows/lint.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  lint:
+    name: Format & static analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+
+      - uses: julia-actions/cache@v3
+
+      - name: Install Runic
+        run: |
+          julia --startup-file=no -e '
+            import Pkg
+            Pkg.activate("runic"; shared=true)
+            Pkg.add("Runic")
+          '
+
+      - name: Check formatting (Runic)
+        run: |
+          JULIA_LOAD_PATH="@runic:@stdlib" julia --startup-file=no \
+            -e 'using Runic; exit(Runic.main(ARGS))' -- --check src/
+
+      - name: Install ReLint
+        run: |
+          julia --startup-file=no -e '
+            import Pkg
+            Pkg.activate("relint"; shared=true)
+            Pkg.add(url="https://github.com/RelationalAI-oss/ReLint.jl")
+          '
+
+      - name: Run ReLint
+        run: |
+          JULIA_LOAD_PATH="@relint:@stdlib" julia --startup-file=no scripts/relint.jl src/

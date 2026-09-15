@@ -1,0 +1,48 @@
+MIT License
+
+Copyright (c) 2024 Tamás Hakkel and Contourlets.jl Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+THIRD-PARTY ATTRIBUTION
+
+Parts of this package are independent Julia reimplementations of algorithms from
+the following BSD-licensed MATLAB toolboxes.  No source code from these toolboxes
+is vendored into this repository; the directional filter bank (DFB) and
+nonsubsampled DFB, the "pkva" ladder filters, and the resampling / separable
+filtering helpers are ported from their published algorithms and function
+descriptions, so the original copyright and disclaimer are retained below as
+required by the BSD license.
+
+* MATLAB Contourlet Toolbox
+  Copyright (c) Minh N. Do.
+  https://www.mathworks.com/matlabcentral/fileexchange/8837-contourlet-toolbox
+
+* MATLAB Nonsubsampled Contourlet Toolbox
+  Copyright (c) Arthur L. da Cunha, Jianping Zhou, and Minh N. Do.
+  https://www.mathworks.com/matlabcentral/fileexchange/10049-nonsubsampled-contourlet-toolbox
+
+Both toolboxes are distributed under the BSD license:
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the above copyright notice and this
+  list of conditions are retained.  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+  HOLDERS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.

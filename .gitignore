@@ -1,0 +1,23 @@
+*.jl.cov
+*.jl.*.cov
+*.gcov
+**/Manifest.toml
+**/Manifest-v*.toml
+/docs/Manifest.toml
+/benchmark/Manifest.toml
+/docs/build/
+/.temp/
+lcov.info
+
+# Agentic tools
+.gemini
+.claude
+.copilot
+
+# GPUEnv persisted overlay environments
+/test/gpu_env/
+/benchmark/gpu_env/
+
+# AirspeedVelocity benchmark result artifacts
+/results_*.json
+/results_*.json.tmp

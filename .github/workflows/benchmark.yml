@@ -1,0 +1,36 @@
+name: Benchmarks
+
+# Run the AirspeedVelocity benchmark suite on pull requests and post a comparison
+# (PR branch vs. the target branch) as a sticky comment.
+on:
+  pull_request:
+
+# `pull_request` (not `pull_request_target`) so untrusted PR code never runs with
+# write tokens; the action only needs to comment, granted below.
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+
+      - uses: julia-actions/cache@v3
+
+      - name: Run and compare benchmarks
+        uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          script: benchmark/benchmarks.jl
+          extra-pkgs: MultiscaleFilterBanks
