@@ -10,8 +10,9 @@ module SurfaceletsAdaptExt
 # plans rebuilt, which is exactly what these methods do — hence `Adapt` is the
 # only weak dependency, with no GPUArrays or KernelAbstractions in sight.
 
-using Surfacelets
-using Adapt
+using Surfacelets: Surfacelets, Conv3DFFTPlan, HourglassFB, NDFB, NSSurfaceletCoefficients,
+    NSSurfaceletWorkspace, STISurfaceletPlan, SurfaceletCoefficients, SurfaceletPlan
+using Adapt: Adapt
 
 include("SurfaceletsAdaptExt/ns_surfacelet_adapt.jl")
 include("SurfaceletsAdaptExt/surfacelet_adapt.jl")

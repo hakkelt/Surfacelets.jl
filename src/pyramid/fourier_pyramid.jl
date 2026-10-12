@@ -40,6 +40,25 @@ end
 
 _rcos(x::T) where {T} = x <= 0 ? zero(T) : (x >= 1 ? one(T) : (1 - cospi(x)) / 2)
 
+# Band edges, in bins, of the 1-D raised-cosine lowpass with cutoff `w` and
+# transition `t` (in units of π) on an `n`-point axis: flat at 1 for `|f| ≤ Q`,
+# zero for `|f| ≥ P`.
+_rcos_edges(n::Int, w::Rational, t::Rational) = (ceil(Int, n // 2 * (w + t)), floor(Int, n // 2 * (w - t)))
+
+# The profile's value at bin `|f| ≤ P`: a √rcos ramp from 1 down to 0.
+_rcos_profile(::Type{T}, f::Int, P::Int, Q::Int) where {T} = sqrt(_rcos(T(P - f) / T(P - Q)))
+
+# Separable lowpass from three 1-D profiles, `L[i,j,k] = p₁[i] p₂[j] p₃[k]`.
+# `_separable_factors` gives the profiles oriented along their axes, for
+# broadcasting the product without materialising it.
+_separable_factors(prof::NTuple{3, <:AbstractVector}) =
+    (prof[1], reshape(prof[2], 1, :), reshape(prof[3], 1, 1, :))
+
+function _separable_lowpass(prof::NTuple{3, <:AbstractVector})
+    l1, l2, l3 = _separable_factors(prof)
+    return l1 .* l2 .* l3
+end
+
 function _pyramid_level(::Type{T}, n::NTuple{3, Int}, w::Rational, tbw::Rational, D::Rational) where {T}
     all(d -> (d * denominator(D)) % numerator(D) == 0, n) ||
         throw(ArgumentError("a pyramid level with factor $(D) cannot divide size $(n)"))
@@ -49,10 +68,9 @@ function _pyramid_level(::Type{T}, n::NTuple{3, Int}, w::Rational, tbw::Rational
     prof = Vector{Vector{T}}(undef, 3)
     for a in 1:3
         nr = n[a]
-        P = ceil(Int, nr // 2 * (w + tbw))
-        Q = floor(Int, nr // 2 * (w - tbw))
+        P, Q = _rcos_edges(nr, w, tbw)
         2P < nr || throw(ArgumentError("size $(nr) is too small for the pyramid"))
-        v = [sqrt(_rcos(T(P - p) / T(P - Q))) for p in 0:P]
+        v = [_rcos_profile(T, p, P, Q) for p in 0:P]
         # non-negative bins 0:P, then the mirrored negative bins -P:-1
         idx[a] = vcat(collect(0:P), collect((nr - P):(nr - 1))) .+ 1
         idx_low[a] = vcat(collect(0:P), collect((nlow[a] - P):(nlow[a] - 1))) .+ 1
@@ -79,13 +97,10 @@ function _fourier_pyramid(::Type{T}, dims::NTuple{3, Int}, J::Int, mode::Real) w
     return levels
 end
 
-# Separable lowpass on the support box, `L[i,j,k] = p₁[i] p₂[j] p₃[k]`.
-_pyramid_lowpass(lv::FourierPyramidLevel) =
-    lv.prof[1] .* reshape(lv.prof[2], 1, :) .* reshape(lv.prof[3], 1, 1, :)
-
 # Split `X` (size `lv.n`, overwritten with the highpass) and return the lowpass.
+# The lowpass is separable on the support box.
 function _pyramid_split!(X::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
-    Lf = _pyramid_lowpass(lv)
+    Lf = _separable_lowpass(lv.prof)
     box = view(X, lv.idx...)
     low = fill!(similar(X, lv.nlow), zero(Complex{T}))
     view(low, lv.idx_low...) .= (Lf ./ lv.D^T(1.5)) .* box
@@ -96,7 +111,7 @@ end
 # Inverse of `_pyramid_split!`: `X` holds the highpass on entry and the merged
 # spectrum on exit.
 function _pyramid_merge!(X::AbstractArray{Complex{T}, 3}, low::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
-    Lf = _pyramid_lowpass(lv)
+    Lf = _separable_lowpass(lv.prof)
     box = view(X, lv.idx...)
     box .= sqrt.(1 .- Lf .^ 2) .* box .+ (Lf .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
     return X

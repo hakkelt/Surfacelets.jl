@@ -59,7 +59,7 @@ function _irc_slice(
     sz = ntuple(d -> d == K ? nKh : (d == m ? nm : 1), 3)
     # `S` is indexed (K, m); when m comes first in memory it must be transposed
     # before the reshape, not merely relabelled.
-    return reshape(K < m ? S : permutedims(S), sz)
+    return _orient(S, K, m, sz)
 end
 
 """
@@ -86,47 +86,43 @@ function _irc_stages(::Type{T}, dims::NTuple{3, Int}, nK::Int, K::Int, levels::N
     return stages
 end
 
-# One analysis stage, in place on `S`; `tmp` holds one half of `S`.
-function _irc_analysis_stage!(S::AbstractArray, st::IRCStage, tmp::AbstractArray)
-    m, b = st.m, st.b
-    X = _irc_split(S, m, b)
-    A, B = selectdim(X, m + 1, 1), selectdim(X, m + 1, 2)
-    F0, F1 = _irc_split(st.ana[1], m, b), _irc_split(st.ana[2], m, b)
-    F0a, F0b = selectdim(F0, m + 1, 1), selectdim(F0, m + 1, 2)
-    F1a, F1b = selectdim(F1, m + 1, 1), selectdim(F1, m + 1, 2)
+# The two halves (A, B) of every 2b-bin group of `X` along axis m.
+@inline function _irc_halves(X::AbstractArray, m::Int, b::Int)
+    Y = _irc_split(X, m, b)
+    return selectdim(Y, m + 1, 1), selectdim(Y, m + 1, 2)
+end
+
+# One stage, in place on `S`: a 2×2 matrix of filter halves mixes the halves of
+# every group, `A ← W₁₁·A + W₁₂·B`, `B ← W₂₁·A + W₂₂·B`.  `tmp` holds one half
+# of `S`.
+function _irc_stage!(S::AbstractArray, m::Int, b::Int, W11, W12, W21, W22, tmp::AbstractArray)
+    A, B = _irc_halves(S, m, b)
     t = reshape(tmp, size(A))
-    @. t = F0a * A + F0b * B
-    @. B = F1a * A + F1b * B
+    @. t = W11 * A + W12 * B
+    @. B = W21 * A + W22 * B
     A .= t      # a broadcast, not `copyto!`, so a strided device view works too
     return S
 end
 
-# One synthesis stage, in place: upsample both channels by duplication and
-# filter, `X(A) = G₀(A)·c₀ + G₁(A)·c₁`, `X(B) = G₀(B)·c₀ + G₁(B)·c₁`.
-function _irc_synthesis_stage!(S::AbstractArray, st::IRCStage, tmp::AbstractArray)
-    m, b = st.m, st.b
-    X = _irc_split(S, m, b)
-    A, B = selectdim(X, m + 1, 1), selectdim(X, m + 1, 2)
-    G0, G1 = _irc_split(st.syn[1], m, b), _irc_split(st.syn[2], m, b)
-    G0a, G0b = selectdim(G0, m + 1, 1), selectdim(G0, m + 1, 2)
-    G1a, G1b = selectdim(G1, m + 1, 1), selectdim(G1, m + 1, 2)
-    t = reshape(tmp, size(A))
-    @. t = G0a * A + G1a * B
-    @. B = G0b * A + G1b * B
-    A .= t
-    return S
-end
-
+# Analysis: channel c's folded output `F_c(A)·A + F_c(B)·B` overwrites A (c = 0)
+# and B (c = 1).
 function _irc_analysis!(S::AbstractArray, stages::AbstractVector{<:IRCStage}, tmp::AbstractArray)
     for st in stages
-        _irc_analysis_stage!(S, st, tmp)
+        F0a, F0b = _irc_halves(st.ana[1], st.m, st.b)
+        F1a, F1b = _irc_halves(st.ana[2], st.m, st.b)
+        _irc_stage!(S, st.m, st.b, F0a, F0b, F1a, F1b, tmp)
     end
     return S
 end
 
+# Synthesis: upsample both channels by duplication and filter,
+# `X(A) = G₀(A)·c₀ + G₁(A)·c₁`, `X(B) = G₀(B)·c₀ + G₁(B)·c₁` — the transposed
+# filter matrix of analysis.
 function _irc_synthesis!(S::AbstractArray, stages::AbstractVector{<:IRCStage}, tmp::AbstractArray)
     for st in Iterators.reverse(stages)
-        _irc_synthesis_stage!(S, st, tmp)
+        G0a, G0b = _irc_halves(st.syn[1], st.m, st.b)
+        G1a, G1b = _irc_halves(st.syn[2], st.m, st.b)
+        _irc_stage!(S, st.m, st.b, G0a, G1a, G0b, G1b, tmp)
     end
     return S
 end

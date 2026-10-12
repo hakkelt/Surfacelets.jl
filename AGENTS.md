@@ -65,7 +65,7 @@ structural, not a design choice.
 The shared surface with the core is small and explicit: `FilterPair`, `CDF97`,
 `upsample_filter`, the threading policy types, and the internals
 `_data_eltype`, `_filter_eltype`, `_use_threading`, `_clamp_idx`,
-`_nsp_atrous_filters`, `_NSP_SYNTH_SCALE`.
+`_nsp_atrous_filters`.
 
 ## Commit Rules
 

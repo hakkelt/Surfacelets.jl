@@ -31,28 +31,33 @@ function Adapt.adapt_structure(to, st::IRCStage)
     return IRCStage(st.m, st.b, map(a -> Adapt.adapt(to, a), st.ana), map(a -> Adapt.adapt(to, a), st.syn))
 end
 
-function Adapt.adapt_structure(to, sc::_SurfScale)
-    stages = map(s -> [Adapt.adapt(to, st) for st in s], sc.stages)
-    return _SurfScale(sc.dims, sc.levels, map(m -> Adapt.adapt(to, m), sc.masks), stages)
+# `memo` maps a host masks tuple or stages tuple to its device copy, so scales
+# that share one on the host share it on the device too.
+function _adapt_scale(to, sc::_SurfScale, memo::IdDict{Any, Any})
+    masks = get!(() -> map(m -> Adapt.adapt(to, m), sc.masks), memo, sc.masks)
+    stages = get!(() -> map(s -> [Adapt.adapt(to, st) for st in s], sc.stages), memo, sc.stages)
+    return _SurfScale(sc.dims, sc.levels, masks, stages)
 end
+
+Adapt.adapt_structure(to, sc::_SurfScale) = _adapt_scale(to, sc, IdDict{Any, Any}())
 
 function Adapt.adapt_structure(to, pl::SurfaceletPlan)
     return SurfaceletPlan(
         pl.dims, pl.params,
         [Adapt.adapt(to, lv) for lv in pl.pyramid],
         [Adapt.adapt(to, sc) for sc in pl.scales],
-        Adapt.adapt(to, pl.proto),
     )
 end
 
 # The STI transform shares the directional stage; its pyramid is three
-# full-length 1-D profiles per scale.
+# full-length 1-D profiles per scale.  All its scales share one masks tuple, and
+# scales with equal levels share their IRC stages: adapt each of those once.
 function Adapt.adapt_structure(to, pl::STISurfaceletPlan)
+    memo = IdDict{Any, Any}()
     return STISurfaceletPlan(
         pl.dims, pl.params,
         [map(v -> Adapt.adapt(to, v), prof) for prof in pl.low],
-        [Adapt.adapt(to, sc) for sc in pl.scales],
-        Adapt.adapt(to, pl.proto),
+        [_adapt_scale(to, sc, memo) for sc in pl.scales],
     )
 end
 

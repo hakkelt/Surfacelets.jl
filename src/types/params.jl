@@ -131,12 +131,15 @@ struct SurfaceletParams{T <: AbstractFloat}
     lambda::Int
 end
 
-_surf_levels(L::Integer) = ntuple(
-    K -> begin
-        a, b = _transverse_axes(K)
-        ntuple(m -> m == a ? cld(L, 2) : (m == b ? fld(L, 2) : 0), 3)
-    end, 3
-)
+function _surf_levels(L::Integer)
+    la, lb = _wedge_levels(Int(L))
+    return ntuple(
+        K -> begin
+            a, b = _transverse_axes(K)
+            ntuple(m -> m == a ? la : (m == b ? lb : 0), 3)
+        end, 3
+    )
+end
 
 function _surf_levels(L::AbstractMatrix{<:Integer})
     size(L) == (3, 3) || throw(ArgumentError("a level matrix must be 3 × 3"))
@@ -180,7 +183,10 @@ end
 
 Number of directional subbands at scale `j`; `3 · 2^L` for an integer level `L`.
 """
-surfacelet_nsubbands(p::SurfaceletParams, j::Int) = sum(K -> 1 << sum(p.levels[j][K]), 1:3)
+surfacelet_nsubbands(p::SurfaceletParams, j::Int) = _nsubbands(p.levels[j])
+
+# Subbands of one scale with level matrix `lv`: `2^(row sum)` per hourglass.
+_nsubbands(lv::NTuple{3, NTuple{3, Int}}) = sum(K -> 1 << sum(lv[K]), 1:3)
 
 _convert_sparams(::Type{T}, p::SurfaceletParams{T}) where {T} = p
 _convert_sparams(::Type{T}, p::SurfaceletParams) where {T <: AbstractFloat} =
@@ -242,4 +248,8 @@ end
 
 Number of directional subbands at scale `j`.
 """
-sti_surfacelet_nsubbands(p::STISurfaceletParams, j::Int) = sum(K -> 1 << sum(p.levels[j][K]), 1:3)
+sti_surfacelet_nsubbands(p::STISurfaceletParams, j::Int) = _nsubbands(p.levels[j])
+
+_convert_stiparams(::Type{T}, p::STISurfaceletParams{T}) where {T} = p
+_convert_stiparams(::Type{T}, p::STISurfaceletParams) where {T <: AbstractFloat} =
+    STISurfaceletParams{T}(p.J, p.L_array, p.levels, p.bo, p.msize, T(p.beta), p.lambda)

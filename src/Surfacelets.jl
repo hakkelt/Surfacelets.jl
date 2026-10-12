@@ -30,14 +30,14 @@ whatever the number of directions; not shift-invariant.  See the "Theory" page.
 """
 module Surfacelets
 
-using FFTW: FFTW, plan_rfft, plan_fft, plan_fft!, plan_irfft, plan_ifft, plan_ifft!, rfft, fft, ifft
+using FFTW: FFTW, plan_rfft, plan_fft, plan_fft!, plan_irfft, plan_ifft, plan_ifft!, rfft, fft, ifft, fft!, ifft!
 using LinearAlgebra: mul!, adjoint
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     FilterPair, CDF97, upsample_filter,
     ThreadingPolicy, Auto, Enabled, Disabled,
     _data_eltype, _filter_eltype, _use_threading, _clamp_idx,
-    _nsp_atrous_filters, _NSP_SYNTH_SCALE
+    _nsp_atrous_filters
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")

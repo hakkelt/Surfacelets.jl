@@ -18,12 +18,32 @@ struct _SurfScale{T, R <: AbstractArray{T, 3}, S <: IRCStage}
     stages::NTuple{3, Vector{S}}
 end
 
+# IRC stages of the three hourglasses of a scale of size `n` with level matrix
+# `levels`, each on the half-spectrum of its own axis.
+function _surf_stages(::Type{T}, n::NTuple{3, Int}, levels::NTuple{3, NTuple{3, Int}}, bo::Int) where {T}
+    return ntuple(3) do K
+        half = ntuple(d -> d == K ? n[K] ÷ 2 + 1 : n[d], 3)
+        _irc_stages(T, half, n[K], K, levels[K], bo)
+    end
+end
+
 # Wedge blocks of hourglass K after IRC: block counts and size along each axis.
 function _surf_blocks(sc::_SurfScale, K::Int)
     n = sc.dims
     counts = ntuple(d -> 1 << sc.levels[K][d], 3)
     bsize = ntuple(d -> d == K ? n[K] ÷ 2 + 1 : n[d] ÷ counts[d], 3)
     return counts, bsize
+end
+
+# Real coefficients stored by the directional subbands of all `scales`; a wedge
+# block is real and full-length along its hourglass axis.
+function _directional_count(scales::AbstractVector{<:_SurfScale})
+    total = 0
+    for sc in scales, K in 1:3
+        counts, bsize = _surf_blocks(sc, K)
+        total += prod(counts) * prod(ntuple(d -> d == K ? sc.dims[K] : bsize[d], 3))
+    end
+    return total
 end
 
 # Index ranges of wedge block `i` (column-major over block indices, as SurfBox's

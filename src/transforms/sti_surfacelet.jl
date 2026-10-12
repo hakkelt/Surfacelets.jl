@@ -36,12 +36,11 @@
 Pyramid profiles, hourglass masks and checkerboard filter slices for one volume
 size; build with [`make_sti_surfacelet`](@ref).
 """
-struct STISurfaceletPlan{T, V <: AbstractVector{T}, C <: _SurfScale{T}, P <: AbstractArray{T, 3}}
+struct STISurfaceletPlan{T, V <: AbstractVector{T}, C <: _SurfScale{T}}
     dims::NTuple{3, Int}
     params::STISurfaceletParams{T}
     low::Vector{NTuple{3, V}}       # ℓ_j per axis, full-length
-    scales::Vector{C}
-    proto::P
+    scales::Vector{C}               # share one `masks` tuple; equal levels share stages
 end
 
 """
@@ -54,22 +53,16 @@ along it; the pyramid itself imposes nothing.
 function make_sti_surfacelet(
         params::STISurfaceletParams, dims::NTuple{3, Int}, ::Type{T} = Float64
     ) where {T <: AbstractFloat}
-    p = params isa STISurfaceletParams{T} ? params :
-        STISurfaceletParams{T}(params.J, params.L_array, params.levels, params.bo, params.msize, T(params.beta), params.lambda)
+    p = _convert_stiparams(T, params)
     low = [ntuple(d -> _sti_profile(T, dims[d], 1 // 2^j, 1 // (3 * 2^j)), 3) for j in 1:p.J]
     masks = _ritf_masks(T, dims; msize = p.msize, beta = p.beta, lambda = p.lambda)
     cache = Dict{NTuple{3, NTuple{3, Int}}, Any}()
     scales = map(1:p.J) do j
         lv = p.levels[j]
-        stages = get!(cache, lv) do
-            ntuple(3) do K
-                half = ntuple(d -> d == K ? dims[K] ÷ 2 + 1 : dims[d], 3)
-                _irc_stages(T, half, dims[K], K, lv[K], p.bo)
-            end
-        end
+        stages = get!(() -> _surf_stages(T, dims, lv, p.bo), cache, lv)
         _SurfScale(dims, lv, masks, stages)
     end
-    return STISurfaceletPlan(dims, p, low, scales, Array{T, 3}(undef, 0, 0, 0))
+    return STISurfaceletPlan(dims, p, low, scales)
 end
 
 make_sti_surfacelet(params::STISurfaceletParams, dims::Vararg{Int, 3}) =
@@ -82,11 +75,7 @@ Total stored coefficients divided by the number of input voxels — exactly
 `1 + 3J`, whatever the directional levels.
 """
 function sti_surfacelet_redundancy(plan::STISurfaceletPlan)
-    total = prod(plan.dims)
-    for sc in plan.scales, K in 1:3
-        counts, bsize = _surf_blocks(sc, K)
-        total += prod(counts) * prod(ntuple(d -> d == K ? sc.dims[K] : bsize[d], 3))
-    end
+    total = prod(plan.dims) + _directional_count(plan.scales)
     return total / prod(plan.dims)
 end
 
@@ -118,16 +107,17 @@ function sti_surfacelet_forward(
         plan::Union{STISurfaceletPlan, Nothing} = nothing
     )
     T = _filter_eltype(_data_eltype(volume))
-    pl = _sti_surfacelet_plan(plan, params, size(volume), T, volume)
-    cur = fft(Complex{T}.(volume))
+    pl = _resolve_plan(make_sti_surfacelet, plan, params, size(volume), T, volume)
+    cur = fft!(Complex{T}.(volume))     # in place on the converted copy
     subbands = Vector{Vector{typeof(similar(cur, T, (0, 0, 0)))}}(undef, pl.params.J)
     for j in 1:pl.params.J
-        L = _sti_lowpass(pl.low[j])
-        band = cur .* sqrt.(1 .- L .^ 2)
-        cur .*= L
+        # ℓ_j is broadcast from its three 1-D factors, never materialised.
+        l1, l2, l3 = _separable_factors(pl.low[j])
+        band = @. cur * sqrt(1 - (l1 * l2 * l3)^2)
+        @. cur *= l1 * l2 * l3
         subbands[j] = _surf_scale_forward(band, pl.scales[j])
     end
-    return SurfaceletCoefficients(pl.dims, real.(ifft(cur)), subbands)
+    return SurfaceletCoefficients(pl.dims, real.(ifft!(cur)), subbands)
 end
 
 """
@@ -139,36 +129,19 @@ function sti_surfacelet_inverse(
         coeffs::SurfaceletCoefficients{T}, params::STISurfaceletParams;
         plan::Union{STISurfaceletPlan, Nothing} = nothing
     ) where {T}
-    pl = _sti_surfacelet_plan(plan, params, coeffs.dims, T, coeffs.coarse)
+    pl = _resolve_plan(make_sti_surfacelet, plan, params, coeffs.dims, T, coeffs.coarse)
     p = pl.params
     length(coeffs.subbands) == p.J ||
         throw(ArgumentError("coefficients were produced for a different number of scales"))
     size(coeffs.coarse) == pl.dims ||
         throw(DimensionMismatch("coarse subband has size $(size(coeffs.coarse)), expected $(pl.dims)"))
-    cur = fft(complex.(coeffs.coarse))
+    cur = fft!(complex.(coeffs.coarse))
     for j in p.J:-1:1
         length(coeffs.subbands[j]) == sti_surfacelet_nsubbands(p, j) ||
             throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
-        L = _sti_lowpass(pl.low[j])
+        l1, l2, l3 = _separable_factors(pl.low[j])
         band = _surf_scale_inverse(coeffs.subbands[j], pl.scales[j])
-        cur .= cur .* L .+ band .* sqrt.(1 .- L .^ 2)
+        @. cur = cur * (l1 * l2 * l3) + band * sqrt(1 - (l1 * l2 * l3)^2)
     end
-    return real.(ifft(cur))
-end
-
-function _sti_surfacelet_plan(
-        plan::Union{STISurfaceletPlan, Nothing}, params::STISurfaceletParams,
-        dims::NTuple{3, Int}, ::Type{T}, proto::AbstractArray
-    ) where {T}
-    if plan === nothing
-        proto isa Array || throw(
-            ArgumentError(
-                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, make_sti_surfacelet(params, dims, T))`"
-            )
-        )
-        return make_sti_surfacelet(params, dims, T)
-    end
-    plan.dims == dims ||
-        throw(DimensionMismatch("plan was built for $(plan.dims), got $(dims)"))
-    return plan
+    return real.(ifft!(cur))
 end

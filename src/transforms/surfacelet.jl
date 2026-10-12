@@ -32,12 +32,11 @@ Precomputed pyramid profiles, hourglass masks and checkerboard filter slices for
 one volume size; build with [`make_surfacelet`](@ref) and pass as `plan =` to
 reuse them across calls.
 """
-struct SurfaceletPlan{T, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, P <: AbstractArray{T, 3}}
+struct SurfaceletPlan{T, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}}
     dims::NTuple{3, Int}
     params::SurfaceletParams{T}
     pyramid::Vector{L}
     scales::Vector{C}
-    proto::P                        # an empty array of the target type
 end
 
 """
@@ -57,13 +56,9 @@ function make_surfacelet(
     scales = map(1:p.J) do j
         n = pyramid[j].n
         masks = _ritf_masks(T, n; msize = p.msize, beta = p.beta, lambda = p.lambda)
-        stages = ntuple(3) do K
-            half = ntuple(d -> d == K ? n[K] ÷ 2 + 1 : n[d], 3)
-            _irc_stages(T, half, n[K], K, p.levels[j][K], p.bo)
-        end
-        _SurfScale(n, p.levels[j], masks, stages)
+        _SurfScale(n, p.levels[j], masks, _surf_stages(T, n, p.levels[j], p.bo))
     end
-    return SurfaceletPlan(dims, p, pyramid, scales, Array{T, 3}(undef, 0, 0, 0))
+    return SurfaceletPlan(dims, p, pyramid, scales)
 end
 
 make_surfacelet(params::SurfaceletParams, dims::Vararg{Int, 3}) =
@@ -75,11 +70,7 @@ make_surfacelet(params::SurfaceletParams, dims::Vararg{Int, 3}) =
 Total stored coefficients divided by the number of input voxels.
 """
 function surfacelet_redundancy(plan::SurfaceletPlan)
-    total = prod(plan.pyramid[end].nlow)
-    for sc in plan.scales, K in 1:3
-        counts, bsize = _surf_blocks(sc, K)
-        total += prod(counts) * prod(ntuple(d -> d == K ? sc.dims[K] : bsize[d], 3))
-    end
+    total = prod(plan.pyramid[end].nlow) + _directional_count(plan.scales)
     return total / prod(plan.dims)
 end
 
@@ -113,15 +104,15 @@ function surfacelet_forward(
         plan::Union{SurfaceletPlan, Nothing} = nothing
     )
     T = _filter_eltype(_data_eltype(volume))
-    pl = _surfacelet_plan(plan, params, size(volume), T, volume)
-    X = fft(Complex{T}.(volume))
+    pl = _resolve_plan(make_surfacelet, plan, params, size(volume), T, volume)
+    X = fft!(Complex{T}.(volume))   # in place on the converted copy
     subbands = Vector{Vector{typeof(similar(X, T, (0, 0, 0)))}}(undef, pl.params.J)
     for j in 1:pl.params.J
         low = _pyramid_split!(X, pl.pyramid[j])     # X now holds the bandpass
         subbands[j] = _surf_scale_forward(X, pl.scales[j])
         X = low
     end
-    coarse = real.(ifft(X))
+    coarse = real.(ifft!(X))        # `X` is the last lowpass, owned here
     return SurfaceletCoefficients(pl.dims, coarse, subbands)
 end
 
@@ -134,35 +125,36 @@ function surfacelet_inverse(
         coeffs::SurfaceletCoefficients{T}, params::SurfaceletParams;
         plan::Union{SurfaceletPlan, Nothing} = nothing
     ) where {T}
-    pl = _surfacelet_plan(plan, params, coeffs.dims, T, coeffs.coarse)
+    pl = _resolve_plan(make_surfacelet, plan, params, coeffs.dims, T, coeffs.coarse)
     p = pl.params
     length(coeffs.subbands) == p.J ||
         throw(ArgumentError("coefficients were produced for a different number of scales"))
     size(coeffs.coarse) == pl.pyramid[end].nlow ||
         throw(DimensionMismatch("coarse subband has size $(size(coeffs.coarse)), expected $(pl.pyramid[end].nlow)"))
-    X = fft(complex.(coeffs.coarse))
+    X = fft!(complex.(coeffs.coarse))
     for j in p.J:-1:1
         length(coeffs.subbands[j]) == surfacelet_nsubbands(p, j) ||
             throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
         H = _surf_scale_inverse(coeffs.subbands[j], pl.scales[j])
         X = _pyramid_merge!(H, X, pl.pyramid[j])
     end
-    return real.(ifft(X))
+    return real.(ifft!(X))
 end
 
-function _surfacelet_plan(
-        plan::Union{SurfaceletPlan, Nothing}, params::SurfaceletParams,
-        dims::NTuple{3, Int}, ::Type{T}, proto::AbstractArray
-    ) where {T}
+# The plan to use: `plan` after checking its size, or a fresh host plan from
+# `make` (`make_surfacelet` / `make_sti_surfacelet`) when none was given.
+function _resolve_plan(
+        make::F, plan, params, dims::NTuple{3, Int}, ::Type{T}, proto::AbstractArray
+    ) where {F, T}
     if plan === nothing
         # The plan is built on the host; a device plan is an `Adapt.adapt` of
         # it, built once rather than implicitly on every call.
         proto isa Array || throw(
             ArgumentError(
-                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, make_surfacelet(params, dims, T))`"
+                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, $(nameof(make))(params, dims, T))`"
             )
         )
-        return make_surfacelet(params, dims, T)
+        return make(params, dims, T)
     end
     plan.dims == dims ||
         throw(DimensionMismatch("plan was built for $(plan.dims), got $(dims)"))

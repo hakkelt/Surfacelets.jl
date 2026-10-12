@@ -11,14 +11,10 @@
 
 # 1-D lowpass profile on a full DFT axis: √rcos ramp from 1 (|f| ≤ Q) to 0 (|f| ≥ P).
 function _sti_profile(::Type{T}, n::Int, w::Rational, t::Rational) where {T}
-    P = ceil(Int, n // 2 * (w + t))
-    Q = floor(Int, n // 2 * (w - t))
+    P, Q = _rcos_edges(n, w, t)
     P > Q || throw(ArgumentError("axis of length $(n) is too short for $(round(Float64(w); digits = 4))π pyramid cutoff"))
     return T[
-        (f = k <= n ÷ 2 ? k : k - n; abs(f) <= P ? sqrt(_rcos(T(P - abs(f)) / T(P - Q))) : zero(T))
+        (f = abs(k <= n ÷ 2 ? k : k - n); f <= P ? _rcos_profile(T, f, P, Q) : zero(T))
             for k in 0:(n - 1)
     ]
 end
-
-_sti_lowpass(prof::NTuple{3, <:AbstractVector}) =
-    prof[1] .* reshape(prof[2], 1, :) .* reshape(prof[3], 1, 1, :)

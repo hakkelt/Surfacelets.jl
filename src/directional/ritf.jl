@@ -96,7 +96,7 @@ function _ritf_masks(::Type{T}, dims::NTuple{3, Int}; msize::Int = 15, beta::Rea
             m == K && continue
             P = _ritf_plane(w, dims[K], dims[m], lambda)
             sz = ntuple(d -> d == K ? dims[K] : (d == m ? dims[m] : 1), 3)
-            acc .*= reshape(K < m ? P : permutedims(P), sz)
+            acc .*= _orient(P, K, m, sz)
         end
         acc
     end
