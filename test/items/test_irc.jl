@@ -122,13 +122,15 @@ end
         masks = S._ritf_masks(Float64, size(x))
         stages = ntuple(K -> S._irc_stages(Float64, ntuple(d -> d == K ? 17 : 32, 3), 32, K, lv[K], 4), 3)
         sc = S._SurfScale(size(x), lv, masks, stages)
-        bands = S._surf_scale_forward(S.fft(complex.(x)), sc)
+        work = S._scale_work(sc, x, S.FFTW.ESTIMATE)
+        bands = [zeros(S._surf_subband_size(sc, K)) for K in 1:3 for _ in 1:(1 << sum(lv[K]))]
+        S._surf_scale_forward!(bands, S.fft(complex.(x)), sc, work)
         i = 0
         for K in 1:3, w in 1:(1 << sum(lv[K]))
             i += 1
             @test fp_match(bands[i], golden["ndfb_$(nm)_$(K)_$(w)"])
         end
-        rec = real.(S.ifft(S._surf_scale_inverse(bands, sc)))
+        rec = real.(S.FFTW.ifft(S._surf_scale_inverse!(similar(complex.(x)), bands, sc, work)))
         @test fp_match(rec, golden["ndfbrec_$(nm)"])
         @test maximum(abs, rec .- x) < 1.0e-13
     end
@@ -143,7 +145,8 @@ end
         orig = copy(X)
         highs = Any[]
         for lv in levels
-            low = S._pyramid_split!(X, lv)
+            low = similar(X, lv.nlow)
+            S._pyramid_split!(low, X, lv)
             push!(highs, X)
             X = low
         end

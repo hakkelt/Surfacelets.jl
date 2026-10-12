@@ -63,7 +63,10 @@
     @test_call target_modules = (Surfacelets,) sti_surfacelet_forward(x, hp; plan = hpl)
     hc = sti_surfacelet_forward(x, hp; plan = hpl)
     @test_call target_modules = (Surfacelets,) sti_surfacelet_inverse(hc, hp; plan = hpl)
-    @test_call target_modules = (Surfacelets,) sti_surfacelet_redundancy(hpl)
+    @test_call target_modules = (Surfacelets,) sti_surfacelet_inverse!(similar(x), hc, hp; plan = hpl)
+    @test_call target_modules = (Surfacelets,) sti_surfacelet_forward!(hc, x, hp; plan = hpl)
+    @test_call target_modules = (Surfacelets,) surfacelet_inverse!(similar(xs), sc, sp; plan = spl)
+    @test_call target_modules = (Surfacelets,) surfacelet_forward!(sc, xs, sp; plan = spl)
 end
 
 @testitem "@test_opt Surfacelets core functions" tags = [:jet] begin

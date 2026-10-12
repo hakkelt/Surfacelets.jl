@@ -33,19 +33,18 @@ end
 
 # Wedge masks for one hourglass: one vector of matrices per transverse plane.
 function _wedge_masks(
-        fb::HourglassFB{T}, i::Int, levels::NTuple{2, Int}, poly::Int, transition::T
+        n::NTuple{3, Int}, i::Int, levels::NTuple{2, Int}, poly::Int, transition::T
     ) where {T}
     a, b = _transverse_axes(i)
     return (
-        _wedge_masks_plane(fb, i, a, levels[1], poly, transition),
-        _wedge_masks_plane(fb, i, b, levels[2], poly, transition),
+        _wedge_masks_plane(n, i, a, levels[1], poly, transition),
+        _wedge_masks_plane(n, i, b, levels[2], poly, transition),
     )
 end
 
 function _wedge_masks_plane(
-        fb::HourglassFB{T}, ref::Int, tr::Int, l::Int, poly::Int, transition::T
+        n::NTuple{3, Int}, ref::Int, tr::Int, l::Int, poly::Int, transition::T
     ) where {T}
-    n = fb.dims
     wref = _folded_frequencies(T, n[ref]; half = ref == 1)
     wtr = _folded_frequencies(T, n[tr]; half = tr == 1)
     nw = 1 << l

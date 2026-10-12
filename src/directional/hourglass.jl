@@ -130,6 +130,22 @@ function make_hourglass(
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     n1, n2, n3 = dims
+    m1, m2 = _hourglass_tables(T, dims, order, poly)
+    FFTW.set_num_threads(_fftw_threads(threading))
+    rbuf = zeros(T, n1, n2, n3)
+    fwd = plan_rfft(rbuf; flags = flags)
+    spec = fwd * rbuf
+    inv = plan_irfft(spec, n1; flags = flags)
+    return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
+        dims, order, poly, tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
+        nothing, nothing, nothing
+    )
+end
+
+# `f₀` of the two mapping responses on the rfft grid of `dims`: `m1` is 3-D,
+# `m2` depends on (ω₂, ω₃) only and has a singleton first axis.
+function _hourglass_tables(::Type{T}, dims::NTuple{3, Int}, order::Int, poly::Int) where {T}
+    n1, n2, n3 = dims
     all(>(0), dims) || throw(ArgumentError("volume dimensions must be positive"))
     order >= 1 || throw(ArgumentError("Bernstein order must be ≥ 1"))
 
@@ -144,17 +160,7 @@ function make_hourglass(
     # Stage 2 — split P₂ from P₃ with a 2-D kernel on the (ω₂, ω₃) plane.
     m2f = mapping_response(mapping_coefficients(order, 2, (1,)), (b2, b3))
     map!(m -> halfband_split(m, poly), m2f, m2f)
-    m2 = reshape(m2f, 1, n2, n3)
-
-    FFTW.set_num_threads(_fftw_threads(threading))
-    rbuf = zeros(T, n1, n2, n3)
-    fwd = plan_rfft(rbuf; flags = flags)
-    spec = fwd * rbuf
-    inv = plan_irfft(spec, n1; flags = flags)
-    return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
-        dims, order, poly, tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
-        nothing, nothing, nothing
-    )
+    return m1, reshape(m2f, 1, n2, n3)
 end
 
 function make_hourglass(

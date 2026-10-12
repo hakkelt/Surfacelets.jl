@@ -68,17 +68,17 @@ function Adapt.adapt_structure(to, p::Conv3DFFTPlan)
     )
 end
 
-function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace)
-    hg = Adapt.adapt(to, ws.banks[1].fb)
-    banks = [_adapt_ndfb(to, b, hg) for b in ws.banks]
-    conv = Adapt.adapt(to, ws.conv)
-    input = Adapt.adapt(to, ws.input)
-    Td = eltype(input)
-    T = eltype(hg.m1)
-    return NSSurfaceletWorkspace{Td, T, eltype(banks), typeof(conv), typeof(input)}(
-        ws.dims, banks, conv, ws.lp_filters, ws.filters, input,
-        Adapt.adapt(to, ws.coarse), Adapt.adapt(to, ws.bandpass),
-        Adapt.adapt(to, ws.tmp), Adapt.adapt(to, ws.tmp2),
+# The workspace's tables move; its buffers and FFT plans are rebuilt next to them.
+# The tables hold real and complex arrays, so adapt to the bare array type
+# (`CuArray`), not an element-typed one.
+function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, T}
+    ad(x) = Adapt.adapt(to, x)
+    wedges = [map(hg -> map(planes -> [ad(w) for w in planes], hg), s) for s in ws.wedges]
+    resp(v) = [map(ad, axes3) for axes3 in v]
+    proto = ad(Array{T, 3}(undef, 0, 0, 0))
+    return Surfacelets._ns_workspace(
+        Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pgh), resp(ws.ps),
+        proto, 1, Surfacelets.FFTW.ESTIMATE
     )
 end
 

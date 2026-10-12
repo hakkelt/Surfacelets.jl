@@ -101,7 +101,7 @@ function ndfb_sharing(
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     transition >= 0 || throw(ArgumentError("transition must be ≥ 0"))
     lev = _wedge_levels(levels)
-    wedges = ntuple(i -> _wedge_masks(fb, i, lev, poly, T(transition)), 3)
+    wedges = ntuple(i -> _wedge_masks(fb.dims, i, lev, poly, T(transition)), 3)
     return NDFB{T, typeof(wedges[1][1][1]), typeof(fb)}(fb, lev, wedges)
 end
 

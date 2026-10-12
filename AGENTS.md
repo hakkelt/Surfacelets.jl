@@ -29,15 +29,23 @@ coarse = ns_surfacelet_forward(vol, params; workspace = ws) do j, k, band
 end
 ```
 
-`surfacelet_forward` / `surfacelet_inverse` are the decimated counterpart: same
-frequency partition, each subband at its own reduced resolution, built through
-`make_surfacelet`.
+`surfacelet_forward` / `surfacelet_inverse` (and `!` variants) are the decimated
+counterpart: same frequency partition, each subband at its own reduced
+resolution, built through `make_surfacelet`.
 
-`sti_surfacelet_forward` / `sti_surfacelet_inverse` are the
+`sti_surfacelet_forward` / `sti_surfacelet_inverse` (and `!` variants) are the
 semi-translation-invariant (STI) transform: a nonsubsampled raised-cosine
 pyramid with the decimated transform's critically sampled directional stage at
 every scale (`make_sti_surfacelet`), redundancy `1 + 3J`. The name is for the
 structure it shares with Eslami & Radha's STICT; it is not a 3-D STICT.
+
+Both run on one `SurfaceletPlan` and one driver (`transforms/surfacelet.jl`);
+the pyramid is a vector of `FourierPyramidLevel`s or `RaisedCosineLevel`s and
+dispatch picks the stage-1 functions (`_pyramid_band!`, `_pyramid_merge!`). The
+plan owns its spectra, IRC scratch, block buffers and FFT plans, so the `!`
+paths allocate only array headers — and a plan must not serve two tasks at once.
+A wedge block becomes its real subband through one `brfft` over `(K, others…)`,
+the hourglass axis halved; the `1/N` rides on the hourglass mask.
 
 ## Quick Start
 
@@ -121,8 +129,8 @@ Surfacelets/
 │   │   ├── irc.jl                     # iterated resampled checkerboard filter banks
 │   │   └── surfacelet_scale.jl        # one critically sampled directional scale (ritf + IRC)
 │   └── transforms/
-│       ├── ns_surfacelet.jl           # ns_surfacelet_forward / _inverse + workspace
-│       ├── surfacelet.jl              # decimated transform (Fourier pyramid + IRC)
+│       ├── ns_surfacelet.jl           # NS transform as DFT masks + workspace (threaded subbands)
+│       ├── surfacelet.jl              # SurfaceletPlan, shared driver, decimated transform
 │       └── sti_surfacelet.jl          # STI transform (nonsubsampled pyramid + IRC)
 ├── ext/
 │   ├── SurfaceletsAdaptExt.jl
@@ -227,6 +235,15 @@ checkout into every environment of the workspace.
 - **No downsampling in the nonsubsampled transform** — all subbands have the same
   spatial size as the input, and all NSP/NDFB filtering uses periodic (circular)
   convolution, so the transform is exactly invariant under circular shifts.
+  Periodic filtering is a product on the DFT grid, so the workspace runs the whole
+  cascade as masks on the input's rfft: pyramid bandpasses broadcast from per-axis
+  responses (`MultiscaleFilterBanks._nsp_responses`), the hourglass factor applied
+  once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
+  planes (stored square-rooted when tight) and one irfft. The subbands are
+  threaded over with `_foreach_chunk`, single-threaded plans; only
+  `threading = Disabled()` and the streaming forms (whose callbacks need not be
+  thread-safe) run on one task. `nsp3d_*`, `ndfb_*` and `Conv3DFFTPlan` remain as
+  public building blocks; the transform no longer calls them.
 - **The directional bank is built as frequency-domain masks.** This is exact for
   the periodic, nonsubsampled case, and it avoids the FIR truncation the papers
   need for streaming video. Perfect reconstruction is therefore *structural* — the
@@ -269,7 +286,8 @@ checkout into every environment of the workspace.
   hourglass stage a broadcast against precomputed masks, and each IRC stage a
   broadcast between the two halves of a reshaped view. Their plan is built on the
   host — the checkerboard filter slices are evaluated point by point in closed
-  form — and then adapted; a device volume with no plan is an `ArgumentError`, not
+  form — and then adapted, which moves the tables and rebuilds the buffers and FFT
+  plans on the device; a device volume with no plan is an `ArgumentError`, not
   an implicit rebuild. Adapt the plan to the *bare* array type
   (`Adapt.adapt(CuArray, pl)`), never `typeof(x)`: it holds real, complex and
   integer tables, and an element-typed destination cannot fit them all. Both are

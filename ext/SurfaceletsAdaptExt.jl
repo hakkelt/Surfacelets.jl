@@ -11,7 +11,7 @@ module SurfaceletsAdaptExt
 # only weak dependency, with no GPUArrays or KernelAbstractions in sight.
 
 using Surfacelets: Surfacelets, Conv3DFFTPlan, HourglassFB, NDFB, NSSurfaceletCoefficients,
-    NSSurfaceletWorkspace, STISurfaceletPlan, SurfaceletCoefficients, SurfaceletPlan
+    NSSurfaceletWorkspace, SurfaceletCoefficients, SurfaceletPlan
 using Adapt: Adapt
 
 include("SurfaceletsAdaptExt/ns_surfacelet_adapt.jl")

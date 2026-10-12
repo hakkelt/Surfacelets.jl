@@ -34,10 +34,14 @@ struct IRCStage{A <: AbstractArray}
 end
 
 # Axis `m` of `A` split into `(b, 2, n_m ÷ 2b)`, so that the two halves of every
-# 2b-bin group are `selectdim(·, m + 1, 1)` and `selectdim(·, m + 1, 2)`.
-@inline function _irc_split(A::AbstractArray, m::Int, b::Int)
+# 2b-bin group are slices 1 and 2 of axis m + 1.  Spelled out as a 5-tuple so
+# that the shape's length does not depend on the runtime `m`.
+@inline function _irc_split(A::AbstractArray{<:Any, 3}, m::Int, b::Int)
     sz = size(A)
-    return reshape(A, (sz[1:(m - 1)]..., b, 2, sz[m] ÷ (2b), sz[(m + 1):end]...))
+    shape = ntuple(Val(5)) do i
+        i < m ? sz[i] : i == m ? b : i == m + 1 ? 2 : i == m + 2 ? sz[m] ÷ (2b) : sz[i - 2]
+    end
+    return reshape(A, shape)
 end
 
 # Filter slice of channel `chan` at stage `le` on axis m, shaped to broadcast
@@ -86,10 +90,13 @@ function _irc_stages(::Type{T}, dims::NTuple{3, Int}, nK::Int, K::Int, levels::N
     return stages
 end
 
-# The two halves (A, B) of every 2b-bin group of `X` along axis m.
+# The two halves (A, B) of every 2b-bin group of `X` along axis m, as views that
+# keep the split axis as a singleton (unlike `selectdim`, whose result type
+# would depend on the runtime `m`).
 @inline function _irc_halves(X::AbstractArray, m::Int, b::Int)
     Y = _irc_split(X, m, b)
-    return selectdim(Y, m + 1, 1), selectdim(Y, m + 1, 2)
+    half(k) = view(Y, ntuple(i -> i == m + 1 ? (k:k) : (1:size(Y, i)), Val(5))...)
+    return half(1), half(2)
 end
 
 # One stage, in place on `S`: a 2×2 matrix of filter halves mixes the halves of

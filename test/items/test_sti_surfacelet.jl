@@ -35,13 +35,13 @@ end
 @testitem "sti_surfacelet — redundancy is 1 + 3J, whatever the directions" tags = [:surfacelet] begin
     for (J, L) in ((1, [0]), (1, [4]), (3, [1, 2, 3]), (3, [3, 3, 3]))
         pl = make_sti_surfacelet(STISurfaceletParams(J = J, L_array = L, bo = 4), (64, 64, 64))
-        @test sti_surfacelet_redundancy(pl) == 1 + 3J
+        @test surfacelet_redundancy(pl) == 1 + 3J
     end
 end
 
 @testitem "sti_surfacelet — the pyramid is a tight frame" tags = [:surfacelet] begin
     pl = make_sti_surfacelet(STISurfaceletParams(J = 3, L_array = [1, 1, 1]), (20, 24, 28))
-    L = [Surfacelets._separable_lowpass(pl.low[j]) for j in 1:3]
+    L = [Surfacelets._separable_lowpass(pl.pyramid[j].prof) for j in 1:3]
     prior = ones(size(L[1]))
     total = zeros(size(L[1]))
     for j in 1:3

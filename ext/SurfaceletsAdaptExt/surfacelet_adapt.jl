@@ -1,11 +1,12 @@
-# Decimated 3-D surfacelet transform on the device.
+# Decimated and STI surfacelet transforms on the device.
 #
 # Like `ns_surfacelet_adapt.jl`, no kernel is needed and none is written here.
 # Every stage is an FFT, a pointwise broadcast against precomputed tables (the
-# pyramid profile, the hourglass masks, the checkerboard filter slices) or a
+# pyramid profiles, the hourglass masks, the checkerboard filter slices) or a
 # block copy between array views, and the IRC fold is a broadcast between the
 # two halves of a reshaped view.  All of that runs on a device array unchanged,
-# so this extension only moves the tables:
+# so this extension moves the tables and has the plan's buffers and FFT plans
+# rebuilt next to them:
 #
 #     pl = Adapt.adapt(CuArray, make_surfacelet(params, dims, Float32))
 #     c  = surfacelet_forward(CUDA.rand(Float32, dims...), params; plan = pl)
@@ -15,8 +16,8 @@
 # `surfacelet_forward` refuses a device volume without a plan rather than doing
 # that implicitly.
 
-using Surfacelets: SurfaceletPlan, SurfaceletCoefficients, FourierPyramidLevel, IRCStage, _SurfScale,
-    STISurfaceletPlan
+using Surfacelets: SurfaceletPlan, SurfaceletCoefficients, FourierPyramidLevel, RaisedCosineLevel,
+    IRCStage, _SurfScale, _surfacelet_plan
 
 function Adapt.adapt_structure(to, lv::FourierPyramidLevel)
     return FourierPyramidLevel(
@@ -27,12 +28,15 @@ function Adapt.adapt_structure(to, lv::FourierPyramidLevel)
     )
 end
 
+Adapt.adapt_structure(to, lv::RaisedCosineLevel) = RaisedCosineLevel(map(v -> Adapt.adapt(to, v), lv.prof))
+
 function Adapt.adapt_structure(to, st::IRCStage)
     return IRCStage(st.m, st.b, map(a -> Adapt.adapt(to, a), st.ana), map(a -> Adapt.adapt(to, a), st.syn))
 end
 
 # `memo` maps a host masks tuple or stages tuple to its device copy, so scales
-# that share one on the host share it on the device too.
+# that share one on the host share it on the device too (and then share their
+# buffers, which the plan keys on the stages).
 function _adapt_scale(to, sc::_SurfScale, memo::IdDict{Any, Any})
     masks = get!(() -> map(m -> Adapt.adapt(to, m), sc.masks), memo, sc.masks)
     stages = get!(() -> map(s -> [Adapt.adapt(to, st) for st in s], sc.stages), memo, sc.stages)
@@ -41,24 +45,13 @@ end
 
 Adapt.adapt_structure(to, sc::_SurfScale) = _adapt_scale(to, sc, IdDict{Any, Any}())
 
-function Adapt.adapt_structure(to, pl::SurfaceletPlan)
-    return SurfaceletPlan(
-        pl.dims, pl.params,
-        [Adapt.adapt(to, lv) for lv in pl.pyramid],
-        [Adapt.adapt(to, sc) for sc in pl.scales],
-    )
-end
-
-# The STI transform shares the directional stage; its pyramid is three
-# full-length 1-D profiles per scale.  All its scales share one masks tuple, and
-# scales with equal levels share their IRC stages: adapt each of those once.
-function Adapt.adapt_structure(to, pl::STISurfaceletPlan)
+function Adapt.adapt_structure(to, pl::SurfaceletPlan{T}) where {T}
     memo = IdDict{Any, Any}()
-    return STISurfaceletPlan(
-        pl.dims, pl.params,
-        [map(v -> Adapt.adapt(to, v), prof) for prof in pl.low],
-        [_adapt_scale(to, sc, memo) for sc in pl.scales],
-    )
+    pyramid = [Adapt.adapt(to, lv) for lv in pl.pyramid]
+    scales = [_adapt_scale(to, sc, memo) for sc in pl.scales]
+    proto = Adapt.adapt(to, Array{T, 3}(undef, 0, 0, 0))
+    # The flags reach FFTW only when `to` is the host after all.
+    return _surfacelet_plan(pl.dims, pl.params, pyramid, scales, proto, Surfacelets.FFTW.ESTIMATE)
 end
 
 function Adapt.adapt_structure(to, c::SurfaceletCoefficients)

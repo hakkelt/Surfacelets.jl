@@ -89,9 +89,9 @@ end
     ref = ns_surfacelet_forward(x, p; workspace = ws_cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
-        # One adapt of the workspace moves the shared hourglass response once,
-        # not once per scale.
-        ws = Adapt.adapt(typeof(xg), ws_cpu)
+        # The workspace holds real and complex tables, so adapt to the bare
+        # array type; its buffers and plans are rebuilt on the device.
+        ws = Adapt.adapt(backend.array_type, ws_cpu)
         c = ns_surfacelet_forward(xg, p; workspace = ws)
         @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
         for j in 1:2, k in eachindex(c.subbands[j])

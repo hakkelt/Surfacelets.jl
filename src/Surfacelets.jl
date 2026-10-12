@@ -30,14 +30,14 @@ whatever the number of directions; not shift-invariant.  See the "Theory" page.
 """
 module Surfacelets
 
-using FFTW: FFTW, plan_rfft, plan_fft, plan_fft!, plan_irfft, plan_ifft, plan_ifft!, rfft, fft, ifft, fft!, ifft!
+using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!, rfft, fft
 using LinearAlgebra: mul!, adjoint
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     FilterPair, CDF97, upsample_filter,
     ThreadingPolicy, Auto, Enabled, Disabled,
     _data_eltype, _filter_eltype, _use_threading, _clamp_idx,
-    _nsp_atrous_filters
+    _nsp_atrous_filters, _nsp_responses, _foreach_chunk
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")
@@ -97,12 +97,13 @@ export
     ndfb_reconstruct, ndfb_reconstruct!,
 
     # Top-level transforms
-    ns_surfacelet_forward, ns_surfacelet_inverse, ns_surfacelet_inverse!, ns_surfacelet_nsubbands,
+    ns_surfacelet_forward, ns_surfacelet_forward!, ns_surfacelet_inverse, ns_surfacelet_inverse!,
+    ns_surfacelet_nsubbands,
     make_ns_surfacelet_workspace,
-    surfacelet_forward, surfacelet_inverse, surfacelet_nsubbands,
-    surfacelet_redundancy, make_surfacelet, checkerboard_orders,
-    STISurfaceletParams, STISurfaceletPlan,
-    sti_surfacelet_forward, sti_surfacelet_inverse, sti_surfacelet_nsubbands,
-    sti_surfacelet_redundancy, make_sti_surfacelet
+    surfacelet_forward, surfacelet_forward!, surfacelet_inverse, surfacelet_inverse!,
+    surfacelet_nsubbands, surfacelet_redundancy, make_surfacelet, checkerboard_orders,
+    STISurfaceletParams,
+    sti_surfacelet_forward, sti_surfacelet_forward!, sti_surfacelet_inverse, sti_surfacelet_inverse!,
+    sti_surfacelet_nsubbands, make_sti_surfacelet
 
 end # module

@@ -60,14 +60,19 @@ end
 
 [`make_ns_surfacelet_workspace`](@ref) builds the FFT plans and mask tables once. This
 is the entry point for reconstruction loops, where the same volume size is
-transformed hundreds of times.
+transformed hundreds of times. The whole cascade runs as masks on the input's
+spectrum — one forward FFT, then one inverse FFT per subband — and the subbands
+are computed in parallel on Julia's threads unless `threading = Disabled()`.
+With [`ns_surfacelet_forward!`](@ref) and [`ns_surfacelet_inverse!`](@ref) a loop
+allocates nothing but the threads' tasks.
 
 ```@example guide
-ws  = make_ns_surfacelet_workspace(params, size(vol), Float64)
-out = similar(vol)
+ws     = make_ns_surfacelet_workspace(params, size(vol), Float64)
+out    = similar(vol)
+coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
 
 for _ in 1:3
-    coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
+    ns_surfacelet_forward!(coeffs, vol, params; workspace = ws)
     ns_surfacelet_inverse!(out, coeffs, params; workspace = ws)
 end
 println("PR error with workspace: ", maximum(abs, out .- vol))
@@ -155,14 +160,19 @@ SurfBox, stage by stage, and reproduces its coefficients to rounding error:
 Sizes must suit the pyramid: with the default `pyr_mode = 1.5` the first level
 resamples by 3/2, so every dimension must be divisible by 3 and then by 2 once
 per further scale. [`make_surfacelet`](@ref) builds the pyramid profiles,
-hourglass masks and checkerboard filter slices; plan once and reuse.
+hourglass masks and checkerboard filter slices, and the buffers and FFT plans the
+transform runs in; plan once and reuse. With a plan,
+[`surfacelet_forward!`](@ref) and [`surfacelet_inverse!`](@ref) write into
+existing coefficients and volumes and allocate nothing but a few array headers.
+A plan holds scratch buffers, so give each task its own.
 
 ```@example guide
 svol    = randn(Xoshiro(3), 48, 48, 48)
 sparams = SurfaceletParams(J = 2, L_array = [1, 2])
 plan    = make_surfacelet(sparams, size(svol), Float64)
 
-sc = surfacelet_forward(svol, sparams; plan = plan)
+sc = surfacelet_forward(svol, sparams; plan = plan)   # allocates the coefficients once
+surfacelet_forward!(sc, svol, sparams; plan = plan)   # then reuses them
 sr = surfacelet_inverse(sc, sparams; plan = plan)
 
 println("PR error:   ", maximum(abs, sr .- svol))
@@ -305,7 +315,7 @@ stiplan   = make_sti_surfacelet(stiparams, size(stivol))
 
 stic = sti_surfacelet_forward(stivol, stiparams; plan = stiplan)
 println("PR error:   ", maximum(abs, sti_surfacelet_inverse(stic, stiparams; plan = stiplan) .- stivol))
-println("redundancy: ", sti_surfacelet_redundancy(stiplan),
+println("redundancy: ", surfacelet_redundancy(stiplan),
     "   (nonsubsampled at the same settings: ", 1 + sum(3 * 2^l for l in stiparams.L_array), ")")
 ```
 

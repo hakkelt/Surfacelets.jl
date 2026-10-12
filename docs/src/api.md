@@ -15,6 +15,7 @@ MultiscaleFilterBanks.MultiscaleFilterBanks
 
 ```@docs
 ns_surfacelet_forward
+ns_surfacelet_forward!
 ns_surfacelet_inverse
 ns_surfacelet_inverse!
 ns_surfacelet_nsubbands
@@ -28,7 +29,9 @@ NSSurfaceletWorkspace
 
 ```@docs
 surfacelet_forward
+surfacelet_forward!
 surfacelet_inverse
+surfacelet_inverse!
 surfacelet_nsubbands
 surfacelet_redundancy
 make_surfacelet
@@ -42,12 +45,12 @@ checkerboard_orders
 
 ```@docs
 sti_surfacelet_forward
+sti_surfacelet_forward!
 sti_surfacelet_inverse
+sti_surfacelet_inverse!
 sti_surfacelet_nsubbands
-sti_surfacelet_redundancy
 make_sti_surfacelet
 STISurfaceletParams
-STISurfaceletPlan
 ```
 
 ## Directional filter bank

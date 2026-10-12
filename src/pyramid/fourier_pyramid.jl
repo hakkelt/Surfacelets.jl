@@ -97,22 +97,41 @@ function _fourier_pyramid(::Type{T}, dims::NTuple{3, Int}, J::Int, mode::Real) w
     return levels
 end
 
-# Split `X` (size `lv.n`, overwritten with the highpass) and return the lowpass.
-# The lowpass is separable on the support box.
-function _pyramid_split!(X::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
-    Lf = _separable_lowpass(lv.prof)
+# Split `X` (size `lv.n`) in place into its highpass and write the lowpass to
+# `low` (size `lv.nlow`).  The lowpass is separable on the support box and is
+# broadcast from its three 1-D profiles.
+function _pyramid_split!(low::AbstractArray{Complex{T}, 3}, X::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
+    l1, l2, l3 = _separable_factors(lv.prof)
     box = view(X, lv.idx...)
-    low = fill!(similar(X, lv.nlow), zero(Complex{T}))
-    view(low, lv.idx_low...) .= (Lf ./ lv.D^T(1.5)) .* box
-    box .*= sqrt.(1 .- Lf .^ 2)
-    return low
+    fill!(low, zero(Complex{T}))
+    view(low, lv.idx_low...) .= (l1 .* l2 .* l3 .* inv(lv.D^T(1.5))) .* box
+    box .*= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2)
+    return X
 end
 
 # Inverse of `_pyramid_split!`: `X` holds the highpass on entry and the merged
 # spectrum on exit.
 function _pyramid_merge!(X::AbstractArray{Complex{T}, 3}, low::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
-    Lf = _separable_lowpass(lv.prof)
+    l1, l2, l3 = _separable_factors(lv.prof)
     box = view(X, lv.idx...)
-    box .= sqrt.(1 .- Lf .^ 2) .* box .+ (Lf .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
+    box .= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2) .* box .+ (l1 .* l2 .* l3 .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
     return X
 end
+
+# The pyramid as the transform drives it (`surfacelet.jl`): the spectra it works
+# in, the bandpass of scale j, and the merge back.  Spectrum j has the size
+# entering level j and the last one is the coarse lowpass, so the scales hand
+# each other their spectra and nothing is copied.
+_pyramid_sizes(levels::AbstractVector{<:FourierPyramidLevel}) = [[lv.n for lv in levels]; [levels[end].nlow]]
+
+function _pyramid_band!(spectra::AbstractVector, levels::AbstractVector{<:FourierPyramidLevel}, j::Int)
+    return _pyramid_split!(spectra[j + 1], spectra[j], levels[j])
+end
+
+_pyramid_band_buffer(spectra::AbstractVector, ::AbstractVector{<:FourierPyramidLevel}, j::Int) = spectra[j]
+
+function _pyramid_merge!(spectra::AbstractVector, levels::AbstractVector{<:FourierPyramidLevel}, j::Int)
+    return _pyramid_merge!(spectra[j], spectra[j + 1], levels[j])
+end
+
+_coarse_spectrum(spectra::AbstractVector, ::AbstractVector{<:FourierPyramidLevel}) = spectra[end]
