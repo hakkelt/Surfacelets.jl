@@ -45,14 +45,26 @@ jobs:
 
       - uses: julia-actions/cache@v3
 
+      # MultiscaleFilterBanks is not registered yet: [sources] expects it as a
+      # sibling checkout, and Julia 1.10 ignores [sources], so bootstrap.jl also
+      # records the path in the (untracked) manifests. Drop both steps once it
+      # is registered.
+      - name: Check out MultiscaleFilterBanks
+        run: git clone --depth 1 https://github.com/hakkelt/MultiscaleFilterBanks.jl ../MultiscaleFilterBanks
+
+      - name: Develop MultiscaleFilterBanks
+        run: julia --project=. dev/bootstrap.jl
+
       - uses: julia-actions/julia-runtest@v1
         env:
           JULIA_NUM_THREADS: "2"
 
       - uses: julia-actions/julia-processcoverage@v1
+        with:
+          directories: src,ext
 
       - uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: lcov.info
+          files: lcov.info
           fail_ci_if_error: false

@@ -24,7 +24,9 @@ jobs:
           version: '1'
           show-versioninfo: true               # this causes versioninfo to be printed to the action log
       - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1  # if package requires Pkg.build()
+      # MultiscaleFilterBanks is not registered yet; see CI.yml.
+      - name: Check out MultiscaleFilterBanks
+        run: git clone --depth 1 https://github.com/hakkelt/MultiscaleFilterBanks.jl ../MultiscaleFilterBanks
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
