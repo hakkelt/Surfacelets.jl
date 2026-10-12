@@ -80,16 +80,7 @@ _inplace_plans(A::AbstractArray, flags) = (_fft_plan(plan_fft!, A, flags), _fft_
 
 # Host plans are measured with one FFTW thread: the plan is applied to many
 # small blocks, where FFTW's threads cost more than they gain.
-function _fftw_single_threaded(f::F, proto::AbstractArray) where {F}
-    proto isa Array || return f()
-    before = FFTW.get_num_threads()
-    FFTW.set_num_threads(1)
-    try
-        return f()
-    finally
-        FFTW.set_num_threads(before)
-    end
-end
+_fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? _with_fftw_threads(f, 1) : f()
 
 """
     make_surfacelet(params::SurfaceletParams, dims, T=Float64; flags=FFTW.MEASURE) -> SurfaceletPlan

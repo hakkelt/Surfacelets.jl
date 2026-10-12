@@ -24,6 +24,10 @@
 # The subbands are independent, so with threading the wedges of each hourglass
 # are split into contiguous chunks, one task per FFT buffer
 # (`MultiscaleFilterBanks._foreach_chunk`); the FFT plans are single-threaded.
+# The full-volume passes between those loops (the band and lowpass products and
+# the sum of the inverse's per-task partial sums) are split among the same tasks,
+# by slabs of the third axis or of the linear index: left serial, at 8 threads
+# they took a third of the 96³ inverse.
 #
 # References: Y. M. Lu & M. N. Do, "Multidimensional Directional Filter Banks and
 # Surfacelets", IEEE TIP 16(4), 2007 (the NDFB and the surfacelet transform);
@@ -65,7 +69,7 @@ struct NSSurfaceletWorkspace{
     Y::Vector{C3}                               # [channel] hourglass product / its synthesis
     work::Vector{C3}                            # [task]
     rbuf::Vector{Vector{A3}}                    # [task][channel]
-    partial::Vector{Vector{C3}}                 # [task - 1][channel], synthesis partial sums
+    partial::Vector{Vector{C3}}                 # [channel][task - 1], synthesis partial sums
     cbuf::Vector{D}                             # [task] a complex subband handed to a callback
     coarse::D
     pfwd::P                                     # rfft, single-threaded
@@ -137,7 +141,7 @@ function _ns_workspace(
     Y = [spectrum() for _ in 1:nch]
     work = [spectrum() for _ in 1:nt]
     rbuf = [[volume() for _ in 1:nch] for _ in 1:nt]
-    partial = [[spectrum() for _ in 1:nch] for _ in 2:nt]
+    partial = [[spectrum() for _ in 2:nt] for _ in 1:nch]
     coarse = similar(proto, Td, dims)
     cbuf = Td <: Complex ? [similar(proto, Td, dims) for _ in 1:nt] : typeof(coarse)[]
     pfwd, pinv = _fftw_single_threaded(proto) do
@@ -193,7 +197,7 @@ _ns_threaded(threading::ThreadingPolicy) = !(threading isa Disabled)
 end
 
 # Y = X · Bⱼ · Wᵢ: the hourglass-i part of the scale-j bandpass.
-function _ns_band!(Y, X, ws::NSSurfaceletWorkspace, j::Int, i::Int)
+function _ns_band!(Y, X, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
     g1, g2, g3 = ws.pgh[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
@@ -201,26 +205,30 @@ function _ns_band!(Y, X, ws::NSSurfaceletWorkspace, j::Int, i::Int)
     return Y
 end
 
-# The host method walks the columns, as `_wedge_mul!` does: everything but `a1`,
-# `g1` and `m1` is a scalar per column.
-function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int)
+# The host methods walk the columns, as `_wedge_mul!` does: everything but `a1`,
+# `g1` and `m1` is a scalar per column.  These full-volume passes sit between the
+# threaded subband loops, so with threading they split the third axis among the
+# workspace's tasks too (the forward at 96³ and 4 threads: 85 → 70 ms).
+function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
     g1, g2, g3 = ws.pgh[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     a1v, g1v = vec(a1), vec(g1)
-    @inbounds for k in axes(Y, 3), l in axes(Y, 2)
-        a23 = a2[1, l, 1] * a3[1, 1, k]
-        g23 = g2[1, l, 1] * g3[1, 1, k]
-        μ2 = m2[1, l, k]
-        y, x, μ1 = view(Y, :, l, k), view(X, :, l, k), view(m1, :, l, k)
-        @. y = x * (a1v * a23) * (1 - g1v * g23) * _hg_factor(μ1, μ2, i, tight)
+    _foreach_slab(Y, ws, threaded) do ks
+        @inbounds for k in ks, l in axes(Y, 2)
+            a23 = a2[1, l, 1] * a3[1, 1, k]
+            g23 = g2[1, l, 1] * g3[1, 1, k]
+            μ2 = m2[1, l, k]
+            y, x, μ1 = view(Y, :, l, k), view(X, :, l, k), view(m1, :, l, k)
+            @. y = x * (a1v * a23) * (1 - g1v * g23) * _hg_factor(μ1, μ2, i, tight)
+        end
     end
     return Y
 end
 
 # X += Y · Sⱼ · Wᵢ, the synthesis counterpart (Wᵢ = 1 when not tight: the
 # directional inverse is then a bare sum).
-function _ns_unband!(X, Y, ws::NSSurfaceletWorkspace, j::Int, i::Int)
+function _ns_unband!(X, Y, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     s1, s2, s3 = ws.ps[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     if tight
@@ -231,22 +239,47 @@ function _ns_unband!(X, Y, ws::NSSurfaceletWorkspace, j::Int, i::Int)
     return X
 end
 
-function _ns_unband!(X::Array, Y::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int)
+function _ns_unband!(X::Array, Y::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     s1, s2, s3 = ws.ps[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     s1v = vec(s1)
-    @inbounds for k in axes(X, 3), l in axes(X, 2)
-        s23 = s2[1, l, 1] * s3[1, 1, k]
-        μ2 = m2[1, l, k]
-        x, y, μ1 = view(X, :, l, k), view(Y, :, l, k), view(m1, :, l, k)
-        if tight
-            @. x += y * (s1v * s23) * _hg_factor(μ1, μ2, i, true)
-        else
-            @. x += y * (s1v * s23)
+    _foreach_slab(X, ws, threaded) do ks
+        @inbounds for k in ks, l in axes(X, 2)
+            s23 = s2[1, l, 1] * s3[1, 1, k]
+            μ2 = m2[1, l, k]
+            x, y, μ1 = view(X, :, l, k), view(Y, :, l, k), view(m1, :, l, k)
+            if tight
+                @. x += y * (s1v * s23) * _hg_factor(μ1, μ2, i, true)
+            else
+                @. x += y * (s1v * s23)
+            end
         end
     end
     return X
 end
+
+# Y = X · a₁a₂a₃ (or Y += when `add`), the lowpass of the last pyramid level with
+# its per-axis factors `a`.  Same column walk as `_ns_band!`.
+_ns_lowpass!(Y, X, a, add::Bool, ws::NSSurfaceletWorkspace, threaded::Bool) =
+    add ? (Y .+= X .* a[1] .* a[2] .* a[3]) : (Y .= X .* a[1] .* a[2] .* a[3])
+
+function _ns_lowpass!(Y::Array, X::Array, a, add::Bool, ws::NSSurfaceletWorkspace, threaded::Bool)
+    a1, a2, a3 = a
+    a1v = vec(a1)
+    _foreach_slab(Y, ws, threaded) do ks
+        @inbounds for k in ks, l in axes(Y, 2)
+            a23 = a2[1, l, 1] * a3[1, 1, k]
+            y, x = view(Y, :, l, k), view(X, :, l, k)
+            add ? (@. y += x * (a1v * a23)) : (@. y = x * (a1v * a23))
+        end
+    end
+    return Y
+end
+
+# Call `f(ks)` on slabs `ks` of the third axis of `A`, one per workspace task when
+# threaded.
+_foreach_slab(f::F, A::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F} =
+    _foreach_chunk((ks, _) -> f(ks), size(A, 3), min(length(ws.work), size(A, 3)), threaded)
 
 # dst = Y·wa·wb, or dst += Y·wa·wb when `add`, with `wa`, `wb` the oriented wedge
 # planes (singleton on one axis each).  On the host the 3-D broadcast does not
@@ -302,6 +335,7 @@ end
 # Forward cascade.  For each subband, channel c is written to `target(j, k, t, c)`
 # and then `done(j, k, t)` is called, by task `t`.  Returns `ws.coarse`.
 function _ns_forward!(target::F, done::G, volume::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F, G}
+    threaded = _loop_threaded(threaded)     # serial under a caller's NestedThreading budget
     nch = _nchannels(ws)
     for c in 1:nch
         _ns_spectrum!(ws.X[c], volume, ws.rbuf[1][c], ws, c)
@@ -311,7 +345,7 @@ function _ns_forward!(target::F, done::G, volume::AbstractArray, ws::NSSurfacele
         na, nb = _ns_wedge_counts(ws, j)
         for i in 1:3
             for c in 1:nch
-                _ns_band!(ws.Y[c], ws.X[c], ws, j, i)
+                _ns_band!(ws.Y[c], ws.X[c], ws, j, i, threaded)
             end
             planes = ws.wedges[j][i]
             _foreach_chunk(na * nb, nt, threaded) do range, t
@@ -327,9 +361,8 @@ function _ns_forward!(target::F, done::G, volume::AbstractArray, ws::NSSurfacele
             end
         end
     end
-    a1, a2, a3 = ws.pa[end]
     for c in 1:nch
-        ws.work[1] .= ws.X[c] .* a1 .* a2 .* a3
+        _ns_lowpass!(ws.work[1], ws.X[c], ws.pa[end], false, ws, threaded)
         mul!(ws.rbuf[1][c], ws.pinv, ws.work[1])
     end
     return _ns_combine!(ws.coarse, ws.rbuf[1])
@@ -337,6 +370,7 @@ end
 
 # Inverse cascade; `source(j, k)` returns subband k of scale j.
 function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F}
+    threaded = _loop_threaded(threaded)     # one answer for every loop of the call
     nch = _nchannels(ws)
     tight = ws.params.tight
     nt = length(ws.work)
@@ -348,39 +382,38 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
         for i in 1:3
             planes = ws.wedges[j][i]
             _foreach_chunk(na * nb, nt, threaded) do range, t
-                acc = t == 1 ? ws.Y : ws.partial[t - 1]
+                acc(c) = t == 1 ? ws.Y[c] : ws.partial[c][t - 1]
                 for c in 1:nch
-                    fill!(acc[c], zero(eltype(acc[c])))
+                    fill!(acc(c), zero(eltype(acc(c))))
                 end
+                W = ws.work[t]
                 for r in range
                     p, q = divrem(r - 1, nb) .+ 1
                     band = source(j, _ns_index(i, p, q, na, nb))
+                    # The threaded callers check every size up front; this is for
+                    # the streaming inverse, whose subbands arrive one at a time.
                     size(band) == ws.dims ||
                         throw(DimensionMismatch("subband ($(j), $(_ns_index(i, p, q, na, nb))) has the wrong size"))
                     for c in 1:nch
-                        _ns_spectrum!(ws.work[t], band, ws.rbuf[t][c], ws, c)
+                        _ns_spectrum!(W, band, ws.rbuf[t][c], ws, c)
                         if tight
-                            _wedge_mul!(acc[c], ws.work[t], planes[1][p], planes[2][q], true)
+                            _wedge_mul!(acc(c), W, planes[1][p], planes[2][q], true)
                         else
-                            acc[c] .+= ws.work[t]
+                            A = acc(c)
+                            @.. A += W
                         end
                     end
                 end
             end
             for c in 1:nch
-                if threaded
-                    for part in ws.partial
-                        ws.Y[c] .+= part[c]
-                    end
-                end
-                _ns_unband!(ws.X[c], ws.Y[c], ws, j, i)
+                threaded && _add_partials!(ws.Y[c], ws.partial[c], true)
+                _ns_unband!(ws.X[c], ws.Y[c], ws, j, i, threaded)
             end
         end
     end
-    s1, s2, s3 = ws.ps[end]
     for c in 1:nch
         _ns_spectrum!(ws.work[1], coarse, ws.rbuf[1][c], ws, c)
-        ws.X[c] .+= ws.work[1] .* s1 .* s2 .* s3
+        _ns_lowpass!(ws.X[c], ws.work[1], ws.ps[end], true, ws, threaded)
         mul!(ws.rbuf[1][c], ws.pinv, ws.X[c])
     end
     return _ns_combine!(volume, ws.rbuf[1])
@@ -542,6 +575,8 @@ function ns_surfacelet_inverse!(
     for j in 1:params.J
         length(coeffs.subbands[j]) == ns_surfacelet_nsubbands(params, j) ||
             throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
+        all(b -> size(b) == ws.dims, coeffs.subbands[j]) ||
+            throw(DimensionMismatch("scale $(j) has a subband of the wrong size"))
     end
     return _ns_inverse!((j, k) -> coeffs.subbands[j][k], volume, coeffs.coarse, ws, _ns_threaded(threading))
 end

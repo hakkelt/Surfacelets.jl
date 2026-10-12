@@ -88,11 +88,12 @@ function make_conv3d_fft_plan(
     ) where {T <: AbstractFloat}
     n1, n2, n3 = dims
     all(>(0), dims) || throw(ArgumentError("volume dimensions must be positive"))
-    FFTW.set_num_threads(_fftw_threads(threading))
     buf = zeros(T, n1, n2, n3)
-    fwd = plan_rfft(buf; flags = flags)
-    spec = fwd * buf
-    inv = plan_irfft(spec, n1; flags = flags)
+    fwd, spec, inv = _with_fftw_threads(_fftw_threads(threading)) do
+        f = plan_rfft(buf; flags = flags)
+        s = f * buf
+        f, s, plan_irfft(s, n1; flags = flags)
+    end
     w1 = Array{Complex{T}, 3}(undef, n1 ÷ 2 + 1, 1, 1)
     w2 = Array{Complex{T}, 3}(undef, 1, n2, 1)
     w3 = Array{Complex{T}, 3}(undef, 1, 1, n3)
@@ -118,7 +119,9 @@ make_conv3d_fft_plan(n1::Int, n2::Int, n3::Int, ::Type{Td} = Float64; kwargs...)
 
 # FFTW thread count for the requested policy.  `Auto()` uses every Julia thread:
 # unlike the direct kernels (where `Auto` means "threads for complex data only"),
-# an FFT here is always a big enough chunk of work to be worth splitting.
+# an FFT here is always a big enough chunk of work to be worth splitting.  The
+# plan is made inside `_with_fftw_threads`, so a restriction opened around the
+# call (a caller's `@budgeted_threads` loop) caps the count.
 _fftw_threads(::Disabled) = 1
 _fftw_threads(::Union{Auto, Enabled}) = Threads.nthreads()
 

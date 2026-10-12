@@ -134,10 +134,22 @@ checkout into every environment of the workspace.
   responses (`MultiscaleFilterBanks._nsp_responses`), the hourglass factor applied
   once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
   planes (stored square-rooted when tight) and one irfft. The subbands are
-  threaded over with `_foreach_chunk`, single-threaded plans; only
+  threaded over with `_foreach_chunk` (Polyester's `@batch`), single-threaded
+  plans, and the full-volume passes between those loops (band, lowpass, the sum
+  of the per-task partials) are split among the same tasks; only
   `threading = Disabled()` and the streaming forms (whose callbacks need not be
   thread-safe) run on one task. `nsp3d_*`, `ndfb_*` and `Conv3DFFTPlan` remain as
   public building blocks; the transform no longer calls them.
+- **Host kernels avoid Base's broadcast where it is slow.** It checks every axis
+  for a singleton at run time, so same-size products run ~2× slow and strided
+  views (the decimated scales' blocks and Hermitian mirror) 3–5× slow. Same-size
+  products use FastBroadcast's `@..`; the view kernels in `surfacelet_scale.jl`
+  use Strided on host arrays; singleton-axis products walk columns by hand
+  (`_wedge_mul!`, `_ns_band!`). Device arrays keep the plain broadcast.
+- **FFTW thread counts are scoped, never set.** Plan inside
+  `_with_fftw_threads` (MultiscaleFilterBanks, through NestedThreading); a bare
+  `FFTW.set_num_threads` leaks into every later plan in the process and overrides
+  a caller's `@budgeted_threads` restriction.
 - **The directional bank is built as frequency-domain masks.** This is exact for
   the periodic, nonsubsampled case, and it avoids the FIR truncation the papers
   need for streaming video. Perfect reconstruction is therefore *structural* — the

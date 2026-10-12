@@ -32,12 +32,15 @@ module Surfacelets
 
 using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!, rfft, fft
 using LinearAlgebra: mul!, adjoint
+using FastBroadcast: @..
+using Strided: Strided, @strided
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     FilterPair, CDF97, upsample_filter,
     ThreadingPolicy, Auto, Enabled, Disabled,
     _data_eltype, _filter_eltype, _use_threading, _clamp_idx,
-    _nsp_atrous_filters, _nsp_responses, _foreach_chunk
+    _nsp_atrous_filters, _nsp_responses, _foreach_chunk, _add_partials!,
+    _loop_threaded, _with_fftw_threads
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")

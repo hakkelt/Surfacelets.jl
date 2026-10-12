@@ -131,11 +131,12 @@ function make_hourglass(
     ) where {T <: AbstractFloat}
     n1, n2, n3 = dims
     m1, m2 = _hourglass_tables(T, dims, order, poly)
-    FFTW.set_num_threads(_fftw_threads(threading))
     rbuf = zeros(T, n1, n2, n3)
-    fwd = plan_rfft(rbuf; flags = flags)
-    spec = fwd * rbuf
-    inv = plan_irfft(spec, n1; flags = flags)
+    fwd, spec, inv = _with_fftw_threads(_fftw_threads(threading)) do
+        f = plan_rfft(rbuf; flags = flags)
+        s = f * rbuf
+        f, s, plan_irfft(s, n1; flags = flags)
+    end
     return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
         dims, order, poly, tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
         nothing, nothing, nothing
