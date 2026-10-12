@@ -11,10 +11,10 @@ repeated here.
 using Surfacelets
 
 vol    = randn(Float32, 128, 128, 128)
-params = NSurfaceletParams(J = 3, L_array = [2, 2, 3])   # 48 directional subbands
+params = NSSurfaceletParams(J = 3, L_array = [2, 2, 3])   # 48 directional subbands
 
-coeffs = nsurfacelet_forward(vol, params)
-rec    = nsurfacelet_inverse(coeffs, params)
+coeffs = ns_surfacelet_forward(vol, params)
+rec    = ns_surfacelet_inverse(coeffs, params)
 ```
 
 The nonsubsampled transform also has a **streaming** form, because the
@@ -22,9 +22,9 @@ materialised coefficient set does not fit at working sizes (3.1 GB at 256³
 `Float32` with these settings):
 
 ```julia
-ws = make_nsurfacelet_workspace(params, size(vol), Float32)
+ws = make_ns_surfacelet_workspace(params, size(vol), Float32)
 
-coarse = nsurfacelet_forward(vol, params; workspace = ws) do j, k, band
+coarse = ns_surfacelet_forward(vol, params; workspace = ws) do j, k, band
     # `band` is valid only until this returns
 end
 ```
@@ -32,6 +32,12 @@ end
 `surfacelet_forward` / `surfacelet_inverse` are the decimated counterpart: same
 frequency partition, each subband at its own reduced resolution, built through
 `make_surfacelet`.
+
+`sti_surfacelet_forward` / `sti_surfacelet_inverse` are the
+semi-translation-invariant (STI) transform: a nonsubsampled raised-cosine
+pyramid with the decimated transform's critically sampled directional stage at
+every scale (`make_sti_surfacelet`), redundancy `1 + 3J`. The name is for the
+structure it shares with Eslami & Radha's STICT; it is not a 3-D STICT.
 
 ## Quick Start
 
@@ -93,23 +99,34 @@ The shared surface with the core is small and explicit: `FilterPair`, `CDF97`,
 Surfacelets/
 ├── src/
 │   ├── Surfacelets.jl                 # Main module — all exports here
-│   ├── types.jl                       # NSurfaceletParams, NSurfaceletCoefficients
 │   ├── precompile.jl                  # PrecompileTools workload
-│   ├── filters/bernstein.jl           # Bernstein mapping kernels for the hourglass FB
+│   ├── types/
+│   │   ├── params.jl                  # NSSurfaceletParams, SurfaceletParams, STISurfaceletParams
+│   │   └── coefficients.jl            # NSSurfaceletCoefficients, SurfaceletCoefficients
+│   ├── filters/
+│   │   ├── bernstein.jl               # Bernstein mapping kernels for the hourglass FB
+│   │   └── checkerboard.jl            # closed-form checkerboard (IRC) filters
 │   ├── primitives/
 │   │   ├── conv3d.jl                  # separable convolution (direct)
 │   │   └── conv3d_fft.jl              # periodic convolution via FFT (auto-selected)
 │   ├── pyramid/
-│   │   └── nonsubsampled_pyramid3d.jl # nsp3d_decompose / nsp3d_reconstruct
+│   │   ├── nonsubsampled_pyramid3d.jl # nsp3d_decompose / nsp3d_reconstruct
+│   │   ├── fourier_pyramid.jl         # decimated transform's resampling pyramid
+│   │   └── raised_cosine_pyramid.jl   # STI transform's nonsubsampled pyramid
 │   ├── directional/
 │   │   ├── hourglass.jl               # nonsubsampled hourglass FB (3 subbands)
-│   │   └── ndfb.jl                    # NDFB: hourglass + wedges (3·2^L subbands)
+│   │   ├── ndfb_wedges.jl             # NDFB wedge masks (ratio slabs, sign canonicalisation)
+│   │   ├── ndfb.jl                    # NDFB: hourglass + wedges (3·2^L subbands)
+│   │   ├── ritf.jl                    # SurfBox's hourglass bank (decimated / STI)
+│   │   ├── irc.jl                     # iterated resampled checkerboard filter banks
+│   │   └── surfacelet_scale.jl        # one critically sampled directional scale (ritf + IRC)
 │   └── transforms/
-│       ├── nsurfacelet.jl             # nsurfacelet_forward / _inverse + workspace
-│       └── surfacelet.jl              # decimated transform (frequency-domain boxes)
+│       ├── ns_surfacelet.jl           # ns_surfacelet_forward / _inverse + workspace
+│       ├── surfacelet.jl              # decimated transform (Fourier pyramid + IRC)
+│       └── sti_surfacelet.jl          # STI transform (nonsubsampled pyramid + IRC)
 ├── ext/
 │   ├── SurfaceletsAdaptExt.jl
-│   └── SurfaceletsAdaptExt/{nsurfacelet_adapt.jl, surfacelet_adapt.jl}
+│   └── SurfaceletsAdaptExt/{ns_surfacelet_adapt.jl, surfacelet_adapt.jl}
 ├── test/
 │   ├── runtests.jl                    # TestItemRunner entry point
 │   ├── items/
@@ -170,7 +187,7 @@ filter-bank level has no tag, because the package name already says it.
 - All tests are self-contained `@testitem` blocks (TestItemRunner): each block
   must import all dependencies except `Surfacelets` and `Test` inside the block.
 - Tag taxonomy: `:filters`, `:primitives`, `:pyramid`, `:directional`,
-  `:nsurfacelet`, `:surfacelet`, `:quality`, `:jet`, `:docs`, `:gpu`.
+  `:ns_surfacelet`, `:surfacelet` (also the STI transform), `:surfbox`, `:quality`, `:jet`, `:docs`, `:gpu`.
 - Seed every random input (`Random.seed!(42)`); never rely on global RNG state.
 - **Directional tests must assert the *index* of the subband a plane wave lands
   in.** See the design decision on perfect reconstruction below.
@@ -184,7 +201,7 @@ filter-bank level has no tag, because the package name already says it.
 julia --project=test test/runtests.jl
 # Filter by tag (leading ':') or by test-item name
 julia --project=test test/runtests.jl :directional,:gpu
-julia --project=test test/runtests.jl "nsurfacelet — shift invariance"
+julia --project=test test/runtests.jl "ns_surfacelet — shift invariance"
 
 # Benchmarks: smoke test, then revision comparison
 julia --project=benchmark --startup-file=no -e '
@@ -221,7 +238,7 @@ checkout into every environment of the workspace.
 - **The directional bank is a Parseval frame by default.** The three hourglass
   weights are a partition of unity for any `order`/`poly`, and so are the wedge
   weights, so the products are too. `tight = true` (the default on
-  `make_hourglass` / `make_ndfb` / `NSurfaceletParams`) takes the masks to be `√W`,
+  `make_hourglass` / `make_ndfb` / `NSSurfaceletParams`) takes the masks to be `√W`,
   which makes `Σ V² = 1` identically — the pointwise normalisation SurfBox uses,
   scaled to bound 1 instead of `N`. Analysis then preserves energy, which is what
   thresholding and iterative reconstruction want. The price is synthesis: the masks
@@ -234,7 +251,7 @@ checkout into every environment of the workspace.
   even on the self-conjugate planes of the rfft grid. It was not, and PR failed by
   0.27 with no error. `_wedge_ratio` now fixes the sign from the first coordinate
   that can carry one; `ndfb — masks are even in frequency` pins it.
-- **GPU needs no kernels.** Both transforms are FFT plus a pointwise mask, and
+- **GPU needs no kernels.** Every transform is FFT plus pointwise masks, and
   every mask is stored as *broadcastable factors* — the mapping responses and wedge
   planes are 3-D arrays with singleton axes where they do not depend on a frequency
   — so mask application, the complex real/imaginary split, and the pyramid's
@@ -247,16 +264,16 @@ checkout into every environment of the workspace.
   response **once**, not once per scale. JLArrays is excluded from the GPU tests: it
   has no FFT implementation, so `plan_rfft` falls back to a scalar-indexing
   generic. CUDA and OpenCL are verified.
-  `surfacelet` follows the same rule with one extra constraint of its own: its
-  masks are evaluated on the fly, so `_fill_surfacelet_mask!` is a *single
-  broadcast* over the per-axis frequency tables; and its support boxes are
-  symmetric about the origin, so a subband is extracted by copying the (at most
-  eight) contiguous blocks `1:reach+1` / `n-reach+1:n` per axis rather than by a
-  per-voxel index map. Both must stay that way. Its plan is built on the host —
-  planning scans every mask to find its support — and then adapted; a device volume
-  with no plan is an `ArgumentError`, not an implicit rebuild. Adapt the plan to the
-  *bare* array type (`Adapt.adapt(CuArray, pl)`), never `typeof(x)`: it holds both
-  real and complex buffers, and an element-typed destination cannot fit both.
+  `surfacelet` and `sti_surfacelet` follow the same rule: the pyramid is a
+  broadcast against its separable profile plus a crop through index views, the
+  hourglass stage a broadcast against precomputed masks, and each IRC stage a
+  broadcast between the two halves of a reshaped view. Their plan is built on the
+  host — the checkerboard filter slices are evaluated point by point in closed
+  form — and then adapted; a device volume with no plan is an `ArgumentError`, not
+  an implicit rebuild. Adapt the plan to the *bare* array type
+  (`Adapt.adapt(CuArray, pl)`), never `typeof(x)`: it holds real, complex and
+  integer tables, and an element-typed destination cannot fit them all. Both are
+  verified on CUDA.
 - **Deliberately not CUDA-graph-captured.** The forward/inverse are streaming —
   they hand each subband to a caller's callback, which is arbitrary host code, and
   stream capture admits none — and there is nothing to win anyway: this is a few
@@ -268,8 +285,8 @@ checkout into every environment of the workspace.
   checks this package against it. The agreement is on *geometry*, not coefficients:
   94.6% of frequencies pick the same dominant hourglass (every disagreement a
   near-tie), and across 80 plane waves the wedge labellings are related by a
-  bijection with the reference's choice always this package's top-2. One known
-  deviation is recorded there and in `docs/src/theory.md`: `surfacelet`'s redundancy
-  grows with the direction count (15.4 at 24 subbands, 46.4 at 96) where SurfBox
-  stays flat at 3.93, because axis-aligned support boxes recover the radial but not
-  the directional decimation.
+  bijection with the reference's choice always this package's top-2. The decimated
+  transform is checked coefficient for coefficient instead
+  (`test/items/test_irc.jl`): it is SurfBox's IRC construction, agrees to about
+  1e-13 of the array norm at every stage, and its redundancy matches SurfBox's own
+  count (4.0046 at 96³ with 24 subbands per scale over three scales).

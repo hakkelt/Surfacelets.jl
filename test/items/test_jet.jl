@@ -7,7 +7,7 @@
     dst = similar(x)
 
     # ── Types / constructors ─────────────────────────────────────────────────
-    @test_call target_modules = (Surfacelets,) NSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
+    @test_call target_modules = (Surfacelets,) NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
     @test_call target_modules = (Surfacelets,) SurfaceletParams(J = 2, L_array = [1, 1])
 
     # ── Primitives ───────────────────────────────────────────────────────────
@@ -38,21 +38,32 @@
     @test_call target_modules = (Surfacelets,) ndfb_reconstruct(sbs, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
-    p = NSurfaceletParams(J = 1, L_array = [1], order = 6)
-    @test_call target_modules = (Surfacelets,) make_nsurfacelet_workspace(p, dims, Float64)
-    ws = make_nsurfacelet_workspace(p, dims, Float64)
-    @test_call target_modules = (Surfacelets,) nsurfacelet_forward(x, p; workspace = ws)
-    coeffs = nsurfacelet_forward(x, p; workspace = ws)
-    @test_call target_modules = (Surfacelets,) nsurfacelet_inverse(coeffs, p; workspace = ws)
-    @test_call target_modules = (Surfacelets,) nsurfacelet_inverse!(dst, coeffs, p; workspace = ws)
+    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
+    @test_call target_modules = (Surfacelets,) make_ns_surfacelet_workspace(p, dims, Float64)
+    ws = make_ns_surfacelet_workspace(p, dims, Float64)
+    @test_call target_modules = (Surfacelets,) ns_surfacelet_forward(x, p; workspace = ws)
+    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
+    @test_call target_modules = (Surfacelets,) ns_surfacelet_inverse(coeffs, p; workspace = ws)
+    @test_call target_modules = (Surfacelets,) ns_surfacelet_inverse!(dst, coeffs, p; workspace = ws)
 
+    # The decimated transform needs sizes its 3/2 pyramid can divide.
     sp = SurfaceletParams(J = 1, L_array = [1])
-    @test_call target_modules = (Surfacelets,) make_surfacelet(sp, dims, Float64)
-    spl = make_surfacelet(sp, dims, Float64)
-    @test_call target_modules = (Surfacelets,) surfacelet_forward(x, sp; plan = spl)
-    sc = surfacelet_forward(x, sp; plan = spl)
+    sdims = (24, 24, 24)
+    xs = randn(sdims...)
+    @test_call target_modules = (Surfacelets,) make_surfacelet(sp, sdims, Float64)
+    spl = make_surfacelet(sp, sdims, Float64)
+    @test_call target_modules = (Surfacelets,) surfacelet_forward(xs, sp; plan = spl)
+    sc = surfacelet_forward(xs, sp; plan = spl)
     @test_call target_modules = (Surfacelets,) surfacelet_inverse(sc, sp; plan = spl)
     @test_call target_modules = (Surfacelets,) surfacelet_redundancy(spl)
+
+    hp = STISurfaceletParams(J = 2, L_array = [1, 1])
+    @test_call target_modules = (Surfacelets,) make_sti_surfacelet(hp, dims, Float64)
+    hpl = make_sti_surfacelet(hp, dims, Float64)
+    @test_call target_modules = (Surfacelets,) sti_surfacelet_forward(x, hp; plan = hpl)
+    hc = sti_surfacelet_forward(x, hp; plan = hpl)
+    @test_call target_modules = (Surfacelets,) sti_surfacelet_inverse(hc, hp; plan = hpl)
+    @test_call target_modules = (Surfacelets,) sti_surfacelet_redundancy(hpl)
 end
 
 @testitem "@test_opt Surfacelets core functions" tags = [:jet] begin
@@ -83,9 +94,9 @@ end
     @test_opt target_modules = (Surfacelets,) ndfb_decompose(x, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
-    p = NSurfaceletParams(J = 1, L_array = [1], order = 6)
-    ws = make_nsurfacelet_workspace(p, dims, Float64)
-    @test_opt target_modules = (Surfacelets,) nsurfacelet_forward(x, p; workspace = ws)
-    coeffs = nsurfacelet_forward(x, p; workspace = ws)
-    @test_opt target_modules = (Surfacelets,) nsurfacelet_inverse!(dst, coeffs, p; workspace = ws)
+    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
+    ws = make_ns_surfacelet_workspace(p, dims, Float64)
+    @test_opt target_modules = (Surfacelets,) ns_surfacelet_forward(x, p; workspace = ws)
+    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
+    @test_opt target_modules = (Surfacelets,) ns_surfacelet_inverse!(dst, coeffs, p; workspace = ws)
 end

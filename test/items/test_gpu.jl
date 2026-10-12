@@ -84,38 +84,38 @@ end
     Random.seed!(202)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    p = NSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
-    ws_cpu = make_nsurfacelet_workspace(p, dims, Float32)
-    ref = nsurfacelet_forward(x, p; workspace = ws_cpu)
+    p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
+    ws_cpu = make_ns_surfacelet_workspace(p, dims, Float32)
+    ref = ns_surfacelet_forward(x, p; workspace = ws_cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
         # One adapt of the workspace moves the shared hourglass response once,
         # not once per scale.
         ws = Adapt.adapt(typeof(xg), ws_cpu)
-        c = nsurfacelet_forward(xg, p; workspace = ws)
+        c = ns_surfacelet_forward(xg, p; workspace = ws)
         @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
         for j in 1:2, k in eachindex(c.subbands[j])
             @test maximum(abs, Array(c.subbands[j][k]) .- ref.subbands[j][k]) < 1.0f-4
         end
-        rec = nsurfacelet_inverse(c, p; workspace = ws)
+        rec = ns_surfacelet_inverse(c, p; workspace = ws)
         @test maximum(abs, Array(rec) .- x) < 1.0f-4
         # Streaming works on the device too.
         total = Ref(0.0f0)
-        nsurfacelet_forward(xg, p; workspace = ws) do j, k, band
+        ns_surfacelet_forward(xg, p; workspace = ws) do j, k, band
             total[] += sum(abs2, Array(band))
         end
         @test total[] > 0
     end
 end
 
-@testitem "GPU Adapt.adapt_structure for NSurfacelet coefficients" tags = [:gpu] setup = [GPUBackends] begin
+@testitem "GPU Adapt.adapt_structure for NSSurfacelet coefficients" tags = [:gpu] setup = [GPUBackends] begin
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(203)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    p = NSurfaceletParams(J = 1, L_array = [1], order = 6)
-    c = nsurfacelet_forward(x, p)
+    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
+    c = ns_surfacelet_forward(x, p)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
         dev = Adapt.adapt(typeof(xg), c)
@@ -129,17 +129,17 @@ end
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(204)
-    dims = (16, 16, 16)
+    dims = (48, 48, 48)
     x = randn(Float32, dims...)
-    p = SurfaceletParams(J = 2, L_array = [1, 1])
-    # Planning scans every mask, so it happens once on the host; the device plan
-    # is an adapt of it, never a rebuild.
+    p = SurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
+    # Planning evaluates every filter slice point by point, so it happens once
+    # on the host; the device plan is an adapt of it, never a rebuild.
     pl_cpu = make_surfacelet(p, dims, Float32)
     ref = surfacelet_forward(x, p; plan = pl_cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
-        # Adapt to the bare array type, not `typeof(xg)`: the plan holds both
-        # real and complex buffers, so an element-typed destination cannot fit.
+        # Adapt to the bare array type, not `typeof(xg)`: the plan holds real,
+        # complex and integer tables, so an element-typed destination cannot fit.
         pl = Adapt.adapt(backend.array_type, pl_cpu)
         c = surfacelet_forward(xg, p; plan = pl)
         @test size(c.coarse) == size(ref.coarse)
@@ -161,10 +161,32 @@ end
 @testitem "GPU surfacelet needs an explicit plan" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
     using GPUEnv, Random
     Random.seed!(205)
-    dims = (8, 8, 8)
+    dims = (24, 24, 24)
     p = SurfaceletParams(J = 1, L_array = [1])
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, randn(Float32, dims...))
         @test_throws ArgumentError surfacelet_forward(xg, p)
+    end
+end
+
+@testitem "GPU STI surfacelet matches CPU" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
+    using GPUEnv, Random
+    const Adapt = GPUBackends.Adapt
+    Random.seed!(206)
+    dims = (32, 32, 32)
+    x = randn(Float32, dims...)
+    p = STISurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
+    pl_cpu = make_sti_surfacelet(p, dims, Float32)
+    ref = sti_surfacelet_forward(x, p; plan = pl_cpu)
+    for backend in GPUBackends.fft_backends
+        xg = to_gpu(backend, x)
+        pl = Adapt.adapt(backend.array_type, pl_cpu)
+        c = sti_surfacelet_forward(xg, p; plan = pl)
+        @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
+        for j in 1:2, k in eachindex(c.subbands[j])
+            @test maximum(abs, Array(c.subbands[j][k]) .- ref.subbands[j][k]) < 1.0f-4
+        end
+        @test maximum(abs, Array(sti_surfacelet_inverse(c, p; plan = pl)) .- x) < 1.0f-4
+        @test_throws ArgumentError sti_surfacelet_forward(xg, p)
     end
 end

@@ -10,7 +10,7 @@
 # `Adapt.adapt_structure` methods do:
 #
 #     fb  = Adapt.adapt(CuArray, make_hourglass(dims, Float32))
-#     ws  = Adapt.adapt(CuArray, make_nsurfacelet_workspace(params, dims, Float32))
+#     ws  = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, dims, Float32))
 #
 # FFTW plans cannot be moved, so each is replanned against the adapted buffer;
 # `plan_rfft` is the AbstractFFTs generic, so it dispatches to the backend's FFT
@@ -21,7 +21,7 @@
 # launch overhead than it saves.  Only the transfer-function arrays live on the
 # device.
 
-using Surfacelets: HourglassFB, NDFB, NSurfaceletWorkspace, NSurfaceletCoefficients, Conv3DFFTPlan
+using Surfacelets: HourglassFB, NDFB, NSSurfaceletWorkspace, NSSurfaceletCoefficients, Conv3DFFTPlan
 
 function Adapt.adapt_structure(to, fb::HourglassFB)
     m1 = Adapt.adapt(to, fb.m1)
@@ -68,22 +68,22 @@ function Adapt.adapt_structure(to, p::Conv3DFFTPlan)
     )
 end
 
-function Adapt.adapt_structure(to, ws::NSurfaceletWorkspace)
+function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace)
     hg = Adapt.adapt(to, ws.banks[1].fb)
     banks = [_adapt_ndfb(to, b, hg) for b in ws.banks]
     conv = Adapt.adapt(to, ws.conv)
     input = Adapt.adapt(to, ws.input)
     Td = eltype(input)
     T = eltype(hg.m1)
-    return NSurfaceletWorkspace{Td, T, eltype(banks), typeof(conv), typeof(input)}(
+    return NSSurfaceletWorkspace{Td, T, eltype(banks), typeof(conv), typeof(input)}(
         ws.dims, banks, conv, ws.lp_filters, ws.filters, input,
         Adapt.adapt(to, ws.coarse), Adapt.adapt(to, ws.bandpass),
         Adapt.adapt(to, ws.tmp), Adapt.adapt(to, ws.tmp2),
     )
 end
 
-function Adapt.adapt_structure(to, c::NSurfaceletCoefficients)
-    return NSurfaceletCoefficients(
+function Adapt.adapt_structure(to, c::NSSurfaceletCoefficients)
+    return NSSurfaceletCoefficients(
         Adapt.adapt(to, c.coarse),
         [[Adapt.adapt(to, s) for s in lvl] for lvl in c.subbands],
     )

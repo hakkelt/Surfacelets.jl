@@ -22,27 +22,36 @@ SOFTWARE.
 
 --------------------------------------------------------------------------------
 
-THIRD-PARTY ATTRIBUTION
+THIRD-PARTY NOTICES
 
-Parts of this package are independent Julia reimplementations of algorithms from
-the following BSD-licensed MATLAB toolboxes.  No source code from these toolboxes
-is vendored into this repository; the directional filter bank (DFB) and
-nonsubsampled DFB, the "pkva" ladder filters, and the resampling / separable
-filtering helpers are ported from their published algorithms and function
-descriptions, so the original copyright and disclaimer are retained below as
-required by the BSD license.
+The decimated surfacelet transform reimplements, in Julia, the construction of
+SurfBox, the reference toolbox of Y. M. Lu and M. N. Do (MATLAB File Exchange
+14485): its Fourier-domain multiscale pyramid, its "ritf" hourglass filter bank,
+its iterated resampled checkerboard (IRC) filter bank and its subband ordering.
+SurfBox's source was consulted to reproduce that construction, and the golden
+data under test/reference/ was produced by running SurfBox.  No SurfBox file is
+included in this repository.  SurfBox carries the following notice, retained
+here:
 
-* MATLAB Contourlet Toolbox
-  Copyright (c) Minh N. Do.
-  https://www.mathworks.com/matlabcentral/fileexchange/8837-contourlet-toolbox
+  SurfBox (c)
+  A set of C++ and Matlab routines implementing the surfacelet transform in
+  arbitrary N-dimensions (N >= 2)
+  Yue Lu and Minh N. Do
+  Department of Electrical and Computer Engineering
+  Coordinated Science Laboratory
+  University of Illinois at Urbana-Champaign
 
-* MATLAB Nonsubsampled Contourlet Toolbox
-  Copyright (c) Arthur L. da Cunha, Jianping Zhou, and Minh N. Do.
-  https://www.mathworks.com/matlabcentral/fileexchange/10049-nonsubsampled-contourlet-toolbox
+  This software is provided "as-is", without any express or implied warranty.
+  In no event will the authors be held liable for any damages arising from the
+  use of this software.
 
-Both toolboxes are distributed under the BSD license:
+The methods themselves are those of the published papers, cited in the source
+files and listed in docs/src/theory.md, chiefly:
 
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the above copyright notice and this
-  list of conditions are retained.  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
-  HOLDERS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
+* Y. M. Lu and M. N. Do, "Multidimensional directional filter banks and
+  surfacelets", IEEE Trans. Image Process. 16(4), 2007.
+* Y. M. Lu and M. N. Do, "A mapping-based design for nonsubsampled hourglass
+  filter banks in arbitrary dimensions", IEEE Trans. Signal Process. 56(4), 2008.
+
+No code is derived from the MATLAB Contourlet Toolbox (GNU GPL) or the
+Nonsubsampled Contourlet Toolbox (no licence stated).

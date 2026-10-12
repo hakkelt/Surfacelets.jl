@@ -6,15 +6,15 @@ using PrecompileTools: @setup_workload, @compile_workload
     # for a size nobody asked for.
     vol = zeros(Float64, 8, 8, 8)
     vol[4, 4, 4] = 1.0
-    params = NSurfaceletParams(J = 1, L_array = [1], order = 4)
+    params = NSSurfaceletParams(J = 1, L_array = [1], order = 4)
     @compile_workload begin
         # The allocating round trip, the workspace path and the streaming form,
         # which is the entry point at working sizes.
-        ws = make_nsurfacelet_workspace(params, size(vol), Float64; flags = FFTW.ESTIMATE)
-        coeffs = nsurfacelet_forward(vol, params; workspace = ws)
+        ws = make_ns_surfacelet_workspace(params, size(vol), Float64; flags = FFTW.ESTIMATE)
+        coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
         recoeffs = similar(vol)
-        nsurfacelet_inverse!(recoeffs, coeffs, params; workspace = ws)
-        nsurfacelet_forward(vol, params; workspace = ws) do j, k, band
+        ns_surfacelet_inverse!(recoeffs, coeffs, params; workspace = ws)
+        ns_surfacelet_forward(vol, params; workspace = ws) do j, k, band
             sum(band)
         end
     end

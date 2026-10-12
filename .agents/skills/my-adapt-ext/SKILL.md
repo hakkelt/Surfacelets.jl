@@ -25,8 +25,8 @@ KernelAbstractions.
 ```julia
 using CUDA, Adapt, Surfacelets
 
-ws = Adapt.adapt(CuArray, make_nsurfacelet_workspace(params, dims, Float32))
-c  = nsurfacelet_forward(CuArray(vol), params; workspace = ws)
+ws = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, dims, Float32))
+c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
 
 pl = Adapt.adapt(CuArray, make_surfacelet(sp, dims, Float32))
 sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
@@ -86,11 +86,11 @@ using CUDA, Adapt, Surfacelets
 
 dims = (16, 16, 16)
 x    = randn(Float32, dims...)
-p    = NSurfaceletParams(J = 1, L_array = [1], order = 6)
-ref  = nsurfacelet_forward(x, p)
+p    = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
+ref  = ns_surfacelet_forward(x, p)
 
-ws  = Adapt.adapt(CuArray, make_nsurfacelet_workspace(p, dims, Float32))
-c   = nsurfacelet_forward(CuArray(x), p; workspace = ws)
+ws  = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(p, dims, Float32))
+c   = ns_surfacelet_forward(CuArray(x), p; workspace = ws)
 @assert maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
 ```
 

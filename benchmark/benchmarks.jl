@@ -4,8 +4,9 @@
 USAGE:
     julia --project=benchmark benchmark/benchmarks.jl
 
-Covers the nonsubsampled surfacelet transform, the directional filter bank it is
-built on, and the primitives underneath both.
+Covers the nonsubsampled, decimated and semi-translation-invariant surfacelet
+transforms, the nonsubsampled directional filter bank, and the primitives
+underneath them.
 """
 
 using BenchmarkTools, Surfacelets, MultiscaleFilterBanks, Random
@@ -20,7 +21,9 @@ BenchmarkTools.DEFAULT_PARAMETERS.seconds = 1.0
 const RNG = MersenneTwister(1234)
 
 const SUITE = BenchmarkGroup()
-SUITE["NSurfacelet"] = BenchmarkGroup()
+SUITE["NSSurfacelet"] = BenchmarkGroup()
+SUITE["Surfacelet"] = BenchmarkGroup()
+SUITE["STISurfacelet"] = BenchmarkGroup()
 SUITE["NDFB"] = BenchmarkGroup()
 SUITE["primitives"] = BenchmarkGroup()
 
@@ -39,22 +42,39 @@ for n in (32, 64)
     sz_str = "$(n)^3"
     vol = randn(RNG, Float32, n, n, n)
 
-    # ── NSurfacelet ────────────────────────────────────────────────────────────────
-    SUITE["NSurfacelet"][sz_str] = BenchmarkGroup()
-    params = NSurfaceletParams(J = 2, L_array = [1, 2], order = 12)
-    ws = make_nsurfacelet_workspace(params, (n, n, n), Float32; flags = FFTW.ESTIMATE)
-    SUITE["NSurfacelet"][sz_str]["forward"] = @benchmarkable nsurfacelet_forward($vol, $params)
-    SUITE["NSurfacelet"][sz_str]["forward (workspace)"] =
-        @benchmarkable nsurfacelet_forward($vol, $params; workspace = $ws)
+    # ── NSSurfacelet ────────────────────────────────────────────────────────────────
+    SUITE["NSSurfacelet"][sz_str] = BenchmarkGroup()
+    params = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 12)
+    ws = make_ns_surfacelet_workspace(params, (n, n, n), Float32; flags = FFTW.ESTIMATE)
+    SUITE["NSSurfacelet"][sz_str]["forward"] = @benchmarkable ns_surfacelet_forward($vol, $params)
+    SUITE["NSSurfacelet"][sz_str]["forward (workspace)"] =
+        @benchmarkable ns_surfacelet_forward($vol, $params; workspace = $ws)
     # The streaming form is the one that matters at working sizes: it holds one
     # subband instead of `1 + Σ 3·2^L` volumes.
-    SUITE["NSurfacelet"][sz_str]["forward (streaming)"] =
-        @benchmarkable nsurfacelet_forward((j, k, b) -> nothing, $vol, $params; workspace = $ws)
-    coeffs = nsurfacelet_forward(vol, params; workspace = ws)
+    SUITE["NSSurfacelet"][sz_str]["forward (streaming)"] =
+        @benchmarkable ns_surfacelet_forward((j, k, b) -> nothing, $vol, $params; workspace = $ws)
+    coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
     out = similar(vol)
-    SUITE["NSurfacelet"][sz_str]["inverse"] = @benchmarkable nsurfacelet_inverse($coeffs, $params)
-    SUITE["NSurfacelet"][sz_str]["inverse!"] =
-        @benchmarkable nsurfacelet_inverse!($out, $coeffs, $params; workspace = $ws)
+    SUITE["NSSurfacelet"][sz_str]["inverse"] = @benchmarkable ns_surfacelet_inverse($coeffs, $params)
+    SUITE["NSSurfacelet"][sz_str]["inverse!"] =
+        @benchmarkable ns_surfacelet_inverse!($out, $coeffs, $params; workspace = $ws)
+
+    # ── Decimated surfacelet (IRC) ───────────────────────────────────────────────
+    # pyr_mode = 2 so the power-of-two sizes divide; mode 1.5 needs a factor 3.
+    SUITE["Surfacelet"][sz_str] = BenchmarkGroup()
+    sparams = SurfaceletParams(J = 2, L_array = [1, 2], pyr_mode = 2, precision = Float32)
+    splan = make_surfacelet(sparams, (n, n, n), Float32)
+    SUITE["Surfacelet"][sz_str]["forward"] = @benchmarkable surfacelet_forward($vol, $sparams; plan = $splan)
+    scoeffs = surfacelet_forward(vol, sparams; plan = splan)
+    SUITE["Surfacelet"][sz_str]["inverse"] = @benchmarkable surfacelet_inverse($scoeffs, $sparams; plan = $splan)
+
+    # ── STI surfacelet (nonsubsampled pyramid + IRC) ─────────────────────────────
+    SUITE["STISurfacelet"][sz_str] = BenchmarkGroup()
+    stiparams = STISurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
+    stiplan = make_sti_surfacelet(stiparams, (n, n, n), Float32)
+    SUITE["STISurfacelet"][sz_str]["forward"] = @benchmarkable sti_surfacelet_forward($vol, $stiparams; plan = $stiplan)
+    sticoeffs = sti_surfacelet_forward(vol, stiparams; plan = stiplan)
+    SUITE["STISurfacelet"][sz_str]["inverse"] = @benchmarkable sti_surfacelet_inverse($sticoeffs, $stiparams; plan = $stiplan)
 
     # ── NDFB ───────────────────────────────────────────────────────────────
     SUITE["NDFB"][sz_str] = BenchmarkGroup()

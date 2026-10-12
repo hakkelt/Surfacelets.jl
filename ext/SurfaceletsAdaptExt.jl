@@ -13,7 +13,7 @@ module SurfaceletsAdaptExt
 using Surfacelets
 using Adapt
 
-include("SurfaceletsAdaptExt/nsurfacelet_adapt.jl")
+include("SurfaceletsAdaptExt/ns_surfacelet_adapt.jl")
 include("SurfaceletsAdaptExt/surfacelet_adapt.jl")
 
 end # module SurfaceletsAdaptExt

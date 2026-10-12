@@ -16,6 +16,9 @@
 # levels with FFTW threading).  A single `Conv3DFFTPlan` is built per call and
 # shared by the analysis and synthesis convolutions; pass `plan = …` to reuse one
 # across levels and iterations.
+#
+# References: da Cunha, Zhou & Do, IEEE TIP 15(10), 2006, §II-A (the
+# nonsubsampled pyramid); Shensa, IEEE TSP 40(10), 1992 (à trous filtering).
 
 """
     nsp3d_decompose(volume, fp::FilterPair, level::Int) -> (coarse, bandpass)

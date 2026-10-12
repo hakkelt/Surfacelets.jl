@@ -1,34 +1,36 @@
 """
     Surfacelets
 
-Three-dimensional nonsubsampled and decimated surfacelet transforms.
+Three-dimensional nonsubsampled, decimated and semi-translation-invariant
+surfacelet transforms.
 
 ## Quick reference
 
 | Function | Description |
 |----------|-------------|
-| `nsurfacelet_forward` / `nsurfacelet_inverse` | Nonsubsampled surfacelet transform on volumes, with a streaming form |
+| `ns_surfacelet_forward` / `ns_surfacelet_inverse` | Nonsubsampled surfacelet transform on volumes, with a streaming form |
 | `surfacelet_forward` / `surfacelet_inverse` | Decimated counterpart, subbands at reduced resolution |
-| `make_nsurfacelet_workspace` | Allocate a reusable workspace for volumes |
+| `sti_surfacelet_forward` / `sti_surfacelet_inverse` | Semi-translation-invariant (STI): nonsubsampled pyramid, decimated directional stage |
+| `make_ns_surfacelet_workspace` | Allocate a reusable workspace for volumes |
 | `make_hourglass` / `make_ndfb` | The directional stage on its own |
 
 The surfacelet transform is a construction in its own right, not a
-dimension-raised contourlet transform.  Its directional stage is Lu & Do's
-hourglass nonsubsampled directional filter bank: Bernstein mapping kernels carve
-the spectrum into three hourglass-shaped regions around the three axes, each
-refined into `2^L` wedges.  Lu & Do prove that an hourglass partition cannot be
-critically sampled, which is why the construction has no separable-lattice
-description — there is no quincunx sampling matrix, no shear index remap and no
-ladder filter anywhere in it.  See the "Theory" page.
+dimension-raised contourlet transform.  Its first directional stage carves the
+spectrum into three hourglass-shaped regions around the three axes, a partition
+with no quincunx-lattice description that Lu & Do prove cannot be critically
+sampled.  The nonsubsampled transform builds it from Bernstein mapping kernels
+and cuts each hourglass into `2^L` wedges with directly placed boundaries.
 
-`surfacelet_forward` is the decimated counterpart of `nsurfacelet_forward`: the
-same frequency partition, but each subband is stored at its own reduced
-resolution (`make_surfacelet`, `surfacelet_redundancy`).  It trades shift
-invariance for a roughly 3× smaller coefficient set.
+`surfacelet_forward` is Lu & Do's decimated surfacelet transform, reproducing
+their reference toolbox SurfBox to rounding error: a 3/2-resampling Fourier
+pyramid, SurfBox's hourglass bank, and iterated resampled checkerboard filter
+banks that refine each hourglass into wedges while decimating critically
+(`make_surfacelet`, `surfacelet_redundancy`).  About 4 coefficients per voxel,
+whatever the number of directions; not shift-invariant.  See the "Theory" page.
 """
 module Surfacelets
 
-using FFTW: FFTW, plan_rfft, plan_fft, plan_fft!, plan_irfft, plan_ifft, plan_ifft!, rfft, fft
+using FFTW: FFTW, plan_rfft, plan_fft, plan_fft!, plan_irfft, plan_ifft, plan_ifft!, rfft, fft, ifft
 using LinearAlgebra: mul!, adjoint
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
@@ -38,10 +40,12 @@ using MultiscaleFilterBanks: MultiscaleFilterBanks,
     _nsp_atrous_filters, _NSP_SYNTH_SCALE
 
 # ── Types ─────────────────────────────────────────────────────────────────────
-include("types.jl")
+include("types/params.jl")
+include("types/coefficients.jl")
 
 # ── Filter coefficients ───────────────────────────────────────────────────────
 include("filters/bernstein.jl")
+include("filters/checkerboard.jl")
 
 # ── DSP primitives ────────────────────────────────────────────────────────────
 include("primitives/conv3d_fft.jl")
@@ -49,14 +53,21 @@ include("primitives/conv3d.jl")
 
 # ── Pyramid stage ─────────────────────────────────────────────────────────────
 include("pyramid/nonsubsampled_pyramid3d.jl")
+include("pyramid/fourier_pyramid.jl")
+include("pyramid/raised_cosine_pyramid.jl")
 
 # ── Directional filter bank ───────────────────────────────────────────────────
 include("directional/hourglass.jl")
+include("directional/ndfb_wedges.jl")
 include("directional/ndfb.jl")
+include("directional/ritf.jl")
+include("directional/irc.jl")
+include("directional/surfacelet_scale.jl")
 
 # ── Top-level transforms ──────────────────────────────────────────────────────
-include("transforms/nsurfacelet.jl")
+include("transforms/ns_surfacelet.jl")
 include("transforms/surfacelet.jl")
+include("transforms/sti_surfacelet.jl")
 
 # ── Precompilation ────────────────────────────────────────────────────────────
 include("precompile.jl")
@@ -68,7 +79,7 @@ export
     ThreadingPolicy, Auto, Enabled, Disabled,
 
     # Types
-    NSurfaceletParams, NSurfaceletCoefficients, NSurfaceletWorkspace,
+    NSSurfaceletParams, NSSurfaceletCoefficients, NSSurfaceletWorkspace,
     SurfaceletParams, SurfaceletCoefficients, SurfaceletPlan,
 
     # Primitives
@@ -86,9 +97,12 @@ export
     ndfb_reconstruct, ndfb_reconstruct!,
 
     # Top-level transforms
-    nsurfacelet_forward, nsurfacelet_inverse, nsurfacelet_inverse!, nsurfacelet_nsubbands,
-    make_nsurfacelet_workspace,
+    ns_surfacelet_forward, ns_surfacelet_inverse, ns_surfacelet_inverse!, ns_surfacelet_nsubbands,
+    make_ns_surfacelet_workspace,
     surfacelet_forward, surfacelet_inverse, surfacelet_nsubbands,
-    surfacelet_redundancy, make_surfacelet
+    surfacelet_redundancy, make_surfacelet, checkerboard_orders,
+    STISurfaceletParams, STISurfaceletPlan,
+    sti_surfacelet_forward, sti_surfacelet_inverse, sti_surfacelet_nsubbands,
+    sti_surfacelet_redundancy, make_sti_surfacelet
 
 end # module

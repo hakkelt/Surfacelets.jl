@@ -1,0 +1,146 @@
+cbd_4_dec_H0 full 2 7  7
+cbd_4_dec_c0 full 2 1  2
+cbd_4_dec_H1 full 2 13  13
+cbd_4_dec_c1 full 2 1  2
+cbd_4_rec_H0 full 2 13  13
+cbd_4_rec_c0 full 2 1  2
+cbd_4_rec_H1 full 2 7  7
+cbd_4_rec_c1 full 2 1  2
+cbd_8_dec_H0 full 2 15  15
+cbd_8_dec_c0 full 2 1  2
+cbd_8_dec_H1 full 2 29  29
+cbd_8_dec_c1 full 2 1  2
+cbd_8_rec_H0 full 2 29  29
+cbd_8_rec_c0 full 2 1  2
+cbd_8_rec_H1 full 2 15  15
+cbd_8_rec_c1 full 2 1  2
+cbd_12_dec_H0 full 2 23  23
+cbd_12_dec_c0 full 2 1  2
+cbd_12_dec_H1 full 2 45  45
+cbd_12_dec_c1 full 2 1  2
+cbd_12_rec_H0 full 2 45  45
+cbd_12_rec_c0 full 2 1  2
+cbd_12_rec_H1 full 2 23  23
+cbd_12_rec_c1 full 2 1  2
+hg_1 fp 3 17  32  32
+hg_2 fp 3 32  17  32
+hg_3 fp 3 32  32  17
+irc_l111_1 fp 3 17  32  32
+irc_l111_2 fp 3 32  17  32
+irc_l111_3 fp 3 32  32  17
+ndfb_l111_1_1 fp 3 32  16  16
+ndfb_l111_1_2 fp 3 32  16  16
+ndfb_l111_1_3 fp 3 32  16  16
+ndfb_l111_1_4 fp 3 32  16  16
+ndfb_l111_2_1 fp 3 16  32  16
+ndfb_l111_2_2 fp 3 16  32  16
+ndfb_l111_2_3 fp 3 16  32  16
+ndfb_l111_2_4 fp 3 16  32  16
+ndfb_l111_3_1 fp 3 16  16  32
+ndfb_l111_3_2 fp 3 16  16  32
+ndfb_l111_3_3 fp 3 16  16  32
+ndfb_l111_3_4 fp 3 16  16  32
+ndfbrec_l111 fp 3 32  32  32
+irc_l212_1 fp 3 17  32  32
+irc_l212_2 fp 3 32  17  32
+irc_l212_3 fp 3 32  32  17
+ndfb_l212_1_1 fp 3 32   8  16
+ndfb_l212_1_2 fp 3 32   8  16
+ndfb_l212_1_3 fp 3 32   8  16
+ndfb_l212_1_4 fp 3 32   8  16
+ndfb_l212_1_5 fp 3 32   8  16
+ndfb_l212_1_6 fp 3 32   8  16
+ndfb_l212_1_7 fp 3 32   8  16
+ndfb_l212_1_8 fp 3 32   8  16
+ndfb_l212_2_1 fp 3 16  32   8
+ndfb_l212_2_2 fp 3 16  32   8
+ndfb_l212_2_3 fp 3 16  32   8
+ndfb_l212_2_4 fp 3 16  32   8
+ndfb_l212_2_5 fp 3 16  32   8
+ndfb_l212_2_6 fp 3 16  32   8
+ndfb_l212_2_7 fp 3 16  32   8
+ndfb_l212_2_8 fp 3 16  32   8
+ndfb_l212_3_1 fp 3 8  16  32
+ndfb_l212_3_2 fp 3 8  16  32
+ndfb_l212_3_3 fp 3 8  16  32
+ndfb_l212_3_4 fp 3 8  16  32
+ndfb_l212_3_5 fp 3 8  16  32
+ndfb_l212_3_6 fp 3 8  16  32
+ndfb_l212_3_7 fp 3 8  16  32
+ndfb_l212_3_8 fp 3 8  16  32
+ndfbrec_l212 fp 3 32  32  32
+pyr_m15_1 fp 3 48  48  48
+pyr_m15_2 fp 3 32  32  32
+pyr_m15_3 fp 3 16  16  16
+pyr_m1_1 fp 3 32  32  32
+pyr_m1_2 fp 3 32  32  32
+pyr_m1_3 fp 3 16  16  16
+pyr_m2_1 fp 3 32  32  32
+pyr_m2_2 fp 3 16  16  16
+pyr_m2_3 fp 3 8  8  8
+surf_m15_1_1_1 fp 3 48  24  24
+surf_m15_1_1_2 fp 3 48  24  24
+surf_m15_1_1_3 fp 3 48  24  24
+surf_m15_1_1_4 fp 3 48  24  24
+surf_m15_1_2_1 fp 3 24  48  24
+surf_m15_1_2_2 fp 3 24  48  24
+surf_m15_1_2_3 fp 3 24  48  24
+surf_m15_1_2_4 fp 3 24  48  24
+surf_m15_1_3_1 fp 3 24  24  48
+surf_m15_1_3_2 fp 3 24  24  48
+surf_m15_1_3_3 fp 3 24  24  48
+surf_m15_1_3_4 fp 3 24  24  48
+surf_m15_2_1_1 fp 3 32  16  16
+surf_m15_2_1_2 fp 3 32  16  16
+surf_m15_2_1_3 fp 3 32  16  16
+surf_m15_2_1_4 fp 3 32  16  16
+surf_m15_2_2_1 fp 3 16  32  16
+surf_m15_2_2_2 fp 3 16  32  16
+surf_m15_2_2_3 fp 3 16  32  16
+surf_m15_2_2_4 fp 3 16  32  16
+surf_m15_2_3_1 fp 3 16  16  32
+surf_m15_2_3_2 fp 3 16  16  32
+surf_m15_2_3_3 fp 3 16  16  32
+surf_m15_2_3_4 fp 3 16  16  32
+surf_m15_low fp 3 16  16  16
+surfrec_m15 fp 3 48  48  48
+surf_m2_1_1_1 fp 3 64  16  32
+surf_m2_1_1_2 fp 3 64  16  32
+surf_m2_1_1_3 fp 3 64  16  32
+surf_m2_1_1_4 fp 3 64  16  32
+surf_m2_1_1_5 fp 3 64  16  32
+surf_m2_1_1_6 fp 3 64  16  32
+surf_m2_1_1_7 fp 3 64  16  32
+surf_m2_1_1_8 fp 3 64  16  32
+surf_m2_1_2_1 fp 3 32  64  16
+surf_m2_1_2_2 fp 3 32  64  16
+surf_m2_1_2_3 fp 3 32  64  16
+surf_m2_1_2_4 fp 3 32  64  16
+surf_m2_1_2_5 fp 3 32  64  16
+surf_m2_1_2_6 fp 3 32  64  16
+surf_m2_1_2_7 fp 3 32  64  16
+surf_m2_1_2_8 fp 3 32  64  16
+surf_m2_1_3_1 fp 3 16  32  64
+surf_m2_1_3_2 fp 3 16  32  64
+surf_m2_1_3_3 fp 3 16  32  64
+surf_m2_1_3_4 fp 3 16  32  64
+surf_m2_1_3_5 fp 3 16  32  64
+surf_m2_1_3_6 fp 3 16  32  64
+surf_m2_1_3_7 fp 3 16  32  64
+surf_m2_1_3_8 fp 3 16  32  64
+surf_m2_2_1_1 fp 3 32  16  16
+surf_m2_2_1_2 fp 3 32  16  16
+surf_m2_2_1_3 fp 3 32  16  16
+surf_m2_2_1_4 fp 3 32  16  16
+surf_m2_2_2_1 fp 3 16  32  16
+surf_m2_2_2_2 fp 3 16  32  16
+surf_m2_2_2_3 fp 3 16  32  16
+surf_m2_2_2_4 fp 3 16  32  16
+surf_m2_2_3_1 fp 3 16  16  32
+surf_m2_2_3_2 fp 3 16  16  32
+surf_m2_2_3_3 fp 3 16  16  32
+surf_m2_2_3_4 fp 3 16  16  32
+surf_m2_low fp 3 16  16  16
+surfrec_m2 fp 3 64  64  64
+red_96_d24 full 2 1  1
+red_96_d96 full 2 1  1

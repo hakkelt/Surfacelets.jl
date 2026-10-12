@@ -10,17 +10,25 @@
 # The directional bank depends only on the volume size, never on the scale, so
 # the (large) hourglass mapping response is planned once and shared across every
 # scale; only the wedge masks — matrices — differ per scale.
+#
+# References: Y. M. Lu & M. N. Do, "Multidimensional Directional Filter Banks and
+# Surfacelets", IEEE TIP 16(4), 2007 (the NDFB and the surfacelet transform);
+# Y. M. Lu & M. N. Do, "A Mapping-Based Design for Nonsubsampled Hourglass Filter
+# Banks in Arbitrary Dimensions", IEEE TSP 56(4), 2008 (the nonsubsampled
+# hourglass bank); A. L. da Cunha, J. Zhou & M. N. Do, "The Nonsubsampled
+# Contourlet Transform: Theory, Design, and Applications", IEEE TIP 15(10), 2006
+# (the nonsubsampled pyramid + directional bank structure).
 
 """
-    NSurfaceletWorkspace{Td, T}
+    NSSurfaceletWorkspace{Td, T}
 
 Reusable plans and buffers for the nonsubsampled surfacelet transform at one
 volume size and element type.
-Build with [`make_nsurfacelet_workspace`](@ref) and pass it to `nsurfacelet_forward` /
-`nsurfacelet_inverse` to keep repeated calls out of the allocator — the pattern
+Build with [`make_ns_surfacelet_workspace`](@ref) and pass it to `ns_surfacelet_forward` /
+`ns_surfacelet_inverse` to keep repeated calls out of the allocator — the pattern
 iterative reconstruction algorithms need.
 """
-struct NSurfaceletWorkspace{
+struct NSSurfaceletWorkspace{
         Td <: Number, T <: AbstractFloat, B <: NDFB{T}, P,
         A3 <: AbstractArray{Td, 3},
     }
@@ -39,10 +47,10 @@ struct NSurfaceletWorkspace{
     tmp2::A3
 end
 
-Base.eltype(::NSurfaceletWorkspace{Td}) where {Td} = Td
+Base.eltype(::NSSurfaceletWorkspace{Td}) where {Td} = Td
 
 """
-    make_nsurfacelet_workspace(params::NSurfaceletParams, dims::NTuple{3,Int},
+    make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::NTuple{3,Int},
                          ::Type{Td}=Float64; threading=Auto(), flags=FFTW.MEASURE)
 
 Allocate the workspace for `params` at volume size `dims` and element type `Td`
@@ -51,8 +59,8 @@ Allocate the workspace for `params` at volume size `dims` and element type `Td`
 The hourglass mapping response dominates the memory: one `real(Td)` array on the
 rfft grid, `(n₁÷2+1) × n₂ × n₃`.  Everything per-scale is matrices.
 """
-function make_nsurfacelet_workspace(
-        params::NSurfaceletParams, dims::NTuple{3, Int}, ::Type{Td} = Float64;
+function make_ns_surfacelet_workspace(
+        params::NSSurfaceletParams, dims::NTuple{3, Int}, ::Type{Td} = Float64;
         threading::ThreadingPolicy = Auto(),
         flags::Integer = FFTW.MEASURE
     ) where {Td <: Number}
@@ -69,14 +77,14 @@ function make_nsurfacelet_workspace(
     conv = make_conv3d_fft_plan(dims, Td; threading = threading, flags = flags)
     filters = [_nsp_atrous_filters(p.lp_filters, j, T) for j in 1:params.J]
     bufs = ntuple(_ -> Array{Td, 3}(undef, dims), 5)
-    return NSurfaceletWorkspace{Td, T, eltype(banks), typeof(conv), typeof(bufs[1])}(
+    return NSSurfaceletWorkspace{Td, T, eltype(banks), typeof(conv), typeof(bufs[1])}(
         dims, banks, conv, p.lp_filters, filters,
         bufs[1], bufs[2], bufs[3], bufs[4], bufs[5]
     )
 end
 
-make_nsurfacelet_workspace(params::NSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
-    make_nsurfacelet_workspace(params, dims; kwargs...)
+make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
+    make_ns_surfacelet_workspace(params, dims; kwargs...)
 
 # Equality of two filter pairs at the workspace's precision — the workspace holds
 # `params`' filters already converted, so the comparison converts rather than
@@ -88,11 +96,11 @@ function _same_filters(a::FilterPair{T}, b::FilterPair) where {T}
 end
 
 # Build a workspace on demand when the caller did not supply one.
-function _nsurfacelet_workspace(
-        ws::Union{NSurfaceletWorkspace, Nothing}, params::NSurfaceletParams,
+function _ns_surfacelet_workspace(
+        ws::Union{NSSurfaceletWorkspace, Nothing}, params::NSSurfaceletParams,
         dims::NTuple{3, Int}, ::Type{Td}
     ) where {Td}
-    ws === nothing && return make_nsurfacelet_workspace(params, dims, Td)
+    ws === nothing && return make_ns_surfacelet_workspace(params, dims, Td)
     ws.dims == dims || throw(DimensionMismatch("workspace size does not match the volume"))
     eltype(ws) === Td || throw(ArgumentError("workspace element type does not match the volume"))
     length(ws.banks) == params.J ||
@@ -125,12 +133,12 @@ function _nsurfacelet_workspace(
 end
 
 """
-    nsurfacelet_forward(volume, params::NSurfaceletParams; workspace=nothing) -> NSurfaceletCoefficients
+    ns_surfacelet_forward(volume, params::NSSurfaceletParams; workspace=nothing) -> NSSurfaceletCoefficients
 
 Nonsubsampled surfacelet transform.  Invariant under circular shifts of the
 input; every subband keeps the size of `volume`.
 
-See [`nsurfacelet_forward(f, volume, params)`](@ref) for the streaming form, which
+See [`ns_surfacelet_forward(f, volume, params)`](@ref) for the streaming form, which
 does not hold all subbands at once.
 
 # Examples
@@ -139,34 +147,34 @@ julia> using Surfacelets, Random
 
 julia> x = randn(Xoshiro(5), 16, 16, 16);
 
-julia> p = NSurfaceletParams(J = 2, L_array = [1, 2], order = 6);
+julia> p = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 6);
 
-julia> c = nsurfacelet_forward(x, p);
+julia> c = ns_surfacelet_forward(x, p);
 
 julia> length(c.subbands[1]), length(c.subbands[2])
 (6, 12)
 
-julia> maximum(abs, nsurfacelet_inverse(c, p) .- x) < 1e-10
+julia> maximum(abs, ns_surfacelet_inverse(c, p) .- x) < 1e-10
 true
 ```
 """
-function nsurfacelet_forward(
-        volume::AbstractArray{<:Number, 3}, params::NSurfaceletParams;
-        workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+function ns_surfacelet_forward(
+        volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
+        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     # Pin the container element type to the *data* type the transform works in,
     # not `eltype(volume)`: an integer volume is filtered as `float(eltype)`, and
     # storing those coefficients back into an integer array would throw.
     A = typeof(similar(volume, _data_eltype(volume)))
-    subbands = [Vector{A}(undef, nsurfacelet_nsubbands(params, j)) for j in 1:params.J]
-    coarse = nsurfacelet_forward(volume, params; workspace = workspace) do j, k, band
+    subbands = [Vector{A}(undef, ns_surfacelet_nsubbands(params, j)) for j in 1:params.J]
+    coarse = ns_surfacelet_forward(volume, params; workspace = workspace) do j, k, band
         subbands[j][k] = copy(band)
     end
-    return NSurfaceletCoefficients(copy(coarse), subbands)
+    return NSSurfaceletCoefficients(copy(coarse), subbands)
 end
 
 """
-    nsurfacelet_forward(f, volume, params::NSurfaceletParams; workspace=nothing)
+    ns_surfacelet_forward(f, volume, params::NSSurfaceletParams; workspace=nothing)
 
 Streaming nonsubsampled surfacelet transform: calls `f(j, k, subband)` for directional subband `k` of
 scale `j`, reusing one buffer between calls.  `subband` is only valid until `f`
@@ -184,11 +192,11 @@ julia> using Surfacelets, Random
 
 julia> x = randn(Xoshiro(6), 16, 16, 16);
 
-julia> p = NSurfaceletParams(J = 2, L_array = [1, 1], order = 6);
+julia> p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6);
 
 julia> total = 0.0;
 
-julia> coarse = nsurfacelet_forward(x, p) do j, k, band
+julia> coarse = ns_surfacelet_forward(x, p) do j, k, band
            global total += sum(abs2, band)
        end;
 
@@ -196,13 +204,13 @@ julia> total > 0 && size(coarse) == size(x)
 true
 ```
 """
-function nsurfacelet_forward(
-        f, volume::AbstractArray{<:Number, 3}, params::NSurfaceletParams;
-        workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+function ns_surfacelet_forward(
+        f, volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
+        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     Td = _data_eltype(volume)
     dims = size(volume)
-    ws = _nsurfacelet_workspace(workspace, params, dims, Td)
+    ws = _ns_surfacelet_workspace(workspace, params, dims, Td)
     p = _convert_params(_filter_eltype(Td), params)
 
     copyto!(ws.input, volume)
@@ -221,60 +229,60 @@ function nsurfacelet_forward(
 end
 
 """
-    nsurfacelet_inverse(coeffs::NSurfaceletCoefficients, params::NSurfaceletParams; workspace=nothing) -> volume
+    ns_surfacelet_inverse(coeffs::NSSurfaceletCoefficients, params::NSSurfaceletParams; workspace=nothing) -> volume
 
-Invert [`nsurfacelet_forward`](@ref).
+Invert [`ns_surfacelet_forward`](@ref).
 """
-function nsurfacelet_inverse(
-        coeffs::NSurfaceletCoefficients, params::NSurfaceletParams;
-        workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+function ns_surfacelet_inverse(
+        coeffs::NSSurfaceletCoefficients, params::NSSurfaceletParams;
+        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     out = similar(coeffs.coarse)
-    return nsurfacelet_inverse!(out, coeffs, params; workspace = workspace)
+    return ns_surfacelet_inverse!(out, coeffs, params; workspace = workspace)
 end
 
 """
-    nsurfacelet_inverse!(volume, coeffs, params::NSurfaceletParams; workspace=nothing) -> volume
+    ns_surfacelet_inverse!(volume, coeffs, params::NSSurfaceletParams; workspace=nothing) -> volume
 
-In-place [`nsurfacelet_inverse`](@ref).
+In-place [`ns_surfacelet_inverse`](@ref).
 """
-function nsurfacelet_inverse!(
-        volume::AbstractArray{<:Number, 3}, coeffs::NSurfaceletCoefficients,
-        params::NSurfaceletParams; workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+function ns_surfacelet_inverse!(
+        volume::AbstractArray{<:Number, 3}, coeffs::NSSurfaceletCoefficients,
+        params::NSSurfaceletParams; workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
-    return nsurfacelet_inverse!(volume, coeffs.coarse, params; workspace = workspace) do j, k
+    return ns_surfacelet_inverse!(volume, coeffs.coarse, params; workspace = workspace) do j, k
         return coeffs.subbands[j][k]
     end
 end
 
 """
-    nsurfacelet_inverse(f, coarse, params::NSurfaceletParams; workspace=nothing) -> volume
+    ns_surfacelet_inverse(f, coarse, params::NSSurfaceletParams; workspace=nothing) -> volume
 
 Streaming inverse: `f(j, k)` must return directional subband `k` of scale `j`.
 The subbands are consumed one at a time, in reverse scale order, so a caller
 holding them on disk or regenerating them never materialises the full set.
 """
-function nsurfacelet_inverse(
-        f, coarse::AbstractArray{<:Number, 3}, params::NSurfaceletParams;
-        workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+function ns_surfacelet_inverse(
+        f, coarse::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
+        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     out = similar(coarse)
-    return nsurfacelet_inverse!(f, out, coarse, params; workspace = workspace)
+    return ns_surfacelet_inverse!(f, out, coarse, params; workspace = workspace)
 end
 
 """
-    nsurfacelet_inverse!(f, volume, coarse, params::NSurfaceletParams; workspace=nothing) -> volume
+    ns_surfacelet_inverse!(f, volume, coarse, params::NSSurfaceletParams; workspace=nothing) -> volume
 
-In-place streaming inverse; see [`nsurfacelet_inverse(f, coarse, params)`](@ref).
+In-place streaming inverse; see [`ns_surfacelet_inverse(f, coarse, params)`](@ref).
 """
-function nsurfacelet_inverse!(
+function ns_surfacelet_inverse!(
         f, volume::AbstractArray{<:Number, 3}, coarse::AbstractArray{<:Number, 3},
-        params::NSurfaceletParams; workspace::Union{NSurfaceletWorkspace, Nothing} = nothing
+        params::NSSurfaceletParams; workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     Td = _data_eltype(volume)
     dims = size(volume)
     size(coarse) == dims || throw(DimensionMismatch("coarse size does not match the output"))
-    ws = _nsurfacelet_workspace(workspace, params, dims, Td)
+    ws = _ns_surfacelet_workspace(workspace, params, dims, Td)
     p = _convert_params(_filter_eltype(Td), params)
 
     copyto!(ws.coarse, coarse)
