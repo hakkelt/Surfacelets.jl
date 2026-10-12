@@ -1,19 +1,33 @@
 # [Transforms](@id guide)
 
-Two transforms share the same frequency partition — three hourglasses around the
-frequency axes, each cut into wedges, which cannot be critically sampled above
-two dimensions ([Theory](@ref theory)):
+Three transforms share the same frequency partition — three hourglasses around
+the frequency axes, each cut into wedges. The hourglass split cannot be
+critically sampled above two dimensions ([Theory](@ref theory)). They differ in
+which stages decimate:
 
-| | [`nsurfacelet_forward`](@ref) | [`surfacelet_forward`](@ref) |
-|---|---|---|
-| Subband sizes | all equal to the input | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 16 at the same settings |
-| Shift invariance | exact | no — decimation breaks it |
-| Streaming form | yes, one subband at a time | not needed, the set fits |
-| GPU | CUDA / OpenCL verified | CUDA / OpenCL verified |
-| Use for | analysis, shift-invariant denoising | sparsifying transform in reconstruction |
+```
+nonsubsampled  volume ─ à trous pyramid (no decimation) ─ NDFB masks (no decimation)
+STI            volume ─ raised-cosine pyramid (no decimation) ─ ritf + IRC (critical)
+decimated      volume ─ Fourier pyramid (resampled by 3/2, 2) ─ ritf + IRC (critical)
+```
 
-Both split each scale into `3 · 2^L` directional subbands: three hourglasses
+| | [`ns_surfacelet_forward`](@ref) | [`sti_surfacelet_forward`](@ref) | [`surfacelet_forward`](@ref) |
+|---|---|---|---|
+| Subband sizes | all equal to the input | coarse full size; directional subbands decimated, same sizes at every scale | decimated, one grid per subband |
+| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | `1 + 3J` (10 at `J=3`), whatever the directions | ≈ 4 (`pyr_mode = 1.5`), whatever the directions |
+| Shift invariance | exact | scales exact; subbands only for shifts on their decimation lattice | no — decimation breaks it |
+| Frame | tight (Parseval) | perfect reconstruction (biorthogonal IRC) | biorthogonal, perfect reconstruction |
+| Streaming form | yes, one subband at a time | not needed | not needed, the set fits |
+| Size constraints | none | even, divisible by `2^level` per directional level | every scale must resample exactly — see [`make_surfacelet`](@ref) |
+| Use for | analysis, shift-invariant denoising | denoising / regularisation where 49× is too much but scale invariance matters | sparsifying transform in reconstruction |
+
+Choosing: take the decimated transform when memory or iteration cost dominates
+and shift invariance does not matter (e.g. as a regulariser inside an iterative
+reconstruction), the nonsubsampled one when exact shift invariance or a
+Parseval frame is required and the volume is small enough (or the streaming form
+suffices), and the STI transform in between.
+
+All three split each scale into `3 · 2^L` directional subbands: three hourglasses
 aligned with the frequency axes, each cut into `2^L` wedges. Subbands are
 ordered hourglass-major — indices `1:2^L` belong to the first hourglass
 (``|\omega_1|`` dominant), the next `2^L` to the second, the last `2^L` to the
@@ -24,16 +38,16 @@ using Surfacelets, Plots, Random, Statistics
 Plots.default(show = false)
 ```
 
-## 3-D NSCT
+## Nonsubsampled surfacelets
 
 ```@example guide
 using Surfacelets, Random, Statistics
 
 vol    = randn(Xoshiro(1), 32, 32, 32)
-params = NSurfaceletParams(J = 2, L_array = [1, 2])
+params = NSSurfaceletParams(J = 2, L_array = [1, 2])
 
-c   = nsurfacelet_forward(vol, params)
-rec = nsurfacelet_inverse(c, params)
+c   = ns_surfacelet_forward(vol, params)
+rec = ns_surfacelet_inverse(c, params)
 
 println("PR error: ", maximum(abs, rec .- vol))
 for j in 1:params.J
@@ -44,17 +58,17 @@ end
 
 ### Workspace
 
-[`make_nsurfacelet_workspace`](@ref) builds the FFT plans and mask tables once. This
+[`make_ns_surfacelet_workspace`](@ref) builds the FFT plans and mask tables once. This
 is the entry point for reconstruction loops, where the same volume size is
 transformed hundreds of times.
 
 ```@example guide
-ws  = make_nsurfacelet_workspace(params, size(vol), Float64)
+ws  = make_ns_surfacelet_workspace(params, size(vol), Float64)
 out = similar(vol)
 
 for _ in 1:3
-    coeffs = nsurfacelet_forward(vol, params; workspace = ws)
-    nsurfacelet_inverse!(out, coeffs, params; workspace = ws)
+    coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
+    ns_surfacelet_inverse!(out, coeffs, params; workspace = ws)
 end
 println("PR error with workspace: ", maximum(abs, out .- vol))
 @assert maximum(abs, out .- vol) < 1e-12
@@ -70,7 +84,7 @@ two volumes plus the plans.
 ```@example guide
 energy = Dict{Tuple{Int, Int}, Float64}()
 
-coarse = nsurfacelet_forward(vol, params) do j, k, band
+coarse = ns_surfacelet_forward(vol, params) do j, k, band
     # `band` is valid only until this callback returns — copy or reduce here.
     energy[(j, k)] = sum(abs2, band)
 end
@@ -83,7 +97,7 @@ The inverse streams too: `f(j, k)` returns each subband on demand, so a caller
 that keeps coefficients on disk — or regenerates them — never holds the full set.
 
 ```@example guide
-r = nsurfacelet_inverse(c.coarse, params) do j, k
+r = ns_surfacelet_inverse(c.coarse, params) do j, k
     c.subbands[j][k]
 end
 println("streaming inverse PR error: ", maximum(abs, r .- vol))
@@ -94,8 +108,8 @@ println("streaming inverse PR error: ", maximum(abs, r .- vol))
 
 ```@example guide
 s = (3, -2, 5)
-a = nsurfacelet_forward(vol, params)
-b = nsurfacelet_forward(circshift(vol, s), params)
+a = ns_surfacelet_forward(vol, params)
+b = ns_surfacelet_forward(circshift(vol, s), params)
 
 err = maximum(
     maximum(abs, b.subbands[j][k] .- circshift(a.subbands[j][k], s))
@@ -114,11 +128,11 @@ That makes it a free correctness check on code built on top.
 ```@example guide
 xr = randn(Xoshiro(2), 16, 16, 16)
 xi = randn(Xoshiro(3), 16, 16, 16)
-p  = NSurfaceletParams(J = 1, L_array = [1])
+p  = NSSurfaceletParams(J = 1, L_array = [1])
 
-cc = nsurfacelet_forward(complex.(xr, xi), p)
-cr = nsurfacelet_forward(xr, p)
-ci = nsurfacelet_forward(xi, p)
+cc = ns_surfacelet_forward(complex.(xr, xi), p)
+cr = ns_surfacelet_forward(xr, p)
+ci = ns_surfacelet_forward(xi, p)
 
 println("linearity error: ", maximum(abs,
     cc.subbands[1][1] .- complex.(cr.subbands[1][1], ci.subbands[1][1])))
@@ -126,26 +140,34 @@ println("linearity error: ", maximum(abs,
 
 ## Surfacelets — the decimated transform
 
-The surfacelet transform stores each subband at its own reduced resolution. It
-gives up shift invariance and gets back a much smaller coefficient set, which is
-what makes it usable as a sparsifying transform rather than only as an analysis
-tool.
+The surfacelet transform of Lu and Do stores each subband at its own reduced
+resolution. It gives up shift invariance and gets back a coefficient set about 4
+times the input, which is what makes it usable as a sparsifying transform rather
+than only as an analysis tool. It follows their reference implementation,
+SurfBox, stage by stage, and reproduces its coefficients to rounding error:
 
-Planning is the expensive step: [`make_surfacelet`](@ref) evaluates every
-subband mask over the full grid to find its frequency support box. Plan once and
-reuse — both transforms build a plan on demand, but a per-call plan dominates
-the run time.
+1. a frequency-domain pyramid that resamples by 3/2 or 2 per level,
+2. the undecimated hourglass bank at every scale (redundancy 3), and
+3. iterated resampled checkerboard (IRC) filter banks inside each hourglass,
+   which refine it into wedges *and decimate critically* — each wedge is sampled
+   on a lattice aligned with it.
+
+Sizes must suit the pyramid: with the default `pyr_mode = 1.5` the first level
+resamples by 3/2, so every dimension must be divisible by 3 and then by 2 once
+per further scale. [`make_surfacelet`](@ref) builds the pyramid profiles,
+hourglass masks and checkerboard filter slices; plan once and reuse.
 
 ```@example guide
-sparams = SurfaceletParams(J = 2, L_array = [1, 1])
-plan    = make_surfacelet(sparams, size(vol), Float64)
+svol    = randn(Xoshiro(3), 48, 48, 48)
+sparams = SurfaceletParams(J = 2, L_array = [1, 2])
+plan    = make_surfacelet(sparams, size(svol), Float64)
 
-sc = surfacelet_forward(vol, sparams; plan = plan)
+sc = surfacelet_forward(svol, sparams; plan = plan)
 sr = surfacelet_inverse(sc, sparams; plan = plan)
 
-println("PR error:   ", maximum(abs, sr .- vol))
+println("PR error:   ", maximum(abs, sr .- svol))
 println("redundancy: ", round(surfacelet_redundancy(plan), digits = 3))
-@assert maximum(abs, sr .- vol) < 1e-11
+@assert maximum(abs, sr .- svol) < 1e-11
 ```
 
 ### Subbands have different sizes
@@ -155,7 +177,7 @@ This is the one structural difference from every other container in the package:
 coarser scale covers a smaller frequency shell.
 
 ```@example guide
-println("volume:  ", size(vol))
+println("volume:  ", size(svol))
 println("coarse:  ", size(sc.coarse))
 for j in 1:sparams.J
     println("scale $j: ", length(sc.subbands[j]), " subbands, sizes ",
@@ -163,67 +185,51 @@ for j in 1:sparams.J
 end
 
 stored = length(sc.coarse) + sum(sum(length, s) for s in sc.subbands)
-println("stored coefficients: ", stored, " for ", length(vol), " voxels")
+println("stored coefficients: ", stored, " for ", length(svol), " voxels")
 ```
 
-[`surfacelet_redundancy`](@ref) reports exactly that ratio, *measured* from the
-plan's boxes rather than derived from an idealised partition — so it reflects the
-transition widths in use. Against the nonsubsampled transform at matching
-parameters:
+Hourglass `K` keeps axis `K` at the scale's full length and halves the other two
+axes once per checkerboard stage, so each hourglass stores exactly as many
+coefficients as its scale has voxels, however finely it is cut. That is why the
+redundancy does not grow with the direction count:
 
 ```@example guide
-for (J, L) in [(1, [1]), (2, [1, 1]), (2, [2, 2])]
-    sp = SurfaceletParams(J = J, L_array = L)
-    pl = make_surfacelet(sp, (32, 32, 32), Float64)
-    println("J=$J, L=$L: surfacelet ",
-        lpad(round(surfacelet_redundancy(pl), digits = 1), 5),
-        "   NSurfacelet ", 1 + sum(3 * 2^l for l in L))
+for L in ([1, 1], [2, 2], [3, 3], [4, 4])
+    sp = SurfaceletParams(J = 2, L_array = L, bo = 4)
+    pl = make_surfacelet(sp, (96, 96, 96), Float64)
+    println("L = $L: ", lpad(3 * 2^L[1], 3), " + ", lpad(3 * 2^L[2], 3),
+        " subbands → redundancy ", round(surfacelet_redundancy(pl), digits = 3),
+        "   (nonsubsampled: ", 1 + sum(3 * 2^l for l in L), ")")
 end
 ```
 
-About 3× leaner at useful settings — not the redundancy of roughly 4 that Lu and
-Do report for the reference construction. The gap is structural, not a tuning
-problem: an axis-aligned support box recovers the radial decimation but almost
-none of the directional one. [Theory](@ref theory) has the details.
-
-Wider transition bands give smoother, better-localised surfacelets and larger
-support boxes, so they are the redundancy dial. At 32³ the effect is monotone but
-small, because the boxes are already quantised to whole frequency bins:
+The pyramid mode is the redundancy dial — 1, 1.5 and 2 give about 6.4, 4.0 and
+3.4, the figures Lu and Do report:
 
 ```@example guide
-for tr in (0.2, 0.5, 0.8)
-    sp = SurfaceletParams(J = 1, L_array = [1], transition = tr,
-        radial_transition = tr * 0.6, angular_transition = tr * 0.6)
-    pl = make_surfacelet(sp, (32, 32, 32), Float64)
-    println("transition = $tr → redundancy ",
-        round(surfacelet_redundancy(pl), digits = 2))
+for mode in (1, 1.5, 2)
+    sp = SurfaceletParams(J = 3, L_array = [2, 2, 2], pyr_mode = mode, bo = 4)
+    pl = make_surfacelet(sp, (96, 96, 96), Float64)
+    println("pyr_mode = $mode → redundancy ", round(surfacelet_redundancy(pl), digits = 2))
 end
 ```
 
-### A tight frame, in the weighted sense
+### Perfect reconstruction, not a tight frame
 
-The masks are square roots of a partition of unity, ``\sum_i V_i^2 = 1``, so
-analysis preserves energy. Because each subband lives on its own grid, the
-Parseval identity carries the grid sizes with it:
-
-```math
-\sum_i N_i \, \|s_i\|^2 = N \, \|x\|^2
-```
-
-with ``N_i`` the subband's element count and ``N`` the volume's.
+The pyramid and the hourglass stage are tight, but the checkerboard filters are
+biorthogonal: analysis and synthesis use different filters, so the transform is
+a frame with exact reconstruction whose inverse is not its adjoint. Energy is
+preserved only approximately:
 
 ```@example guide
-N = length(vol)
-energy = length(sc.coarse) * sum(abs2, sc.coarse)
-for j in 1:sparams.J, band in sc.subbands[j]
-    global energy += length(band) * sum(abs2, band)
-end
-println("Σ Nᵢ‖sᵢ‖² / N‖x‖² = ", round(energy / (N * sum(abs2, vol)), digits = 12))
+energy = sum(abs2, sc.coarse) + sum(sum(abs2, b) for s in sc.subbands for b in s)
+println("Σ‖sᵢ‖² / ‖x‖² = ", round(energy / sum(abs2, svol), digits = 3))
 ```
 
-That identity is what thresholding wants: noise of variance ``\sigma^2`` arrives
-in every subband with the same variance, so one threshold is meaningful across
-the whole coefficient set.
+Higher filter orders `bo` (4 to 18, default 12) are sharper directionally. They
+cost nothing extra here: the filters are evaluated in closed form on the
+frequency grid, which also lifts SurfBox's restriction that every block be wider
+than the spatial filter.
 
 ### What a surfacelet looks like
 
@@ -236,17 +242,17 @@ using Plots
 Plots.default(show = false)
 
 atom_params = SurfaceletParams(J = 1, L_array = [1])
-atom_plan   = make_surfacelet(atom_params, (32, 32, 32), Float64)
+atom_plan   = make_surfacelet(atom_params, (48, 48, 48), Float64)
 
 function atom(k)
-    c = surfacelet_forward(zeros(32, 32, 32), atom_params; plan = atom_plan)
+    c = surfacelet_forward(zeros(48, 48, 48), atom_params; plan = atom_plan)
     c.subbands[1][k][1, 1, 1] = 1.0     # one unit coefficient, at the band's origin
     return circshift(surfacelet_inverse(c, atom_params; plan = atom_plan),
-        (16, 16, 16))
+        (24, 24, 24))
 end
 
 function panel(k)
-    slice = atom(k)[:, :, 17]
+    slice = atom(k)[:, :, 25]
     m = maximum(abs, slice)
     return heatmap(slice, color = :balance, clims = (-m, m), aspect_ratio = :equal,
         axis = false, colorbar = false, title = "subband $k")
@@ -267,8 +273,8 @@ is perpendicular to the slice, so only its transverse envelope remains in-plane.
 
 ```@example guide
 s = (3, -2, 5)
-sa = surfacelet_forward(vol, sparams; plan = plan)
-sb = surfacelet_forward(circshift(vol, s), sparams; plan = plan)
+sa = surfacelet_forward(svol, sparams; plan = plan)
+sb = surfacelet_forward(circshift(svol, s), sparams; plan = plan)
 
 rel(x, y) = maximum(abs, x .- y) / maximum(abs, x)
 println("shifted vs circshifted coefficients, scale 1 subband 1: ",
@@ -277,7 +283,64 @@ println("shifted vs circshifted coefficients, scale 1 subband 1: ",
 
 The decimated grid does not carry the shift. Reconstruction is unaffected; only
 the coefficient values move. If a downstream algorithm needs shift invariance,
-use [`nsurfacelet_forward`](@ref) and pay the redundancy.
+use [`ns_surfacelet_forward`](@ref) and pay the redundancy — or the
+semi-translation-invariant transform below, which keeps most of it at a fraction
+of the cost.
+
+## Semi-translation-invariant (STI) surfacelets — a middle ground
+
+The nonsubsampled transform is exactly shift-invariant but stores
+`1 + Σ_j 3·2^{L_j}` volumes; the decimated one stores about 4 but is not
+shift-invariant at all. [`sti_surfacelet_forward`](@ref) combines a
+*nonsubsampled* pyramid with the *critically sampled* directional stage of the
+decimated transform. Every scale is a full-size volume, so the scale
+decomposition is exactly shift-invariant, and inside each scale the three
+hourglasses are refined and decimated by IRC — so each scale costs exactly three
+volumes, however many directions it has. The redundancy is `1 + 3J`:
+
+```@example guide
+stivol    = randn(Xoshiro(4), 32, 32, 32)
+stiparams = STISurfaceletParams(J = 3, L_array = [2, 2, 3])
+stiplan   = make_sti_surfacelet(stiparams, size(stivol))
+
+stic = sti_surfacelet_forward(stivol, stiparams; plan = stiplan)
+println("PR error:   ", maximum(abs, sti_surfacelet_inverse(stic, stiparams; plan = stiplan) .- stivol))
+println("redundancy: ", sti_surfacelet_redundancy(stiplan),
+    "   (nonsubsampled at the same settings: ", 1 + sum(3 * 2^l for l in stiparams.L_array), ")")
+```
+
+| | nonsubsampled | STI | decimated |
+|---|---|---|---|
+| Redundancy at `J=3`, `L=[2,2,3]` | 49 | 10 | ≈ 4 |
+| Scale decomposition | shift-invariant | shift-invariant | resampled |
+| Directional subbands | shift-invariant | invariant to shifts on their decimation lattice | not invariant |
+| Size constraints | none | even, divisible by `2^level` | the 3/2 pyramid's |
+
+The coarse band commutes with any circular shift; a directional subband of
+hourglass `K` is decimated by `2^l` along each other axis, so a shift by a
+multiple of that moves its coefficients exactly:
+
+```@example guide
+s  = (8, 8, 16)
+stia = sti_surfacelet_forward(stivol, stiparams; plan = stiplan)
+stib = sti_surfacelet_forward(circshift(stivol, s), stiparams; plan = stiplan)
+println("coarse: ", maximum(abs, circshift(stia.coarse, s) .- stib.coarse))
+lv = stiparams.levels[1][1]                  # hourglass 1 of scale 1
+sh = (s[1], s[2] ÷ 2^lv[2], s[3] ÷ 2^lv[3])
+println("subband 1: ", maximum(abs, circshift(stia.subbands[1][1], sh) .- stib.subbands[1][1]))
+```
+
+The name comes from the structure this shares with Eslami and Radha's
+semi-translation-invariant contourlet transform (STICT): a nonsubsampled,
+shift-invariant pyramid followed by a critically sampled directional stage. It
+is not a 3-D STICT. The STICT uses the translation-invariant Laplacian pyramid —
+the decimated pyramid's polyphase channels for every lattice shift, four
+highpass channels per level, keeping its aliasing — where this transform uses
+one raised-cosine bandpass per scale (SurfBox's mode-1 band edges without the
+resampling) and Lu and Do's IRC directional stage. Neither Lu and Do's papers
+nor any later paper we know of describes this 3-D construction; it composes two
+published stages, each validated on its own: the directional stage against
+SurfBox, the pyramid by its tight-frame identity.
 
 ## Directional selectivity
 
@@ -308,19 +371,25 @@ println("its share of the energy: ", round(e[best] / sum(e), digits = 3))
 @assert hourglass == 3
 ```
 
-The surfacelet transform partitions the same way; weighting by subband size
-accounts for the differing grids:
+The surfacelet transform partitions the same way, through different filters —
+SurfBox's hourglass and checkerboard banks rather than the Bernstein masks:
 
 ```@example guide
-wp = SurfaceletParams(J = 1, L_array = [1])
-wc = surfacelet_forward(wave, wp; plan = make_surfacelet(wp, (n, n, n), Float64))
+m48  = 48
+wave48 = [
+    cospi(2 * (3 * (i - 1) + 7 * (j - 1) + 19 * (l - 1)) / m48)
+        for i in 1:m48, j in 1:m48, l in 1:m48
+]
+wp = SurfaceletParams(J = 1, L_array = [2])
+wc = surfacelet_forward(wave48, wp; plan = make_surfacelet(wp, (m48, m48, m48), Float64))
 
-we    = [length(b) * sum(abs2, b) for b in wc.subbands[1]]
+we    = [sum(abs2, b) for b in wc.subbands[1]]
 wbest = argmax(we)
 println("winning subband: ", wbest, " of ", length(we),
     " → hourglass ", (wbest - 1) ÷ 2^wp.L_array[1] + 1)
 @assert (wbest - 1) ÷ 2^wp.L_array[1] + 1 == 3
 ```
 
-Both stages are regression-tested against SurfBox, Lu and Do's reference
-implementation — see [Validation against SurfBox](@ref theory).
+The nonsubsampled stages are regression-tested against SurfBox's partition, and
+the decimated transform against its coefficients, stage by stage — see
+[Validation against SurfBox](@ref theory).

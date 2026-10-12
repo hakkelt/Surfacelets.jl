@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 350" width="1050" height="350" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <!-- Block diagrams of the three 3-D transforms (one pyramid level shown in
+       full).  Hand-written for the Theory page of Surfacelets.jl; render it with
+       `rsvg-convert` to check the layout. -->
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <style>
+      .box { fill: #eef3fb; stroke: #3b5b92; stroke-width: 1.4; }
+      .hg  { fill: #eef7ee; stroke: #3f7d3f; stroke-width: 1.4; }
+      .dir { fill: #fbf1e6; stroke: #a8642a; stroke-width: 1.4; }
+      .ln  { stroke: #333; stroke-width: 1.3; fill: none; marker-end: url(#arr); }
+      .t   { fill: #222; }
+      .s   { fill: #555; font-size: 11px; }
+      .h   { fill: #111; font-size: 15px; font-weight: bold; }
+      .sup { baseline-shift: super; font-size: 8px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1050" height="350" fill="#ffffff"/>
+
+  <!-- ── Nonsubsampled surfacelet ─────────────────────────────────────── -->
+  <g transform="translate(10,0)">
+    <text class="h" x="166" y="24" text-anchor="middle">nonsubsampled surfacelet</text>
+    <text class="t" x="56" y="52" text-anchor="middle">volume x</text>
+    <path class="ln" d="M56,58 L56,80"/>
+    <rect class="box" x="0" y="82" width="112" height="40" rx="4"/>
+    <text class="t" x="56" y="99" text-anchor="middle">NSP3D level j</text>
+    <text class="s" x="56" y="114" text-anchor="middle">à trous, no ↓</text>
+    <path class="ln" d="M112,102 L134,102"/>
+    <rect class="hg" x="136" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="179" y="99" text-anchor="middle">hourglass</text>
+    <text class="s" x="179" y="114" text-anchor="middle">Bernstein, ×3</text>
+    <path class="ln" d="M222,91 L244,91"/>
+    <path class="ln" d="M222,102 L244,102"/>
+    <path class="ln" d="M222,113 L244,113"/>
+    <rect class="dir" x="246" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="289" y="99" text-anchor="middle">NDFB</text>
+    <text class="s" x="289" y="114" text-anchor="middle">wedge masks</text>
+    <text class="s" x="234" y="140" text-anchor="middle">3·2<tspan class="sup">Lⱼ</tspan> full-size subbands</text>
+    <path class="ln" d="M56,122 L56,178"/>
+    <text class="s" x="62" y="168">lowpass, full size</text>
+    <rect class="box" x="0" y="180" width="112" height="34" rx="4"/>
+    <text class="t" x="56" y="201" text-anchor="middle">level j + 1 …</text>
+    <path class="ln" d="M56,214 L56,240"/>
+    <text class="t" x="56" y="256" text-anchor="middle">coarse</text>
+    <text class="s" x="0" y="292">no samplers anywhere: shift invariant</text>
+    <text class="s" x="0" y="308">redundancy 1 + Σⱼ 3·2<tspan class="sup">Lⱼ</tspan></text>
+    <text class="s" x="0" y="324">(49 at J = 3, L = [2, 2, 3])</text>
+  </g>
+
+  <!-- ── STI surfacelet ────────────────────────────────────────────────── -->
+  <g transform="translate(360,0)">
+    <text class="h" x="166" y="24" text-anchor="middle">STI surfacelet</text>
+    <text class="t" x="56" y="52" text-anchor="middle">volume x</text>
+    <path class="ln" d="M56,58 L56,80"/>
+    <rect class="box" x="0" y="82" width="112" height="40" rx="4"/>
+    <text class="t" x="56" y="99" text-anchor="middle">pyramid level j</text>
+    <text class="s" x="56" y="114" text-anchor="middle">raised cosine, no ↓</text>
+    <path class="ln" d="M112,102 L134,102"/>
+    <rect class="hg" x="136" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="179" y="99" text-anchor="middle">hourglass</text>
+    <text class="s" x="179" y="114" text-anchor="middle">ritf, ×3</text>
+    <path class="ln" d="M222,91 L244,91"/>
+    <path class="ln" d="M222,102 L244,102"/>
+    <path class="ln" d="M222,113 L244,113"/>
+    <rect class="dir" x="246" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="289" y="99" text-anchor="middle">IRC</text>
+    <text class="s" x="289" y="114" text-anchor="middle">critically ↓</text>
+    <text class="s" x="234" y="140" text-anchor="middle">decimated subbands,</text>
+    <text class="s" x="234" y="154" text-anchor="middle">3 input volumes in all</text>
+    <path class="ln" d="M56,122 L56,178"/>
+    <text class="s" x="62" y="168">lowpass, full size</text>
+    <rect class="box" x="0" y="180" width="112" height="34" rx="4"/>
+    <text class="t" x="56" y="201" text-anchor="middle">level j + 1 …</text>
+    <path class="ln" d="M56,214 L56,240"/>
+    <text class="t" x="56" y="256" text-anchor="middle">coarse</text>
+    <text class="s" x="0" y="292">pyramid shift invariant; subbands only for</text>
+    <text class="s" x="0" y="308">shifts on their decimation lattice</text>
+    <text class="s" x="0" y="324">redundancy 1 + 3J, whatever the directions</text>
+  </g>
+
+  <!-- ── Decimated surfacelet ──────────────────────────────────────────── -->
+  <g transform="translate(710,0)">
+    <text class="h" x="166" y="24" text-anchor="middle">surfacelet (Lu &amp; Do)</text>
+    <text class="t" x="56" y="52" text-anchor="middle">volume x</text>
+    <path class="ln" d="M56,58 L56,80"/>
+    <rect class="box" x="0" y="82" width="112" height="40" rx="4"/>
+    <text class="t" x="56" y="99" text-anchor="middle">pyramid level j</text>
+    <text class="s" x="56" y="114" text-anchor="middle">Fourier, ↓D</text>
+    <path class="ln" d="M112,102 L134,102"/>
+    <rect class="hg" x="136" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="179" y="99" text-anchor="middle">hourglass</text>
+    <text class="s" x="179" y="114" text-anchor="middle">ritf, ×3</text>
+    <path class="ln" d="M222,91 L244,91"/>
+    <path class="ln" d="M222,102 L244,102"/>
+    <path class="ln" d="M222,113 L244,113"/>
+    <rect class="dir" x="246" y="82" width="86" height="40" rx="4"/>
+    <text class="t" x="289" y="99" text-anchor="middle">IRC</text>
+    <text class="s" x="289" y="114" text-anchor="middle">critically ↓</text>
+    <text class="s" x="234" y="140" text-anchor="middle">decimated subbands,</text>
+    <text class="s" x="234" y="154" text-anchor="middle">3 bandpass volumes in all</text>
+    <path class="ln" d="M56,122 L56,178"/>
+    <text class="s" x="62" y="168">lowpass, resampled by D</text>
+    <rect class="box" x="0" y="180" width="112" height="34" rx="4"/>
+    <text class="t" x="56" y="201" text-anchor="middle">level j + 1 …</text>
+    <path class="ln" d="M56,214 L56,240"/>
+    <text class="t" x="56" y="256" text-anchor="middle">coarse</text>
+    <text class="s" x="0" y="292">not shift invariant</text>
+    <text class="s" x="0" y="308">redundancy ≈ 4 (pyr_mode = 1.5),</text>
+    <text class="s" x="0" y="324">whatever the directions</text>
+  </g>
+</svg>

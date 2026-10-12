@@ -14,14 +14,14 @@ MultiscaleFilterBanks.MultiscaleFilterBanks
 ## Nonsubsampled surfacelet transform
 
 ```@docs
-nsurfacelet_forward
-nsurfacelet_inverse
-nsurfacelet_inverse!
-nsurfacelet_nsubbands
-make_nsurfacelet_workspace
-NSurfaceletParams
-NSurfaceletCoefficients
-NSurfaceletWorkspace
+ns_surfacelet_forward
+ns_surfacelet_inverse
+ns_surfacelet_inverse!
+ns_surfacelet_nsubbands
+make_ns_surfacelet_workspace
+NSSurfaceletParams
+NSSurfaceletCoefficients
+NSSurfaceletWorkspace
 ```
 
 ## Decimated surfacelet transform
@@ -35,6 +35,19 @@ make_surfacelet
 SurfaceletParams
 SurfaceletCoefficients
 SurfaceletPlan
+checkerboard_orders
+```
+
+## Semi-translation-invariant (STI) surfacelet transform
+
+```@docs
+sti_surfacelet_forward
+sti_surfacelet_inverse
+sti_surfacelet_nsubbands
+sti_surfacelet_redundancy
+make_sti_surfacelet
+STISurfaceletParams
+STISurfaceletPlan
 ```
 
 ## Directional filter bank
