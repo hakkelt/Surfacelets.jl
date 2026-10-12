@@ -2,8 +2,8 @@
 
 This file guides AI agents (and human contributors) through the repository
 structure and the conventions that are *specific to this package*. General Julia
-best practices live in the skills under `.agents/skills/` and are not repeated here.
-`my-adapt-ext` (anything under `ext/`) and `my-localcoverage` are package-specific.
+practice is not repeated here. The package-specific skill, under `.agents/skills/`,
+is `my-adapt-ext` (anything under `ext/`).
 
 ## API notes
 
