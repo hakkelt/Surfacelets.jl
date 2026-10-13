@@ -16,9 +16,9 @@
         src::AbstractArray{T, 3}, i::Int, j::Int, k::Int,
         n1::Int, n2::Int, n3::Int, bv::Val{B}
     )::T where {T, B}
-    ii = _clamp_idx(i, n1, bv)
-    jj = _clamp_idx(j, n2, bv)
-    kk = _clamp_idx(k, n3, bv)
+    ii = clamp_idx(i, n1, bv)
+    jj = clamp_idx(j, n2, bv)
+    kk = clamp_idx(k, n3, bv)
     if B === :zero && (ii < 1 || ii > n1 || jj < 1 || jj > n2 || kk < 1 || kk > n3)
         return zero(T)
     end

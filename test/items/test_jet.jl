@@ -113,12 +113,9 @@ end
     x = randn(dims...)
     h = [0.25, 0.5, 0.25]
 
-    # ── Re-exported filter and threading types ───────────────────────────────
+    # ── Re-exported filter types ───────────────────────────────────────────────
     @test_call target_modules = M FilterPair(CDF97.h, CDF97.g)
     @test_call target_modules = M upsample_filter(CDF97.h, 2)
-    @test_call target_modules = M Auto()
-    @test_call target_modules = M Enabled()
-    @test_call target_modules = M Disabled()
     @test_call target_modules = M checkerboard_orders()
 
     # ── Primitives ───────────────────────────────────────────────────────────
@@ -162,8 +159,8 @@ end
     coeffs = ns_surfacelet_forward(x, p; workspace = ws)
     @test coeffs isa NSSurfaceletCoefficients
     @test_call target_modules = M ns_surfacelet_forward!(coeffs, x, p; workspace = ws)
-    @test_call target_modules = M ns_surfacelet_forward(x, p; threading = Disabled())
-    @test_call target_modules = M ns_surfacelet_inverse(coeffs, p; workspace = ws, threading = Enabled())
+    @test_call target_modules = M ns_surfacelet_forward(x, p; threaded = false)
+    @test_call target_modules = M ns_surfacelet_inverse(coeffs, p; workspace = ws, threaded = true)
 
     sp = SurfaceletParams(J = 1, L_array = [1])
     @test_call target_modules = M surfacelet_nsubbands(sp, 1)
@@ -199,9 +196,6 @@ end
     @test_opt target_modules = M STISurfaceletParams(J = 2, L_array = [1, 1])
     @test_opt target_modules = M FilterPair(CDF97.h, CDF97.g)
     @test_opt target_modules = M upsample_filter(CDF97.h, 2)
-    @test_opt target_modules = M Auto()
-    @test_opt target_modules = M Enabled()
-    @test_opt target_modules = M Disabled()
     @test_opt target_modules = M checkerboard_orders()
 
     # ── Primitives ───────────────────────────────────────────────────────────

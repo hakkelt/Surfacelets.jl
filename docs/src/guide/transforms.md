@@ -62,7 +62,7 @@ end
 is the entry point for reconstruction loops, where the same volume size is
 transformed hundreds of times. The whole cascade runs as masks on the input's
 spectrum — one forward FFT, then one inverse FFT per subband — and the subbands
-are computed in parallel on Julia's threads unless `threading = Disabled()`.
+are computed in parallel on Julia's threads unless `threaded = false`.
 With [`ns_surfacelet_forward!`](@ref) and [`ns_surfacelet_inverse!`](@ref) a loop
 allocates nothing but the threads' tasks.
 

@@ -52,8 +52,8 @@ filter-bank level has no tag, because the package name already says it.
 
 - **Element types: real filters, real-or-complex data.** Filters are always real
   (`Tf <: AbstractFloat`); volume data may be complex (`Td <: Number`). The two
-  flow independently — `Td = _data_eltype(volume)`,
-  `Tf = _filter_eltype(Td) = real(float(Td))` — so a complex volume is filtered as
+  flow independently — `Td = data_eltype(volume)`,
+  `Tf = filter_eltype(Td) = real(float(Td))` — so a complex volume is filtered as
   complex·real, never complex·complex. The transform is real-linear, so
   `T(x + i·y)` equals `T(x) + i·T(y)` **bit-for-bit**; the suite asserts that with
   `== 0.0`, and it is a free correctness check for code built on top.
@@ -130,13 +130,13 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   convolution, so the transform is exactly invariant under circular shifts.
   Periodic filtering is a product on the DFT grid, so the workspace runs the whole
   cascade as masks on the input's rfft: pyramid bandpasses broadcast from per-axis
-  responses (`MultiscaleFilterBanks._nsp_responses`), the hourglass factor applied
+  responses (`MultiscaleFilterBanks.nsp_responses`), the hourglass factor applied
   once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
   planes (stored square-rooted when tight) and one irfft. The subbands are
-  threaded over with `_foreach_chunk` (Polyester's `@batch`), single-threaded
+  threaded over with `foreach_chunk` (Polyester's `@batch`), single-threaded
   plans, and the full-volume passes between those loops (band, lowpass, the sum
   of the per-task partials) are split among the same tasks; only
-  `threading = Disabled()` and the streaming forms (whose callbacks need not be
+  `threaded = false` and the streaming forms (whose callbacks need not be
   thread-safe) run on one task. `nsp3d_*`, `ndfb_*` and `Conv3DFFTPlan` remain as
   public building blocks; the transform no longer calls them.
 - **Host kernels avoid Base's broadcast where it is slow.** It checks every axis
@@ -146,7 +146,7 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   use Strided on host arrays; singleton-axis products walk columns by hand
   (`_wedge_mul!`, `_ns_band!`). Device arrays keep the plain broadcast.
 - **FFTW thread counts are scoped, never set.** Plan inside
-  `_with_fftw_threads` (MultiscaleFilterBanks, through NestedThreading); a bare
+  `with_fftw_threads` (MultiscaleFilterBanks, through NestedThreading); a bare
   `FFTW.set_num_threads` leaks into every later plan in the process and overrides
   a caller's `@budgeted_threads` restriction.
 - **The directional bank is built as frequency-domain masks.** This is exact for

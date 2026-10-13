@@ -100,7 +100,7 @@ end
 """
     make_hourglass(dims::NTuple{3,Int}, ::Type{T}=Float64;
                     order::Int=12, poly::Int=1, tight::Bool=true,
-                    threading=Auto(), flags=FFTW.MEASURE) -> HourglassFB
+                    threaded = nothing, flags=FFTW.MEASURE) -> HourglassFB
 
 Build the 3-D hourglass filter bank for `dims`-sized volumes.
 
@@ -126,13 +126,13 @@ precision; complex volumes are filtered as two real passes, keeping
 function make_hourglass(
         dims::NTuple{3, Int}, ::Type{T} = Float64;
         order::Int = 12, poly::Int = 1, tight::Bool = true,
-        threading::ThreadingPolicy = Auto(),
+        threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     n1, n2, n3 = dims
     m1, m2 = _hourglass_tables(T, dims, order, poly)
     rbuf = zeros(T, n1, n2, n3)
-    fwd, spec, inv = _with_fftw_threads(_fftw_threads(threading)) do
+    fwd, spec, inv = with_fftw_threads(_fftw_threads(threaded)) do
         f = plan_rfft(rbuf; flags = flags)
         s = f * rbuf
         f, s, plan_irfft(s, n1; flags = flags)

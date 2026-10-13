@@ -51,7 +51,7 @@ end
 """
     make_ndfb(dims::NTuple{3,Int}, ::Type{T}=Float64;
                 levels::Int=2, order::Int=12, poly::Int=1, tight::Bool=true,
-                transition::Real=1.0, threading=Auto(), flags=FFTW.MEASURE)
+                transition::Real=1.0, threaded = nothing, flags=FFTW.MEASURE)
 
 Build a 3-D NDFB producing `3 * 2^levels` directional subbands, each the full
 size of the input.
@@ -74,14 +74,14 @@ function make_ndfb(
         dims::NTuple{3, Int}, ::Type{T} = Float64;
         levels::Int = 2, order::Int = 12, poly::Int = 1, tight::Bool = true,
         transition::Real = 1.0,
-        threading::ThreadingPolicy = Auto(),
+        threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     0 <= transition || throw(ArgumentError("transition must be ≥ 0"))
     fb = make_hourglass(
         dims, T; order = order, poly = poly, tight = tight,
-        threading = threading, flags = flags
+        threaded = threaded, flags = flags
     )
     return ndfb_sharing(fb, levels; poly = poly, transition = transition)
 end

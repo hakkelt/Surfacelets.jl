@@ -40,10 +40,10 @@ true
 """
 function nsp3d_decompose(volume::AbstractArray{<:Number, 3}, fp::FilterPair, level::Int)
     level >= 1 || throw(ArgumentError("level must be ≥ 1"))
-    Td = _data_eltype(volume)   # data type (preserves complex)
-    Tf = _filter_eltype(Td)     # real filter precision
+    Td = data_eltype(volume)   # data type (preserves complex)
+    Tf = filter_eltype(Td)     # real filter precision
     vol = Td === eltype(volume) ? volume : Td.(volume)
-    h_j, g_j = _nsp_atrous_filters(fp, level, Tf)
+    h_j, g_j = nsp_atrous_filters(fp, level, Tf)
     plan = _nsp3d_plan(vol, max(length(h_j), length(g_j)))
     coarse = conv3d_sep(vol, h_j, h_j, h_j; boundary = :periodic, plan = plan)
     pred = conv3d_sep(coarse, g_j, g_j, g_j; boundary = :periodic, plan = plan)
@@ -71,8 +71,8 @@ function nsp3d_decompose!(
     # Use caller-supplied (workspace-cached) à trous filters when given; otherwise
     # build them here.  The cached `g_j` already carries the synthesis rescale.
     if h_j === nothing || g_j === nothing
-        Tf = _filter_eltype(eltype(coarse))
-        h_built, g_built = _nsp_atrous_filters(fp, level, Tf)
+        Tf = filter_eltype(eltype(coarse))
+        h_built, g_built = nsp_atrous_filters(fp, level, Tf)
         h_j = h_j === nothing ? h_built : h_j
         g_j = g_j === nothing ? g_built : g_j
     end
@@ -106,11 +106,11 @@ function nsp3d_reconstruct(
         coarse::AbstractArray{<:Number, 3}, bandpass::AbstractArray{<:Number, 3},
         fp::FilterPair, level::Int
     )
-    Td = promote_type(_data_eltype(coarse), _data_eltype(bandpass))
-    Tf = _filter_eltype(Td)
+    Td = promote_type(data_eltype(coarse), data_eltype(bandpass))
+    Tf = filter_eltype(Td)
     coarse_T = Td === eltype(coarse) ? coarse : Td.(coarse)
     bandpass_T = Td === eltype(bandpass) ? bandpass : Td.(bandpass)
-    _, g_j = _nsp_atrous_filters(fp, level, Tf)
+    _, g_j = nsp_atrous_filters(fp, level, Tf)
     pred = conv3d_sep(coarse_T, g_j, g_j, g_j; boundary = :periodic, plan = _nsp3d_plan(coarse_T, length(g_j)))
     return bandpass_T .+ pred
 end
@@ -131,8 +131,8 @@ function nsp3d_reconstruct!(
         plan::Union{Conv3DFFTPlan, Nothing} = nothing
     )
     if g_j === nothing
-        Tf = _filter_eltype(eltype(volume))
-        _, g_j = _nsp_atrous_filters(fp, level, Tf)
+        Tf = filter_eltype(eltype(volume))
+        _, g_j = nsp_atrous_filters(fp, level, Tf)
     end
     p = plan === nothing ? _nsp3d_plan(coarse, length(g_j)) : plan
     conv3d_sep!(tmp, coarse, g_j, g_j, g_j; boundary = :periodic, tmp = tmp2, plan = p)
@@ -140,7 +140,7 @@ function nsp3d_reconstruct!(
     return volume
 end
 
-# The à trous filter pair is `_nsp_atrous_filters` from the 2-D pyramid: the
+# The à trous filter pair is `nsp_atrous_filters` from the 2-D pyramid: the
 # rescale is per axis, so the same pair serves all three.
 #
 # Build one FFT plan shared by the analysis and synthesis convolutions of a level,

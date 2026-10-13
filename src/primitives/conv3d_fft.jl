@@ -70,7 +70,7 @@ end
 
 """
     make_conv3d_fft_plan(dims::NTuple{3,Int}, ::Type{Td}=Float64;
-                         threading=Auto(), flags=FFTW.MEASURE) -> Conv3DFFTPlan
+                         threaded = nothing, flags=FFTW.MEASURE) -> Conv3DFFTPlan
 
 Build FFTW plans and scratch buffers for periodic separable convolution of
 `dims`-sized volumes with element type `Td`.  A complex `Td` produces a plan of
@@ -83,13 +83,13 @@ call where first-call latency dominates.
 """
 function make_conv3d_fft_plan(
         dims::NTuple{3, Int}, ::Type{T} = Float64;
-        threading::ThreadingPolicy = Auto(),
+        threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     n1, n2, n3 = dims
     all(>(0), dims) || throw(ArgumentError("volume dimensions must be positive"))
     buf = zeros(T, n1, n2, n3)
-    fwd, spec, inv = _with_fftw_threads(_fftw_threads(threading)) do
+    fwd, spec, inv = with_fftw_threads(_fftw_threads(threaded)) do
         f = plan_rfft(buf; flags = flags)
         s = f * buf
         f, s, plan_irfft(s, n1; flags = flags)
@@ -117,13 +117,12 @@ end
 make_conv3d_fft_plan(n1::Int, n2::Int, n3::Int, ::Type{Td} = Float64; kwargs...) where {Td} =
     make_conv3d_fft_plan((n1, n2, n3), Td; kwargs...)
 
-# FFTW thread count for the requested policy.  `Auto()` uses every Julia thread:
-# unlike the direct kernels (where `Auto` means "threads for complex data only"),
-# an FFT here is always a big enough chunk of work to be worth splitting.  The
-# plan is made inside `_with_fftw_threads`, so a restriction opened around the
+# FFTW thread count for the `threaded` keyword.  The default (`nothing`) uses every
+# Julia thread: an FFT here is always a big enough chunk of work to be worth
+# splitting.  The
+# plan is made inside `with_fftw_threads`, so a restriction opened around the
 # call (a caller's `@budgeted_threads` loop) caps the count.
-_fftw_threads(::Disabled) = 1
-_fftw_threads(::Union{Auto, Enabled}) = Threads.nthreads()
+_fftw_threads(threaded::Union{Bool, Nothing}) = threaded === false ? 1 : Threads.nthreads()
 
 # Circular kernel for the *correlation* convention used by `_filter_dim!`:
 #   y[i] = Σ_t h[t] · x[i + c - t],   c = (length(h) + 1) ÷ 2

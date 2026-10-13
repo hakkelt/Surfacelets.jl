@@ -167,7 +167,7 @@ end
     @test maximum(abs, rec .- x) < 1.0e-12
 
     # Explicitly supplied filters must agree with the internally built ones.
-    h_j, g_j = Surfacelets._nsp_atrous_filters(CDF97, 2, Float64)
+    h_j, g_j = Surfacelets.nsp_atrous_filters(CDF97, 2, Float64)
     c2 = similar(x); bp2 = similar(x)
     nsp3d_decompose!(c2, bp2, x, CDF97, 2; tmp = tmp, tmp2 = tmp2, h_j = h_j, g_j = g_j)
     @test maximum(abs, c2 .- c) < 1.0e-12
@@ -264,7 +264,7 @@ end
     Random.seed!(64)
     x = randn(32, 32, 32)
     for lv in 1:3
-        h_j, g_j = Surfacelets._nsp_atrous_filters(CDF97, lv, Float64)
+        h_j, g_j = Surfacelets.nsp_atrous_filters(CDF97, lv, Float64)
         plan = make_conv3d_fft_plan(size(x), Float64)
         c = similar(x); bp = similar(x); t1 = similar(x); t2 = similar(x)
         nsp3d_decompose!(c, bp, x, CDF97, lv; tmp = t1, tmp2 = t2, h_j = h_j, g_j = g_j, plan = plan)
@@ -329,7 +329,7 @@ end
     Random.seed!(68)
     x = complex.(randn(32, 32, 32), randn(32, 32, 32))
     for lv in 1:3
-        h_j, g_j = Surfacelets._nsp_atrous_filters(CDF97, lv, Float64)
+        h_j, g_j = Surfacelets.nsp_atrous_filters(CDF97, lv, Float64)
         @test Surfacelets._nsp3d_plan(x, max(length(h_j), length(g_j))) !== nothing
         c, bp = nsp3d_decompose(x, CDF97, lv)
         @test maximum(abs, nsp3d_reconstruct(c, bp, CDF97, lv) .- x) < 1.0e-11

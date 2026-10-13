@@ -82,7 +82,7 @@ _inplace_plans(A::AbstractArray, flags) = (_fft_plan(plan_fft!, A, flags), _fft_
 
 # Host plans are measured with one FFTW thread: the plan is applied to many
 # small blocks, where FFTW's threads cost more than they gain.
-_fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? _with_fftw_threads(f, 1) : f()
+_fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? with_fftw_threads(f, 1) : f()
 
 """
     make_surfacelet(params::SurfaceletParams, dims, T=Float64; flags=FFTW.MEASURE) -> SurfaceletPlan
@@ -259,7 +259,7 @@ function _resolve_plan(make::F, plan, params, x::Union{AbstractArray, Surfacelet
                 "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, $(nameof(make))(params, dims, T))`"
             )
         )
-        T = _filter_eltype(_data_eltype(proto))
+        T = filter_eltype(data_eltype(proto))
         return make(params, dims, T; flags = FFTW.ESTIMATE)
     end
     plan.params isa _plan_params_type(params) ||

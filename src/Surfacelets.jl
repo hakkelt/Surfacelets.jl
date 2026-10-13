@@ -30,6 +30,7 @@ whatever the number of directions; not shift-invariant.  See the "Theory" page.
 """
 module Surfacelets
 
+using Compat: @compat
 using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!, rfft, fft
 using LinearAlgebra: mul!, adjoint
 using FastBroadcast: @..
@@ -37,10 +38,9 @@ using Strided: Strided, @strided
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     FilterPair, CDF97, upsample_filter,
-    ThreadingPolicy, Auto, Enabled, Disabled,
-    _data_eltype, _filter_eltype, _use_threading, _clamp_idx,
-    _nsp_atrous_filters, _nsp_responses, _foreach_chunk, _add_partials!,
-    _loop_threaded, _with_fftw_threads
+    data_eltype, filter_eltype, use_threading, clamp_idx,
+    nsp_atrous_filters, nsp_responses, foreach_chunk, add_partials!,
+    loop_threaded, with_fftw_threads
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")
@@ -79,7 +79,6 @@ include("precompile.jl")
 export
     # Re-exported from MultiscaleFilterBanks
     FilterPair, CDF97, upsample_filter,
-    ThreadingPolicy, Auto, Enabled, Disabled,
 
     # Types
     NSSurfaceletParams, NSSurfaceletCoefficients, NSSurfaceletWorkspace,
@@ -108,5 +107,8 @@ export
     STISurfaceletParams,
     sti_surfacelet_forward, sti_surfacelet_forward!, sti_surfacelet_inverse, sti_surfacelet_inverse!,
     sti_surfacelet_nsubbands, make_sti_surfacelet
+
+# Not exported, but public: the pieces the hourglass bank is built from.
+@compat public bernstein_table, dft_frequencies, mapping_coefficients, mapping_response, halfband_split
 
 end # module

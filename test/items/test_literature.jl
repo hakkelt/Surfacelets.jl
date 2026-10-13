@@ -74,7 +74,7 @@ end
     using Random
     x = randn(Xoshiro(3), 16, 16, 16)
     h = randn(Xoshiro(4), 7)
-    plan = make_conv3d_fft_plan(size(x); threading = Disabled())
+    plan = make_conv3d_fft_plan(size(x); threaded = false)
     @test conv3d_sep_fft(x, h, h, h) ≈ conv3d_sep_fft!(similar(x), x, h, h, h, plan)
     @test conv3d_sep_fft(x, h, h, h) ≈ conv3d_sep(x, h, h, h; boundary = :periodic)
 end

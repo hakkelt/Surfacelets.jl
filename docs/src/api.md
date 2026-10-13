@@ -110,19 +110,12 @@ FilterPair
 upsample_filter
 ```
 
-## Threading
-
-```@docs
-ThreadingPolicy
-Auto
-Enabled
-Disabled
-```
 
 ## Filter design internals
 
-Not exported — these are the pieces the hourglass bank is built from, useful if
-you want to design your own mapping kernels.
+Public but not exported (call them as `Surfacelets.bernstein_table` etc.) —
+these are the pieces the hourglass bank is built from, useful if you want to
+design your own mapping kernels.
 
 ```@docs
 bernstein_table

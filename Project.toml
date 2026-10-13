@@ -7,6 +7,7 @@ authors = ["Tamás Hakkel"]
 projects = ["test", "docs", "benchmark"]
 
 [deps]
+Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 FastBroadcast = "7034ab61-46d4-4ed7-9d0f-46aef9175898"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -22,6 +23,7 @@ SurfaceletsAdaptExt = ["Adapt"]
 
 [compat]
 Adapt = "4"
+Compat = "4.10"
 FFTW = "1"
 FastBroadcast = "1"
 LinearAlgebra = "1"
