@@ -90,15 +90,16 @@ Entries are `+1` inside `S`, `-1` outside, and `0` on the boundary, evaluated at
 the Bernstein sample points `j / N`.  Only the ordering of the indices matters,
 which is why the sample points never have to be converted back to frequencies.
 """
-function mapping_coefficients(N::Int, d::Int, group::NTuple{G, Int}) where {G}
+mapping_coefficients(N::Int, d::Int, group::NTuple{G, Int}) where {G} = mapping_coefficients(N, Val(d), group)
+
+function mapping_coefficients(N::Int, ::Val{d}, group::NTuple{G, Int}) where {d, G}
     1 <= G < d || throw(ArgumentError("group must be a proper non-empty subset of 1:d"))
     all(g -> 1 <= g <= d, group) || throw(ArgumentError("group indices out of range"))
     c = Array{Int, d}(undef, ntuple(_ -> N + 1, d))
-    rest = Tuple(setdiff(1:d, group))
     @inbounds for idx in CartesianIndices(c)
         j = Tuple(idx) .- 1
-        a = maximum(ntuple(t -> j[group[t]], G))
-        b = maximum(ntuple(t -> j[rest[t]], length(rest)))
+        a = maximum(ntuple(t -> j[group[t]], Val(G)))
+        b = maximum(j[t] for t in 1:d if !(t in group))
         c[idx] = a > b ? 1 : (a < b ? -1 : 0)
     end
     return c

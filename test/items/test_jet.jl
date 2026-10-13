@@ -193,10 +193,6 @@ end
     dst = similar(x)
     h = [0.25, 0.5, 0.25]
 
-    # The `make_*` builders below are one-time plan construction (FFTW planning, filter-bank
-    # assembly into abstractly-typed containers) and are known to dispatch at run time, so they
-    # are marked `broken`; every transform that consumes the plans is checked without it.
-
     # ── Types / constructors / filters ───────────────────────────────────────
     @test_opt target_modules = M NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
     @test_opt target_modules = M SurfaceletParams(J = 2, L_array = [1, 1])
@@ -220,7 +216,7 @@ end
     @test_opt target_modules = M nsp3d_reconstruct!(similar(x), c, bp, CDF97, 1)
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
-    @test_opt broken = true target_modules = M make_hourglass(dims, Float64; order = 6)
+    @test_opt target_modules = M make_hourglass(dims, Float64; order = 6)
     hg = make_hourglass(dims, Float64; order = 6)
     @test_opt target_modules = M hourglass_mask(hg, 1)
     @test_opt target_modules = M hourglass_weight(hg, 2)
@@ -229,7 +225,7 @@ end
     @test_opt target_modules = M hourglass_reconstruct!(similar(x), hs, hg)
 
     # ── Nonsubsampled directional bank ───────────────────────────────────────
-    @test_opt broken = true target_modules = M make_ndfb(dims, Float64; levels = 1, order = 6)
+    @test_opt target_modules = M make_ndfb(dims, Float64; levels = 1, order = 6)
     fb = make_ndfb(dims, Float64; levels = 1, order = 6)
     @test_opt target_modules = M ndfb_sharing(hg, 1)
     @test_opt target_modules = M ndfb_nsubbands(fb)
@@ -245,7 +241,7 @@ end
     # ── Nonsubsampled surfacelet transform ───────────────────────────────────
     p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
     @test_opt target_modules = M ns_surfacelet_nsubbands(p, 1)
-    @test_opt broken = true target_modules = M make_ns_surfacelet_workspace(p, dims, Float64)
+    @test_opt target_modules = M make_ns_surfacelet_workspace(p, dims, Float64)
     ws = make_ns_surfacelet_workspace(p, dims, Float64)
     coeffs = ns_surfacelet_forward(x, p; workspace = ws)
     @test_opt target_modules = M ns_surfacelet_forward!(coeffs, x, p; workspace = ws)
@@ -256,7 +252,7 @@ end
     sdims = (24, 24, 24)
     xs = randn(sdims...)
     @test_opt target_modules = M surfacelet_nsubbands(sp, 1)
-    @test_opt broken = true target_modules = M make_surfacelet(sp, sdims, Float64)
+    @test_opt target_modules = M make_surfacelet(sp, sdims, Float64)
     spl = make_surfacelet(sp, sdims, Float64)
     @test_opt target_modules = M surfacelet_redundancy(spl)
     @test_opt target_modules = M surfacelet_forward(xs, sp; plan = spl)
@@ -268,7 +264,7 @@ end
     # ── Decimated shift-invariant surfacelet transform ───────────────────────
     hp = STISurfaceletParams(J = 2, L_array = [1, 1])
     @test_opt target_modules = M sti_surfacelet_nsubbands(hp, 1)
-    @test_opt broken = true target_modules = M make_sti_surfacelet(hp, dims, Float64)
+    @test_opt target_modules = M make_sti_surfacelet(hp, dims, Float64)
     hpl = make_sti_surfacelet(hp, dims, Float64)
     @test_opt target_modules = M sti_surfacelet_forward(x, hp; plan = hpl)
     hc = sti_surfacelet_forward(x, hp; plan = hpl)

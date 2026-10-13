@@ -155,11 +155,11 @@ function _hourglass_tables(::Type{T}, dims::NTuple{3, Int}, order::Int, poly::In
     b1 = bernstein_table(order, dft_frequencies(T, n1; half = true))
     b2 = bernstein_table(order, dft_frequencies(T, n2))
     b3 = bernstein_table(order, dft_frequencies(T, n3))
-    m1 = mapping_response(mapping_coefficients(order, 3, (1,)), (b1, b2, b3))
+    m1 = mapping_response(mapping_coefficients(order, Val(3), (1,)), (b1, b2, b3))
     map!(m -> halfband_split(m, poly), m1, m1)
 
     # Stage 2 — split P₂ from P₃ with a 2-D kernel on the (ω₂, ω₃) plane.
-    m2f = mapping_response(mapping_coefficients(order, 2, (1,)), (b2, b3))
+    m2f = mapping_response(mapping_coefficients(order, Val(2), (1,)), (b2, b3))
     map!(m -> halfband_split(m, poly), m2f, m2f)
     return m1, reshape(m2f, 1, n2, n3)
 end

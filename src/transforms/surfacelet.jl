@@ -65,14 +65,16 @@ function _surfacelet_plan(
         proto::AbstractArray, flags
     ) where {T}
     return _fftw_single_threaded(proto) do
-        works = IdDict{Any, Any}()
-        work = [get!(() -> _scale_work(sc, proto, flags), works, sc.stages) for sc in scales]
+        build(sc) = _scale_work(sc, proto, flags)
+        first_work = build(first(scales))
+        works = IdDict{Any, typeof(first_work)}(first(scales).stages => first_work)
+        work = [get!(() -> build(sc), works, sc.stages) for sc in scales]
         Tc = Complex{T}
         spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in _pyramid_sizes(pyramid)]
         pfwd, pbwd = _inplace_plans(spectra[1], flags)
         C = _coarse_spectrum(spectra, pyramid)
         cfwd, cbwd = C === spectra[1] ? (pfwd, pbwd) : _inplace_plans(C, flags)
-        SurfaceletPlan(dims, params, collect(pyramid), collect(scales), [w for w in work], spectra, pfwd, pbwd, cfwd, cbwd)
+        SurfaceletPlan(dims, params, collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd)
     end
 end
 

@@ -88,13 +88,13 @@ struct _ScaleWork{H <: Tuple}
 end
 
 function _scale_work(sc::_SurfScale{T}, proto::AbstractArray, flags) where {T}
-    hg = ntuple(3) do K
+    hg = ntuple(Val(3)) do K
         Tc = Complex{T}
         S = fill!(similar(proto, Tc, _half_dims(sc.dims, K)), zero(Tc))
         _, bsize = _surf_blocks(sc, K)
         blk = fill!(similar(proto, Tc, bsize), zero(Tc))
         sbsize = _surf_subband_size(sc, K)
-        perm = (K, filter(!=(K), (1, 2, 3))...)
+        perm = (K, ntuple(i -> i < K ? i : i + 1, Val(2))...)
         permuted = !(proto isa Array) && K != 1
         if permuted
             blkp = fill!(similar(proto, Tc, map(d -> bsize[d], perm)), zero(Tc))

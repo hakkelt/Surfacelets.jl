@@ -46,10 +46,12 @@ function make_sti_surfacelet(
     p = _convert_stiparams(T, params)
     pyramid = _raised_cosine_pyramid(T, dims, p.J)
     masks = _ritf_masks(T, dims; msize = p.msize, beta = p.beta, lambda = p.lambda)
-    cache = Dict{NTuple{3, NTuple{3, Int}}, Any}()
+    build(lv) = _SurfScale(dims, lv, masks, _surf_stages(T, dims, lv, p.bo))
+    first_scale = build(p.levels[1])
+    cache = Dict(p.levels[1] => first_scale)
     scales = map(1:p.J) do j
         lv = p.levels[j]
-        get!(() -> _SurfScale(dims, lv, masks, _surf_stages(T, dims, lv, p.bo)), cache, lv)
+        get!(() -> build(lv), cache, lv)
     end
     return _surfacelet_plan(dims, p, pyramid, [sc for sc in scales], Array{T, 3}(undef, 0, 0, 0), flags)
 end
