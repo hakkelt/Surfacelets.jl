@@ -10,7 +10,6 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Surfacelets = "95825f30-efdc-42b9-a966-c8a9be6f2254"
 
 [sources]
-MultiscaleFilterBanks = {path = "../../MultiscaleFilterBanks"}
 Surfacelets = {path = ".."}
 
 [compat]

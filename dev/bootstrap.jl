@@ -1,12 +1,10 @@
-# Wire the unregistered sibling checkout of MultiscaleFilterBanks.jl into every
-# environment of this workspace.
+# Develop a sibling checkout of MultiscaleFilterBanks.jl into every environment
+# of this workspace, in place of the registered release.
 #
 #     julia --project=. dev/bootstrap.jl
 #
-# `[sources]` in Project.toml would be the tidier mechanism, but it needs Julia
-# ≥ 1.11 while this package supports 1.10 (and CI runs `lts`), so the path
-# dependency is recorded in the gitignored Manifest.toml instead.  Run this once
-# per fresh checkout; re-running it is harmless.
+# The path is recorded in the gitignored manifests, so nothing tracked changes
+# and CI keeps using the registry.  Re-running it is harmless.
 using Pkg
 
 const CORE = normpath(joinpath(@__DIR__, "..", "..", "MultiscaleFilterBanks"))
@@ -17,8 +15,12 @@ const ROOT = normpath(joinpath(@__DIR__, ".."))
 for env in (ROOT, joinpath(ROOT, "test"), joinpath(ROOT, "docs"), joinpath(ROOT, "benchmark"))
     isfile(joinpath(env, "Project.toml")) || continue
     @info "developing MultiscaleFilterBanks into" env
+    # Julia ≥ 1.11 also writes the path into `[sources]`; keep the tracked file.
+    project = joinpath(env, "Project.toml")
+    tracked = read(project, String)
     Pkg.activate(env)
     Pkg.develop(path = CORE)
+    write(project, tracked)
 end
 
 Pkg.activate(ROOT)

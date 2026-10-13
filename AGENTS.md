@@ -117,10 +117,9 @@ benchpkg Surfacelets --path . --rev=master,HEAD --script=benchmark/benchmarks.jl
 All generated output (test runs, coverage, benchmark JSON, profiles) goes under
 `.temp/`, which is git-ignored.
 
-**First checkout**: `MultiscaleFilterBanks.jl` is unregistered, so it is wired in
-by path. `[sources]` handles that on Julia ≥ 1.11; on 1.10 run
-`julia --project=. dev/bootstrap.jl` once, which `Pkg.develop`s the sibling
-checkout into every environment of the workspace.
+**First checkout**: CI resolves `MultiscaleFilterBanks.jl` from the registry. To
+develop against a sibling checkout, run `julia --project=. dev/bootstrap.jl`
+once; it `Pkg.develop`s the checkout into every environment of the workspace.
 
 ---
 

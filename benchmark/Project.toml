@@ -8,7 +8,6 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Surfacelets = "95825f30-efdc-42b9-a966-c8a9be6f2254"
 
 [sources]
-MultiscaleFilterBanks = {path = "../../MultiscaleFilterBanks"}
 Surfacelets = {path = ".."}
 
 [compat]

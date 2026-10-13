@@ -79,22 +79,19 @@ c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
 
 ## Installation
 
-Neither this package nor its core dependency is registered yet:
+This package is not registered yet:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/hakkelt/MultiscaleFilterBanks.jl")
 Pkg.add(url = "https://github.com/hakkelt/Surfacelets.jl")
 ```
 
-Working from a local checkout, `MultiscaleFilterBanks.jl` is expected as a
-sibling directory and wired in through `[sources]`. On Julia 1.10, which does not
-read `[sources]`, run `julia --project=. dev/bootstrap.jl` once instead; it
+To work against a local checkout of the core package instead, put it next to
+this one and run `julia --project=. dev/bootstrap.jl` once; it
 `Pkg.develop`s the sibling checkout into every environment of the workspace.
 
 Before CI can go green on GitHub, this repository needs `CODECOV_TOKEN` and
-`DOCUMENTER_KEY` set, and the CI setup step needs `Pkg.develop(url = ...)` for
-the core package until it is registered.
+`DOCUMENTER_KEY` set.
 
 ## Development
 
