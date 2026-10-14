@@ -25,12 +25,12 @@
     # Activating here keeps the items self-contained either way; when the overlay
     # already exists (`persist = true` writes it to `test/gpu_env`) this only
     # loads it.
-    isempty(gpu_backends(; include_jlarrays = false)) &&
-        GPUEnv.activate(persist = true, include_jlarrays = false)
+    isempty(gpu_backends(; include_cpu_backends = false)) &&
+        GPUEnv.activate(persist = true, include_cpu_backends = false)
 
     # All test data below is Float32, so every qualifying backend can run the
     # same test bodies.
-    const fft_backends = gpu_backends(; include_jlarrays = false, supports_fftw = true)
+    const fft_backends = gpu_backends(; include_cpu_backends = false, supports_fftw = true)
 end
 
 @testitem "GPU Adapt extension is loaded" tags = [:gpu] setup = [GPUBackends] begin

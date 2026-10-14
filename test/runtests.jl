@@ -5,7 +5,7 @@ using GPUEnv
 # as a test dep and the `:gpu` test items can exercise the Adapt extension.
 # JLArrays is excluded: it has no FFT implementation, so `plan_rfft` falls back
 # to a scalar-indexing generic and every 3-D item would run it on the host.
-GPUEnv.activate(persist = true, include_jlarrays = false)
+GPUEnv.activate(persist = true, include_cpu_backends = false)
 
 using TestItemRunner
 const FILTER_PARTS = if length(ARGS) > 0

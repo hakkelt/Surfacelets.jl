@@ -73,7 +73,7 @@ sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
   FFTs, where launch overhead is noise.
 - **No JLArrays in the tests.** It ships no FFT implementation, so `plan_rfft`
   falls back to an AbstractFFTs generic that indexes elementwise. `test/runtests.jl`
-  activates the GPU overlay with `include_jlarrays = false`, and the items iterate
+  activates the GPU overlay with `include_cpu_backends = false`, and the items iterate
   `GPUBackends.fft_backends`, which GPUEnv filters to backends with an
   FFTW-compatible library (CUDA, AMDGPU). Metal / oneAPI / OpenCL expose their
   FFTs through their own APIs rather than AbstractFFTs, so they are out too.
