@@ -163,8 +163,10 @@ per further scale. [`make_surfacelet`](@ref) builds the pyramid profiles,
 hourglass masks and checkerboard filter slices, and the buffers and FFT plans the
 transform runs in; plan once and reuse. With a plan,
 [`surfacelet_forward!`](@ref) and [`surfacelet_inverse!`](@ref) write into
-existing coefficients and volumes and allocate nothing but a few array headers.
-A plan holds scratch buffers, so give each task its own.
+existing coefficients and volumes and allocate nothing but a few array headers
+and the threads' tasks. The blocks of each scale are split among Julia's
+threads, up to the plan's `tasks`, unless `threaded = false`. A plan holds
+scratch buffers, so give each task its own.
 
 ```@example guide
 svol    = randn(Xoshiro(3), 48, 48, 48)

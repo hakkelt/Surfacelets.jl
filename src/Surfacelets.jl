@@ -35,12 +35,13 @@ using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!, rfft
 using LinearAlgebra: mul!, adjoint
 using FastBroadcast: @..
 using Strided: Strided, @strided
+using NestedThreading: NestedThreading
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     FilterPair, CDF97, upsample_filter,
     data_eltype, filter_eltype, use_threading, clamp_idx,
     nsp_atrous_filters, nsp_responses, foreach_chunk, add_partials!,
-    loop_threaded, with_fftw_threads
+    loop_threaded, with_fftw_threads, n_tasks
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")

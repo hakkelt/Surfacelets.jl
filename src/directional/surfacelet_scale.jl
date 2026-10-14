@@ -83,11 +83,18 @@ struct _HourglassWork{C <: AbstractArray, V <: AbstractVector, R <: AbstractArra
     fwd::Q      # rfft:  subband → block
 end
 
-struct _ScaleWork{H <: Tuple}
+# The three hourglasses, and the blocks of the scale as `(K, i)` pairs in subband
+# order.  The block FFTs run as tasks over `items` (`_foreach_block`); on the host
+# each task has its own flat buffer, as long as the largest block, whose head is
+# reshaped to the block at hand, because `brfft` destroys its input.  A device has
+# no buffers and runs one task on `hg[K].blk`.
+struct _ScaleWork{H <: Tuple, B <: AbstractVector}
     hg::H
+    items::Vector{NTuple{2, Int}}
+    bufs::Vector{B}
 end
 
-function _scale_work(sc::_SurfScale{T}, proto::AbstractArray, flags) where {T}
+function _scale_work(sc::_SurfScale{T}, proto::AbstractArray, flags, tasks::Integer) where {T}
     hg = ntuple(Val(3)) do K
         Tc = Complex{T}
         S = fill!(similar(proto, Tc, _half_dims(sc.dims, K)), zero(Tc))
@@ -109,23 +116,53 @@ function _scale_work(sc::_SurfScale{T}, proto::AbstractArray, flags) where {T}
         end
         _HourglassWork(S, similar(S, length(S) ÷ 2), blk, blkp, sbp, perm, permuted, bwd, fwd)
     end
-    return _ScaleWork(hg)
+    items = [(K, i) for K in 1:3 for i in 1:prod(first(_surf_blocks(sc, K)))]
+    len = maximum(K -> length(hg[K].blk), 1:3)
+    nbuf = proto isa Array ? n_tasks(proto, min(Int(tasks), length(items))) : 0
+    bufs = [similar(proto, Complex{T}, len) for _ in 1:nbuf]
+    return _ScaleWork(hg, items, bufs)
 end
 
-# subband = brfft(hw.blk) (consumes `hw.blk`)
-function _block_to_subband!(sb::AbstractArray, hw::_HourglassWork)
-    hw.permuted || return mul!(sb, hw.bwd, hw.blk)
-    permutedims!(hw.blkp, hw.blk, hw.perm)
+# Block buffer of task `t` for a block of size `bsize`.
+_task_block(bufs::Vector{<:Vector}, ::_HourglassWork, t::Int, bsize::NTuple{3, Int}) =
+    reshape(view(bufs[t], 1:prod(bsize)), bsize)
+_task_block(::AbstractVector, hw::_HourglassWork, ::Int, ::NTuple{3, Int}) = hw.blk
+
+# `f(hw, blk, ranges, n)` for every block of the scale: `hw` is its hourglass's
+# work, `blk` the task's block buffer, `ranges` the block's place in `hw.S` and
+# `n` its subband index.  Blocks are split among the tasks when `threaded`.
+function _foreach_block(f::F, sc::_SurfScale, w::_ScaleWork, threaded::Bool) where {F}
+    n = length(w.items)
+    nt = isempty(w.bufs) ? 1 : min(length(w.bufs), n)
+    foreach_chunk(n, nt, threaded) do range, t
+        for idx in range
+            K, i = w.items[idx]
+            _one_block(f, sc, w, w.hg[K], K, i, idx, t)
+        end
+    end
+    return nothing
+end
+
+# A function barrier: `w.hg[K]` has a different type for each K.
+function _one_block(f::F, sc::_SurfScale, w::_ScaleWork, hw::_HourglassWork, K::Int, i::Int, idx::Int, t::Int) where {F}
+    counts, bsize = _surf_blocks(sc, K)
+    return f(hw, _task_block(w.bufs, hw, t, bsize), _surf_block_ranges(counts, bsize, i), idx)
+end
+
+# subband = brfft(blk) (consumes `blk`); only a host block is not `hw.blk`
+function _block_to_subband!(sb::AbstractArray, hw::_HourglassWork, blk::AbstractArray)
+    hw.permuted || return mul!(sb, hw.bwd, blk)
+    permutedims!(hw.blkp, blk, hw.perm)
     mul!(hw.sbp, hw.bwd, hw.blkp)
     return permutedims!(sb, hw.sbp, invperm(hw.perm))
 end
 
-# hw.blk = rfft(sb)
-function _subband_to_block!(hw::_HourglassWork, sb::AbstractArray)
-    hw.permuted || return mul!(hw.blk, hw.fwd, sb)
+# blk = rfft(sb)
+function _subband_to_block!(blk::AbstractArray, hw::_HourglassWork, sb::AbstractArray)
+    hw.permuted || return mul!(blk, hw.fwd, sb)
     permutedims!(hw.sbp, sb, hw.perm)
     mul!(hw.blkp, hw.fwd, hw.sbp)
-    return permutedims!(hw.blk, hw.blkp, invperm(hw.perm))
+    return permutedims!(blk, hw.blkp, invperm(hw.perm))
 end
 
 # A plan for `A`; FFTW flags only apply to host arrays.
@@ -135,49 +172,48 @@ _fft_plan(f::F, A::AbstractArray, flags, args...) where {F} = f(A, args...)
 # ── Analysis and synthesis ────────────────────────────────────────────────────
 
 """
-    _surf_scale_forward!(out, X, sc, w) -> out
+    _surf_scale_forward!(out, X, sc, w, threaded) -> out
 
 Directional analysis of one bandpass scale into the preallocated real subbands
 `out`; `X` is the full spectrum of size `sc.dims` and is left untouched.
 """
-function _surf_scale_forward!(out::AbstractVector, X::AbstractArray{Complex{T}, 3}, sc::_SurfScale{T}, w::_ScaleWork) where {T}
-    i0 = 0
+function _surf_scale_forward!(
+        out::AbstractVector, X::AbstractArray{Complex{T}, 3}, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
+    ) where {T}
     for K in 1:3
         hw = w.hg[K]
-        counts, bsize = _surf_blocks(sc, K)
         s = inv(T(prod(_surf_subband_size(sc, K))))
         _masked!(hw.S, view(X, _half_ranges(sc.dims, K)...), sc.masks[K], s)
         _irc_analysis!(hw.S, sc.stages[K], hw.tmp)
-        for i in 1:prod(counts)
-            _copy!(hw.blk, view(hw.S, _surf_block_ranges(counts, bsize, i)...))
-            _block_to_subband!(out[i0 + i], hw)
-        end
-        i0 += prod(counts)
+    end
+    _foreach_block(sc, w, threaded) do hw, blk, ranges, n
+        _block_copy!(blk, view(hw.S, ranges...))
+        _block_to_subband!(out[n], hw, blk)
     end
     return out
 end
 
 """
-    _surf_scale_inverse!(X, subbands, sc, w) -> X
+    _surf_scale_inverse!(X, subbands, sc, w, threaded) -> X
 
 Directional synthesis of one bandpass scale: its full spectrum, written to `X`.
 """
-function _surf_scale_inverse!(X::AbstractArray{Complex{T}, 3}, subbands::AbstractVector, sc::_SurfScale{T}, w::_ScaleWork) where {T}
+function _surf_scale_inverse!(
+        X::AbstractArray{Complex{T}, 3}, subbands::AbstractVector, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
+    ) where {T}
+    for (n, (K, _)) in enumerate(w.items)
+        expect = _surf_subband_size(sc, K)
+        size(subbands[n]) == expect ||
+            throw(DimensionMismatch("subband $(n) has size $(size(subbands[n])), expected $(expect)"))
+    end
+    _foreach_block(sc, w, threaded) do hw, blk, ranges, n
+        _subband_to_block!(blk, hw, subbands[n])
+        _block_copy!(view(hw.S, ranges...), blk)
+    end
     fill!(X, zero(Complex{T}))
     third = inv(T(3))
-    i0 = 0
     for K in 1:3
         hw = w.hg[K]
-        counts, bsize = _surf_blocks(sc, K)
-        expect = _surf_subband_size(sc, K)
-        for i in 1:prod(counts)
-            sb = subbands[i0 + i]
-            size(sb) == expect ||
-                throw(DimensionMismatch("subband $(i0 + i) has size $(size(sb)), expected $(expect)"))
-            _subband_to_block!(hw, sb)
-            _copy!(view(hw.S, _surf_block_ranges(counts, bsize, i)...), hw.blk)
-        end
-        i0 += prod(counts)
         _irc_synthesis!(hw.S, sc.stages[K], hw.tmp)
         _hermitian_add!(X, hw.S, sc.masks[K], K, third)
     end
@@ -210,13 +246,28 @@ _part(isfirst::Bool, n::Int, mirrored::Bool) = isfirst ? (1:1:1) : (mirrored ? (
 # The block copies and masked sums above work on views with offset or reversed
 # strides, where Base's broadcast walks Cartesian indices and checks every axis
 # for a singleton at run time.  On host arrays Strided orders and blocks the loops
-# by stride instead: at 96³ `_hermitian_add!` runs 2.6–3× faster and a block copy
-# 5×, which takes 15% off a decimated inverse.  Device arrays keep the broadcast.
+# by stride instead.  Device arrays keep the broadcast.
 const _HostArray{T, N} = Union{Array{T, N}, SubArray{T, N, <:Array{T}}}
 
 # dst = src
 _copy!(dst, src) = (dst .= src)
 _copy!(dst::_HostArray, src::_HostArray) = (@strided dst .= src; dst)
+
+# dst = src between a host task's block buffer and its place in the hourglass,
+# inside a block task, which must not spawn Strided's own tasks: a plain loop over
+# the block, first axis innermost.
+const _HostBlock{T} = Base.ReshapedArray{T, 3, <:SubArray{T, 1, Vector{T}}}
+
+_block_copy!(dst, src) = (dst .= src)
+_block_copy!(dst::_HostBlock, src::_HostArray) = _loop_copy!(dst, src)
+_block_copy!(dst::_HostArray, src::_HostBlock) = _loop_copy!(dst, src)
+
+function _loop_copy!(dst::AbstractArray{T, 3}, src::AbstractArray{T, 3}) where {T}
+    @inbounds for I in CartesianIndices(dst)
+        dst[I] = src[I]
+    end
+    return dst
+end
 
 # dst = src · m · c
 _masked!(dst, src, m, c) = (dst .= src .* m .* c)

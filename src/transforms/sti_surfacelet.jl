@@ -33,15 +33,18 @@
 # tight-frame identity.
 
 """
-    make_sti_surfacelet(params::STISurfaceletParams, dims, T=Float64; flags=FFTW.MEASURE) -> SurfaceletPlan
+    make_sti_surfacelet(params::STISurfaceletParams, dims, T=Float64;
+                        tasks=Threads.nthreads(), flags=FFTW.MEASURE) -> SurfaceletPlan
 
 Precompute everything the STI transform needs for a `dims` volume.  Every
 dimension must be even and divisible by `2^level` for each directional level
 along it; the pyramid itself imposes nothing.  Scales with equal directional
-levels share their tables and buffers.
+levels share their tables and buffers.  `tasks` and `flags` are as for
+[`make_surfacelet`](@ref).
 """
 function make_sti_surfacelet(
-        params::STISurfaceletParams, dims::NTuple{3, Int}, ::Type{T} = Float64; flags::Integer = FFTW.MEASURE
+        params::STISurfaceletParams, dims::NTuple{3, Int}, ::Type{T} = Float64;
+        tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     p = _convert_stiparams(T, params)
     pyramid = _raised_cosine_pyramid(T, dims, p.J)
@@ -53,7 +56,7 @@ function make_sti_surfacelet(
         lv = p.levels[j]
         get!(() -> build(lv), cache, lv)
     end
-    return _surfacelet_plan(dims, p, pyramid, [sc for sc in scales], Array{T, 3}(undef, 0, 0, 0), flags)
+    return _surfacelet_plan(dims, p, pyramid, [sc for sc in scales], Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
 
 make_sti_surfacelet(params::STISurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
@@ -62,13 +65,14 @@ make_sti_surfacelet(params::STISurfaceletParams, dims::Vararg{Int, 3}; kwargs...
 _plan_params_type(::STISurfaceletParams) = STISurfaceletParams
 
 """
-    sti_surfacelet_forward(volume, params::STISurfaceletParams; plan=nothing) -> SurfaceletCoefficients
+    sti_surfacelet_forward(volume, params::STISurfaceletParams; plan=nothing, threaded=nothing) -> SurfaceletCoefficients
 
 Semi-translation-invariant surfacelet transform: nonsubsampled pyramid,
 critically sampled directional stage.  Redundancy `1 + 3J`; the scale
 decomposition is exactly shift-invariant, the directional subbands are not.  The
 coarse subband is a full-size volume; directional subbands have the sizes of
-[`surfacelet_forward`](@ref)'s at the finest scale, at every scale.
+[`surfacelet_forward`](@ref)'s at the finest scale, at every scale.  `threaded`
+is as for [`surfacelet_forward`](@ref).
 
 # Examples
 ```jldoctest
@@ -83,47 +87,62 @@ julia> c = sti_surfacelet_forward(x, p);
 julia> maximum(abs, sti_surfacelet_inverse(c, p) .- x) < 1e-10
 true
 ```
+
+# References
+1. Y. M. Lu and M. N. Do, "Multidimensional Directional Filter Banks and
+   Surfacelets", *IEEE Transactions on Image Processing*, 16(4):918–931, 2007.
+   [doi:10.1109/TIP.2007.891785](https://doi.org/10.1109/TIP.2007.891785)
+2. R. Eslami and H. Radha, "Translation-Invariant Contourlet Transform and Its
+   Application to Image Denoising", *IEEE Transactions on Image Processing*,
+   15(11):3362–3374, 2006.
+   [doi:10.1109/TIP.2006.881992](https://doi.org/10.1109/TIP.2006.881992)
 """
-function sti_surfacelet_forward(volume::AbstractArray{<:Real, 3}, params::STISurfaceletParams; plan::Union{SurfaceletPlan, Nothing} = nothing)
+function sti_surfacelet_forward(
+        volume::AbstractArray{<:Real, 3}, params::STISurfaceletParams;
+        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
     pl = _resolve_plan(make_sti_surfacelet, plan, params, volume)
-    return _surfacelet_forward!(_surfacelet_coefficients(pl), volume, pl)
+    return _surfacelet_forward!(_surfacelet_coefficients(pl), volume, pl, _s_threaded(threaded))
 end
 
 """
-    sti_surfacelet_forward!(coeffs, volume, params::STISurfaceletParams; plan=nothing) -> coeffs
+    sti_surfacelet_forward!(coeffs, volume, params::STISurfaceletParams; plan=nothing, threaded=nothing) -> coeffs
 
-[`sti_surfacelet_forward`](@ref) into the preallocated `coeffs`; allocates
-nothing when `plan` is given.
+[`sti_surfacelet_forward`](@ref) into the preallocated `coeffs`; with `plan`
+given it allocates no arrays.
 """
 function sti_surfacelet_forward!(
         coeffs::SurfaceletCoefficients, volume::AbstractArray{<:Real, 3}, params::STISurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing
+        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     pl = _resolve_plan(make_sti_surfacelet, plan, params, volume)
-    return _surfacelet_forward!(_check_coefficients(coeffs, pl), volume, pl)
+    return _surfacelet_forward!(_check_coefficients(coeffs, pl), volume, pl, _s_threaded(threaded))
 end
 
 """
-    sti_surfacelet_inverse(coeffs, params::STISurfaceletParams; plan=nothing) -> volume
+    sti_surfacelet_inverse(coeffs, params::STISurfaceletParams; plan=nothing, threaded=nothing) -> volume
 
 Invert [`sti_surfacelet_forward`](@ref) exactly (to rounding error).
 """
-function sti_surfacelet_inverse(coeffs::SurfaceletCoefficients, params::STISurfaceletParams; plan::Union{SurfaceletPlan, Nothing} = nothing)
+function sti_surfacelet_inverse(
+        coeffs::SurfaceletCoefficients, params::STISurfaceletParams;
+        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
     pl = _resolve_plan(make_sti_surfacelet, plan, params, coeffs)
-    return _surfacelet_inverse!(similar(coeffs.coarse, pl.dims), coeffs, pl)
+    return _surfacelet_inverse!(similar(coeffs.coarse, pl.dims), coeffs, pl, _s_threaded(threaded))
 end
 
 """
-    sti_surfacelet_inverse!(volume, coeffs, params::STISurfaceletParams; plan=nothing) -> volume
+    sti_surfacelet_inverse!(volume, coeffs, params::STISurfaceletParams; plan=nothing, threaded=nothing) -> volume
 
-[`sti_surfacelet_inverse`](@ref) into the preallocated `volume`; allocates
-nothing when `plan` is given.
+[`sti_surfacelet_inverse`](@ref) into the preallocated `volume`; with `plan`
+given it allocates no arrays.
 """
 function sti_surfacelet_inverse!(
         volume::AbstractArray{<:Real, 3}, coeffs::SurfaceletCoefficients, params::STISurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing
+        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     pl = _resolve_plan(make_sti_surfacelet, plan, params, coeffs)
     size(volume) == pl.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(pl.dims)"))
-    return _surfacelet_inverse!(volume, coeffs, pl)
+    return _surfacelet_inverse!(volume, coeffs, pl, _s_threaded(threaded))
 end

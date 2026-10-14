@@ -111,6 +111,17 @@ function _irc_stage!(S::AbstractArray, m::Int, b::Int, W11, W12, W21, W22, tmp::
     return S
 end
 
+# On the host the halves are 5-D views, where Base's broadcast checks every axis
+# for a singleton at run time; Strided blocks the loops by stride, and threads them.
+function _irc_stage!(S::Array, m::Int, b::Int, W11, W12, W21, W22, tmp::Array)
+    A, B = _irc_halves(S, m, b)
+    t = reshape(tmp, size(A))
+    @strided t .= W11 .* A .+ W12 .* B
+    @strided B .= W21 .* A .+ W22 .* B
+    @strided A .= t
+    return S
+end
+
 # Analysis: channel c's folded output `F_c(A)·A + F_c(B)·B` overwrites A (c = 0)
 # and B (c = 1).
 function _irc_analysis!(S::AbstractArray, stages::AbstractVector{<:IRCStage}, tmp::AbstractArray)
