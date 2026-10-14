@@ -26,8 +26,7 @@
 # (`MultiscaleFilterBanks.foreach_chunk`); the FFT plans are single-threaded.
 # The full-volume passes between those loops (the band and lowpass products and
 # the sum of the inverse's per-task partial sums) are split among the same tasks,
-# by slabs of the third axis or of the linear index: left serial, at 8 threads
-# they took a third of the 96³ inverse.
+# by slabs of the third axis or of the linear index.
 #
 # References: Y. M. Lu & M. N. Do, "Multidimensional Directional Filter Banks and
 # Surfacelets", IEEE TIP 16(4), 2007 (the NDFB and the surfacelet transform);
@@ -208,7 +207,7 @@ end
 # The host methods walk the columns, as `_wedge_mul!` does: everything but `a1`,
 # `g1` and `m1` is a scalar per column.  These full-volume passes sit between the
 # threaded subband loops, so with threading they split the third axis among the
-# workspace's tasks too (the forward at 96³ and 4 threads: 85 → 70 ms).
+# workspace's tasks too.
 function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
     g1, g2, g3 = ws.pgh[j]
@@ -450,6 +449,19 @@ julia> length(c.subbands[1]), length(c.subbands[2])
 julia> maximum(abs, ns_surfacelet_inverse(c, p) .- x) < 1e-10
 true
 ```
+
+# References
+1. Y. M. Lu and M. N. Do, "Multidimensional Directional Filter Banks and
+   Surfacelets", *IEEE Transactions on Image Processing*, 16(4):918–931, 2007.
+   [doi:10.1109/TIP.2007.891785](https://doi.org/10.1109/TIP.2007.891785)
+2. Y. M. Lu and M. N. Do, "A Mapping-Based Design for Nonsubsampled Hourglass
+   Filter Banks in Arbitrary Dimensions", *IEEE Transactions on Signal Processing*,
+   56(4):1466–1478, 2008.
+   [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
+3. A. L. da Cunha, J. Zhou, and M. N. Do, "The Nonsubsampled Contourlet Transform:
+   Theory, Design, and Applications", *IEEE Transactions on Image Processing*,
+   15(10):3089–3101, 2006.
+   [doi:10.1109/TIP.2006.877507](https://doi.org/10.1109/TIP.2006.877507)
 """
 function ns_surfacelet_forward(
         volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;

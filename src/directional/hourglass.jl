@@ -122,6 +122,12 @@ is exact either way.
 A complex element type is accepted and produces a plan of the corresponding real
 precision; complex volumes are filtered as two real passes, keeping
 `T(x + i·y) == T(x) + i·T(y)` exact.
+
+# References
+1. Y. M. Lu and M. N. Do, "A Mapping-Based Design for Nonsubsampled Hourglass
+   Filter Banks in Arbitrary Dimensions", *IEEE Transactions on Signal Processing*,
+   56(4):1466–1478, 2008.
+   [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_hourglass(
         dims::NTuple{3, Int}, ::Type{T} = Float64;

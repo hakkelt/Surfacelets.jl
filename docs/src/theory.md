@@ -4,8 +4,6 @@
 CurrentModule = Surfacelets
 ```
 
-This page covers the three surfacelet transforms and the stages they share.
-
 ![Block diagrams of the nonsubsampled, STI and decimated surfacelet transforms](assets/structure.svg)
 
 The surfacelet transform is a construction in its own right rather than a
@@ -311,7 +309,9 @@ c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
 ```
 
 A workspace adapt moves the shared hourglass response once, not once per scale.
-Verified against the CPU path on CUDA and OpenCL.
+Verified against the CPU path on CUDA, and on OpenCL with shared-virtual-memory
+arrays, whose FFTs FFTW runs on the CPU (OpenCL.jl has no FFT; buffer-backed
+`CLArray`s fail).
 
 The decimated surfacelet transform follows the same rule: the pyramid is a
 broadcast against its separable profile plus a crop through index views, the
@@ -321,8 +321,8 @@ host — the checkerboard filter slices are evaluated point by point in closed
 form — and then adapted to the *bare* array type (`Adapt.adapt(CuArray, pl)`,
 never `typeof(x)`, since the plan holds real, complex and integer tables).  The
 STI transform reuses the same plan pieces.  Both are verified against the CPU
-path on CUDA (an A100).  A device volume with no plan is an `ArgumentError`, not
-an implicit rebuild.
+path on CUDA, and on OpenCL in the same way as the nonsubsampled transform.  A
+device volume with no plan is an `ArgumentError`, not an implicit rebuild.
 
 ## Surfacelet transform (decimated)
 

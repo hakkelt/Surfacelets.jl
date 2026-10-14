@@ -69,6 +69,15 @@ wedge width: `0` gives hard boundaries, `0.5` lets the two steps of a wedge meet
 at its centre, and `1` (the default) ramps across a whole wedge on either side
 of each boundary, so no wedge has a flat passband — a plane wave at the centre
 of a wedge keeps about 71 % of its energy there at `levels = 2`.
+
+# References
+1. Y. M. Lu and M. N. Do, "Multidimensional Directional Filter Banks and
+   Surfacelets", *IEEE Transactions on Image Processing*, 16(4):918–931, 2007.
+   [doi:10.1109/TIP.2007.891785](https://doi.org/10.1109/TIP.2007.891785)
+2. Y. M. Lu and M. N. Do, "A Mapping-Based Design for Nonsubsampled Hourglass
+   Filter Banks in Arbitrary Dimensions", *IEEE Transactions on Signal Processing*,
+   56(4):1466–1478, 2008.
+   [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_ndfb(
         dims::NTuple{3, Int}, ::Type{T} = Float64;

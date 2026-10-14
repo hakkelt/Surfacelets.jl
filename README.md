@@ -1,8 +1,35 @@
 # Surfacelets.jl
 
+[![CI](https://github.com/hakkelt/Surfacelets.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/hakkelt/Surfacelets.jl/actions/workflows/CI.yml)
+[![Lint](https://github.com/hakkelt/Surfacelets.jl/actions/workflows/lint.yml/badge.svg?branch=master)](https://github.com/hakkelt/Surfacelets.jl/actions/workflows/lint.yml)
+[![Documentation (stable)](https://img.shields.io/badge/docs-stable-blue.svg)](https://hakkelt.github.io/Surfacelets.jl/stable/)
+[![Documentation (dev)](https://img.shields.io/badge/docs-dev-blue.svg)](https://hakkelt.github.io/Surfacelets.jl/dev/)
+[![Coverage](https://codecov.io/gh/hakkelt/Surfacelets.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/hakkelt/Surfacelets.jl)
+[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
+[![JET](https://img.shields.io/badge/%F0%9F%9B%A9%EF%B8%8F_tested_with-JET.jl-233f9a)](https://github.com/aviatesk/JET.jl)
+[![Runic](https://img.shields.io/badge/code%20style-runic-blue.svg)](https://github.com/fredrikekre/Runic.jl)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
+
 *The surfacelet transform in Julia: a multiscale, multidirectional transform for
 volumes, in a nonsubsampled (shift-invariant), a decimated and a
 semi-translation-invariant form.*
+
+A surfacelet transform splits a volume by scale, like a 3-D wavelet, and each
+scale further by direction, into wedges around the three frequency axes. Every
+subband then holds surfaces of one scale and one orientation, so volumes with
+smooth surfaces (organs in an MRI or CT scan, interfaces in a simulation) are
+represented far more sparsely than by separable wavelets, which helps denoising
+and compressed-sensing reconstruction.
+
+## Installation
+
+```julia
+using Pkg
+Pkg.add("Surfacelets")
+```
+
+## Quick start
 
 ```julia
 using Surfacelets
@@ -45,7 +72,7 @@ of describes it; its two stages are validated separately.
 | Shift invariance | exact | scales exact; subbands on their decimation lattice | no — decimation breaks it |
 | Frame | tight | perfect reconstruction | biorthogonal, perfect reconstruction |
 | Streaming form | yes, one subband at a time | not needed | not needed, the set fits |
-| GPU | CUDA / OpenCL verified | Adapt-based | Adapt-based |
+| GPU | Adapt-based | Adapt-based | Adapt-based |
 
 ## Not a 3-D contourlet transform
 
@@ -58,17 +85,29 @@ mapping kernels and cuts each hourglass into wedges with directly placed
 frequency boundaries. The decimated transform refines each hourglass with
 iterated resampled checkerboard (IRC) filter banks: ladder filters and shears,
 like a contourlet DFB, but on the planes of each hourglass, and critically
-sampled.
+sampled. The [theory page](https://hakkelt.github.io/Surfacelets.jl/stable/theory/)
+explains the constructions with figures.
 
 The 2-D contourlet and nonsubsampled contourlet transforms live in
-[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl). The two packages
-share only the pyramid filter machinery, which lives in
+[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl), and 2-D and 3-D
+shearlet transforms in [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl).
+The packages share only the pyramid filters and the threading, which live in
 [MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl).
 
-## GPU
+## Multithreading and GPU
 
-Both transforms are FFT plus a pointwise mask, and every mask is stored as
-broadcastable factors, so the device path needs no kernels — only `Adapt`:
+The transforms run in parallel over Julia's threads (start Julia with
+`-t auto`) unless `threaded = false`: the nonsubsampled transform computes its
+subbands in parallel, the decimated and STI transforms split each scale's
+blocks among the threads.
+
+The transforms are FFT plus a pointwise mask, and every mask is stored as
+broadcastable factors, so the device path needs no kernels — only `Adapt` and a
+GPU backend with an FFT library: CUDA.jl (NVIDIA), AMDGPU.jl (AMD) or Metal.jl
+(Apple silicon, `Float32` only). The test suite runs on CUDA. OpenCL.jl is
+supported but much slower than the CPU, because it has no FFT: FFTW runs the
+FFTs on the CPU on `CLArray`s in shared virtual memory (OpenCL.jl's default on
+devices that support it).
 
 ```julia
 using CUDA, Adapt, Surfacelets
@@ -76,22 +115,6 @@ using CUDA, Adapt, Surfacelets
 ws = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, size(vol), Float32))
 c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
 ```
-
-## Installation
-
-This package is not registered yet:
-
-```julia
-using Pkg
-Pkg.add(url = "https://github.com/hakkelt/Surfacelets.jl")
-```
-
-To work against a local checkout of the core package instead, put it next to
-this one and run `julia --project=. dev/bootstrap.jl` once; it
-`Pkg.develop`s the sibling checkout into every environment of the workspace.
-
-Before CI can go green on GitHub, this repository needs `CODECOV_TOKEN` and
-`DOCUMENTER_KEY` set.
 
 ## Development
 
@@ -102,6 +125,15 @@ julia --project=test test/runtests.jl :directional  # filter by tag or item name
 runic src/
 JULIA_LOAD_PATH="@relint:@stdlib" julia --startup-file=no scripts/relint.jl src/
 ```
+
+To work against a local checkout of MultiscaleFilterBanks.jl, put it next to
+this one and run `julia --project=. dev/bootstrap.jl` once; it `Pkg.develop`s
+the sibling checkout into every environment of the workspace.
+
+## Disclaimer
+
+This package was created by [Claude](https://claude.com/claude-code), Anthropic's
+AI model, under the direction of the author.
 
 ## License
 

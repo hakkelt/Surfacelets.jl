@@ -8,8 +8,7 @@ semi-translation-invariant form.*
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/hakkelt/MultiscaleFilterBanks.jl")
-Pkg.add(url = "https://github.com/hakkelt/Surfacelets.jl")
+Pkg.add("Surfacelets")
 ```
 
 ## Quick start
@@ -66,7 +65,7 @@ contourlet transform, not its construction — it is not a 3-D STICT; see
 | Shift invariance | exact | scales exact; subbands on their decimation lattice | no — decimation breaks it |
 | Frame | tight | perfect reconstruction | biorthogonal, perfect reconstruction |
 | Streaming form | yes, one subband at a time | not needed | not needed, the set fits |
-| GPU | CUDA / OpenCL verified | Adapt-based, as the decimated one | Adapt-based |
+| GPU | Adapt-based | Adapt-based, as the decimated one | Adapt-based |
 | Use for | analysis, shift-invariant denoising | middle ground: scale invariance at modest redundancy | sparsifying transform in reconstruction |
 
 All three split each scale into `3 · 2^L` directional subbands: three hourglass-shaped
@@ -87,14 +86,23 @@ a contourlet DFB, but on the planes of each hourglass and critically sampled.
 See [Theory](@ref theory).
 
 The 2-D contourlet and nonsubsampled contourlet transforms live in
-[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl); the two packages
-share only the pyramid filter machinery, which lives in
+[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl), and 2-D and 3-D
+shearlet transforms in [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl);
+the packages share only the pyramid filters and the threading, which live in
 [MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl).
 
-## GPU
+## Multithreading and GPU
 
-Both transforms are FFT plus a pointwise mask, and every mask is stored as
-broadcastable factors, so the device path needs no kernels — only `Adapt`:
+The transforms run in parallel over Julia's threads unless `threaded = false`:
+the nonsubsampled transform computes its subbands in parallel, the decimated
+and STI transforms split each scale's blocks among the threads.
+
+The transforms run on GPU backends with an FFT library: CUDA.jl (NVIDIA),
+AMDGPU.jl (AMD) and Metal.jl (Apple silicon, `Float32` only); the test suite
+runs on CUDA. OpenCL.jl is supported but much slower than the CPU, because it
+has no FFT: FFTW runs the FFTs on the CPU on `CLArray`s in shared virtual memory
+(OpenCL.jl's default on devices that support it). Move a workspace to the device
+with `Adapt`:
 
 ```julia
 using CUDA, Adapt, Surfacelets
