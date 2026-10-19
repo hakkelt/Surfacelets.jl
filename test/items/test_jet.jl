@@ -139,7 +139,6 @@ end
 
     dims = (16, 16, 16)
     x = randn(dims...)
-    dst = similar(x)
 
     # ── Types / constructors / filters ───────────────────────────────────────
     @test_opt target_modules = M NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)

@@ -55,7 +55,7 @@ end
     end
 end
 
-@testitem "positional-size convenience constructors" tags = [:primitives] begin
+@testitem "positional-size convenience constructors" tags = [:directional] begin
     @test make_hourglass(8, 10, 12; order = 4).dims == (8, 10, 12)
     @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, order = 4)) == 6
 

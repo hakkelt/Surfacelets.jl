@@ -48,16 +48,10 @@ _rcos_edges(n::Int, w::Rational, t::Rational) = (ceil(Int, n // 2 * (w + t)), fl
 # The profile's value at bin `|f| ≤ P`: a √rcos ramp from 1 down to 0.
 _rcos_profile(::Type{T}, f::Int, P::Int, Q::Int) where {T} = sqrt(_rcos(T(P - f) / T(P - Q)))
 
-# Separable lowpass from three 1-D profiles, `L[i,j,k] = p₁[i] p₂[j] p₃[k]`.
-# `_separable_factors` gives the profiles oriented along their axes, for
-# broadcasting the product without materialising it.
+# Three 1-D profiles of a separable lowpass `L[i,j,k] = p₁[i] p₂[j] p₃[k]`,
+# oriented along their axes for broadcasting the product.
 _separable_factors(prof::NTuple{3, <:AbstractVector}) =
     (prof[1], reshape(prof[2], 1, :), reshape(prof[3], 1, 1, :))
-
-function _separable_lowpass(prof::NTuple{3, <:AbstractVector})
-    l1, l2, l3 = _separable_factors(prof)
-    return l1 .* l2 .* l3
-end
 
 function _pyramid_level(::Type{T}, n::NTuple{3, Int}, w::Rational, tbw::Rational, D::Rational) where {T}
     all(d -> (d * denominator(D)) % numerator(D) == 0, n) ||
@@ -117,21 +111,3 @@ function _pyramid_merge!(X::AbstractArray{Complex{T}, 3}, low::AbstractArray{Com
     box .= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2) .* box .+ (l1 .* l2 .* l3 .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
     return X
 end
-
-# The pyramid as the transform drives it (`surfacelet.jl`): the spectra it works
-# in, the bandpass of scale j, and the merge back.  Spectrum j has the size
-# entering level j and the last one is the coarse lowpass, so the scales hand
-# each other their spectra and nothing is copied.
-_pyramid_sizes(levels::AbstractVector{<:FourierPyramidLevel}) = [[lv.n for lv in levels]; [levels[end].nlow]]
-
-function _pyramid_band!(spectra::AbstractVector, levels::AbstractVector{<:FourierPyramidLevel}, j::Int)
-    return _pyramid_split!(spectra[j + 1], spectra[j], levels[j])
-end
-
-_pyramid_band_buffer(spectra::AbstractVector, ::AbstractVector{<:FourierPyramidLevel}, j::Int) = spectra[j]
-
-function _pyramid_merge!(spectra::AbstractVector, levels::AbstractVector{<:FourierPyramidLevel}, j::Int)
-    return _pyramid_merge!(spectra[j], spectra[j + 1], levels[j])
-end
-
-_coarse_spectrum(spectra::AbstractVector, ::AbstractVector{<:FourierPyramidLevel}) = spectra[end]

@@ -39,13 +39,13 @@ the same time; give each task its own.  A transform with the plan spreads its
 work over at most the `tasks` it was built for.  `Adapt.adapt(ArrayType, plan)` moves it
 to a device, rebuilding the buffers and FFT plans there.
 """
-struct SurfaceletPlan{T, P, L, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G}
+struct SurfaceletPlan{T, P <: SurfaceletParams{T}, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G}
     dims::NTuple{3, Int}
     params::P
     pyramid::Vector{L}
     scales::Vector{C}
     work::Vector{W}         # scales with equal tables share one
-    spectra::Vector{A}      # see `_pyramid_sizes`
+    spectra::Vector{A}      # [j] the spectrum entering level j; [end] the coarse lowpass
     pfwd::F                 # in-place FFT and unnormalised inverse on spectra[1] …
     pbwd::G
     cfwd::F                 # … and on the coarse spectrum
@@ -69,10 +69,11 @@ function _surfacelet_plan(
         [get!(() -> build(sc), works, sc.stages) for sc in scales]
     end
     Tc = Complex{T}
-    spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in _pyramid_sizes(pyramid)]
+    # The scales hand each other their spectra, so nothing is copied.
+    sizes = [[lv.n for lv in pyramid]; [last(pyramid).nlow]]
+    spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in sizes]
     pfwd, pbwd = _inplace_plans(spectra[1], flags, tasks)
-    C = _coarse_spectrum(spectra, pyramid)
-    cfwd, cbwd = C === spectra[1] ? (pfwd, pbwd) : _inplace_plans(C, flags, tasks)
+    cfwd, cbwd = _inplace_plans(spectra[end], flags, tasks)
     return SurfaceletPlan(dims, params, collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd)
 end
 
@@ -118,11 +119,10 @@ make_surfacelet(params::SurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
 """
     surfacelet_redundancy(plan::SurfaceletPlan) -> Float64
 
-Total stored coefficients divided by the number of input voxels; exactly
-`1 + 3J` for a semi-translation-invariant plan.
+Total stored coefficients divided by the number of input voxels.
 """
 function surfacelet_redundancy(plan::SurfaceletPlan)
-    total = length(_coarse_spectrum(plan.spectra, plan.pyramid)) + _directional_count(plan.scales)
+    total = length(plan.spectra[end]) + _directional_count(plan.scales)
     return total / prod(plan.dims)
 end
 
@@ -164,7 +164,7 @@ function surfacelet_forward(
         volume::AbstractArray{<:Real, 3}, params::SurfaceletParams;
         plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
-    pl = _resolve_plan(make_surfacelet, plan, params, volume)
+    pl = _resolve_plan(plan, params, volume)
     return _surfacelet_forward!(_surfacelet_coefficients(pl), volume, pl, _s_threaded(threaded))
 end
 
@@ -178,7 +178,7 @@ function surfacelet_forward!(
         coeffs::SurfaceletCoefficients, volume::AbstractArray{<:Real, 3}, params::SurfaceletParams;
         plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
-    pl = _resolve_plan(make_surfacelet, plan, params, volume)
+    pl = _resolve_plan(plan, params, volume)
     return _surfacelet_forward!(_check_coefficients(coeffs, pl), volume, pl, _s_threaded(threaded))
 end
 
@@ -191,7 +191,7 @@ function surfacelet_inverse(
         coeffs::SurfaceletCoefficients, params::SurfaceletParams;
         plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
-    pl = _resolve_plan(make_surfacelet, plan, params, coeffs)
+    pl = _resolve_plan(plan, params, coeffs)
     return _surfacelet_inverse!(similar(coeffs.coarse, pl.dims), coeffs, pl, _s_threaded(threaded))
 end
 
@@ -205,7 +205,7 @@ function surfacelet_inverse!(
         volume::AbstractArray{<:Real, 3}, coeffs::SurfaceletCoefficients, params::SurfaceletParams;
         plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
     )
-    pl = _resolve_plan(make_surfacelet, plan, params, coeffs)
+    pl = _resolve_plan(plan, params, coeffs)
     size(volume) == pl.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(pl.dims)"))
     return _surfacelet_inverse!(volume, coeffs, pl, _s_threaded(threaded))
 end
@@ -235,10 +235,10 @@ function _surfacelet_forward_body!(c::SurfaceletCoefficients, volume::AbstractAr
     X .= volume
     pl.pfwd * X
     for j in eachindex(pl.scales)
-        band = _pyramid_band!(pl.spectra, pl.pyramid, j)
+        band = _pyramid_split!(pl.spectra[j + 1], pl.spectra[j], pl.pyramid[j])
         _surf_scale_forward!(c.subbands[j], band, pl.scales[j], pl.work[j], threaded)
     end
-    C = _coarse_spectrum(pl.spectra, pl.pyramid)
+    C = pl.spectra[end]
     pl.cbwd * C
     c.coarse .= real.(C) .* inv(real(eltype(C))(length(C)))
     return c
@@ -246,12 +246,12 @@ end
 
 function _surfacelet_inverse_body!(volume::AbstractArray{<:Real, 3}, c::SurfaceletCoefficients, pl::SurfaceletPlan, threaded::Bool)
     _check_coefficients(c, pl)
-    C = _coarse_spectrum(pl.spectra, pl.pyramid)
+    C = pl.spectra[end]
     C .= c.coarse
     pl.cfwd * C
     for j in reverse(eachindex(pl.scales))
-        _surf_scale_inverse!(_pyramid_band_buffer(pl.spectra, pl.pyramid, j), c.subbands[j], pl.scales[j], pl.work[j], threaded)
-        _pyramid_merge!(pl.spectra, pl.pyramid, j)
+        _surf_scale_inverse!(pl.spectra[j], c.subbands[j], pl.scales[j], pl.work[j], threaded)
+        _pyramid_merge!(pl.spectra[j], pl.spectra[j + 1], pl.pyramid[j])
     end
     X = pl.spectra[1]
     pl.pbwd * X
@@ -262,7 +262,7 @@ end
 # Coefficients for `pl`, allocated like its buffers.
 function _surfacelet_coefficients(pl::SurfaceletPlan{T}) where {T}
     proto = pl.spectra[1]
-    coarse = similar(proto, T, size(_coarse_spectrum(pl.spectra, pl.pyramid)))
+    coarse = similar(proto, T, size(pl.spectra[end]))
     subbands = map(pl.scales) do sc
         [similar(proto, T, _surf_subband_size(sc, K)) for K in 1:3 for _ in 1:prod(first(_surf_blocks(sc, K)))]
     end
@@ -273,7 +273,7 @@ function _check_coefficients(c::SurfaceletCoefficients, pl::SurfaceletPlan)
     c.dims == pl.dims || throw(DimensionMismatch("coefficients are for $(c.dims), the plan for $(pl.dims)"))
     length(c.subbands) == length(pl.scales) ||
         throw(ArgumentError("coefficients were produced for a different number of scales"))
-    expect = size(_coarse_spectrum(pl.spectra, pl.pyramid))
+    expect = size(pl.spectra[end])
     size(c.coarse) == expect ||
         throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(expect)"))
     for (j, sc) in enumerate(pl.scales)
@@ -283,9 +283,9 @@ function _check_coefficients(c::SurfaceletCoefficients, pl::SurfaceletPlan)
     return c
 end
 
-# The plan to use: `plan` after checking it, or a fresh host plan from `make`
-# (`make_surfacelet`) when none was given.
-function _resolve_plan(make::F, plan, params, x::Union{AbstractArray, SurfaceletCoefficients}) where {F}
+# The plan to use: `plan` after checking it, or a fresh host plan when none was
+# given.
+function _resolve_plan(plan, params::SurfaceletParams, x::Union{AbstractArray, SurfaceletCoefficients})
     dims = x isa SurfaceletCoefficients ? x.dims : size(x)
     proto = x isa SurfaceletCoefficients ? x.coarse : x
     if plan === nothing
@@ -293,17 +293,13 @@ function _resolve_plan(make::F, plan, params, x::Union{AbstractArray, Surfacelet
         # it, built once rather than implicitly on every call.
         proto isa Array || throw(
             ArgumentError(
-                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, $(nameof(make))(params, dims, T))`"
+                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, make_surfacelet(params, dims, T))`"
             )
         )
         T = filter_eltype(data_eltype(proto))
-        return make(params, dims, T; flags = FFTW.ESTIMATE)
+        return make_surfacelet(params, dims, T; flags = FFTW.ESTIMATE)
     end
-    plan.params isa _plan_params_type(params) ||
-        throw(ArgumentError("plan was built for $(nameof(typeof(plan.params))), not $(nameof(typeof(params)))"))
     plan.dims == dims ||
         throw(DimensionMismatch("plan was built for $(plan.dims), got $(dims)"))
     return plan
 end
-
-_plan_params_type(::SurfaceletParams) = SurfaceletParams

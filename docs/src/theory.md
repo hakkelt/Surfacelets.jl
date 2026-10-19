@@ -325,8 +325,9 @@ broadcast between the two halves of a reshaped view.  Its plan is built on the
 host — the checkerboard filter slices are evaluated point by point in closed
 form — and then adapted to the *bare* array type (`Adapt.adapt(CuArray, pl)`,
 never `typeof(x)`, since the plan holds real, complex and integer tables).  It
-is verified against the CPU path on CUDA, and on OpenCL in the same way as the nonsubsampled transform.  A
-device volume with no plan is an `ArgumentError`, not an implicit rebuild.
+is verified against the CPU path on CUDA, and on OpenCL in the same way as the
+nonsubsampled transform.  A device volume with no plan is an `ArgumentError`,
+not an implicit rebuild.
 
 ## Surfacelet transform (decimated)
 

@@ -62,8 +62,8 @@ struct NSSurfaceletWorkspace{
     m1::A3                                      # hourglass f₀(M₁), rfft grid
     m2::A3                                      # hourglass f₀(M₂), (1, n₂, n₃)
     wedges::Vector{NTuple{3, NTuple{2, Vector{A3}}}}  # [scale][hourglass][plane][wedge], √ when tight
-    pa::Vector{NTuple{3, C3}}                   # Π_{i<j} ℓᵢ per axis, j = 1:J+1
-    pl::Vector{NTuple{3, C3}}                   # ℓⱼ per axis, j = 1:J
+    pa::Vector{NTuple{3, A3}}                   # Π_{i<j} ℓᵢ per axis, j = 1:J+1
+    pl::Vector{NTuple{3, A3}}                   # ℓⱼ per axis, j = 1:J
     # Buffers.  A complex volume is two real channels, filtered alike, which
     # keeps `T(x + i·y) == T(x) + i·T(y)` exact.
     X::Vector{C3}                               # [channel] input spectrum / synthesis sum
@@ -104,7 +104,7 @@ function make_ns_surfacelet_workspace(
     wedges = [_ns_wedge_factors(dims, l, p) for l in p.L_array]
     bins(d) = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d])
     resp = ntuple(d -> _rc_responses(T, p.J, dims[d], bins(d)), 3)
-    orient(v, d) = reshape(Complex{T}.(v), ntuple(k -> k == d ? length(v) : 1, 3))
+    orient(v, d) = reshape(v, ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
     pa, pl = per_level(1, p.J + 1), per_level(2, p.J)
     proto = Array{T, 3}(undef, 0, 0, 0)
@@ -113,7 +113,6 @@ end
 
 make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
     make_ns_surfacelet_workspace(params, dims; kwargs...)
-
 
 # The wedge factors of one scale with depth `L`: the analysis masks' planes,
 # square-rooted when the bank is tight (the weights are ≥ 0 up to rounding).
@@ -186,73 +185,51 @@ _ns_threaded(threaded::Union{Bool, Nothing}) = threaded !== false
     return tight ? _tight_sqrt(w) : w
 end
 
-# √(1 - ℓⱼ²), the level-j factor of the bandpass (analysis and synthesis), from
-# ℓⱼ held as a complex number with zero imaginary part.
-@inline _band(l::Complex{T}) where {T} = Complex{T}(sqrt(max(1 - real(l)^2, zero(T))))
+# √(1 - ℓⱼ²), the level-j factor of the bandpass.
+@inline _band(l::T) where {T <: Real} = sqrt(max(1 - l^2, zero(T)))
 
-# Y = X · Bⱼ · Wᵢ: the hourglass-i part of the scale-j bandpass.
-function _ns_band!(Y, X, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
+# Y = X · Bⱼ · Wᵢ, the hourglass-i part of the scale-j bandpass, or with `add` its
+# synthesis counterpart X += Y · Bⱼ · Wᵢ (Wᵢ = 1 when not tight: the directional
+# inverse is then a bare sum).  Bⱼ is the same mask both ways.
+function _ns_band!(dst, src, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
-    g1, g2, g3 = ws.pl[j]
+    l1, l2, l3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    @. Y = X * (a1 * a2 * a3) * _band(g1 * g2 * g3) * _hg_factor(m1, m2, i, tight)
-    return Y
+    if !add
+        @. dst = src * (a1 * a2 * a3 * _band(l1 * l2 * l3) * _hg_factor(m1, m2, i, tight))
+    elseif tight
+        @. dst += src * (a1 * a2 * a3 * _band(l1 * l2 * l3) * _hg_factor(m1, m2, i, true))
+    else
+        @. dst += src * (a1 * a2 * a3 * _band(l1 * l2 * l3))
+    end
+    return dst
 end
 
-# The host methods walk the columns, as `_wedge_mul!` does: everything but `a1`,
-# `g1` and `m1` is a scalar per column.  These full-volume passes sit between the
+# The host method walks the columns, as `_wedge_mul!` does: everything but `a1`,
+# `l1` and `m1` is a scalar per column.  These full-volume passes sit between the
 # threaded subband loops, so with threading they split the third axis among the
 # workspace's tasks too.
-function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
+function _ns_band!(dst::Array, src::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
-    g1, g2, g3 = ws.pl[j]
+    l1, l2, l3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    a1v, g1v = vec(a1), vec(g1)
-    _foreach_slab(Y, ws, threaded) do ks
-        @inbounds for k in ks, l in axes(Y, 2)
+    a1v, l1v = vec(a1), vec(l1)
+    _foreach_slab(dst, ws, threaded) do ks
+        @inbounds for k in ks, l in axes(dst, 2)
             a23 = a2[1, l, 1] * a3[1, 1, k]
-            g23 = g2[1, l, 1] * g3[1, 1, k]
+            l23 = l2[1, l, 1] * l3[1, 1, k]
             μ2 = m2[1, l, k]
-            y, x, μ1 = view(Y, :, l, k), view(X, :, l, k), view(m1, :, l, k)
-            @. y = x * (a1v * a23) * _band(g1v * g23) * _hg_factor(μ1, μ2, i, tight)
-        end
-    end
-    return Y
-end
-
-# X += Y · Sⱼ · Wᵢ, the synthesis counterpart (Wᵢ = 1 when not tight: the
-# directional inverse is then a bare sum).
-function _ns_unband!(X, Y, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
-    s1, s2, s3 = ws.pa[j]
-    g1, g2, g3 = ws.pl[j]
-    m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    if tight
-        @. X += Y * (s1 * s2 * s3) * _band(g1 * g2 * g3) * _hg_factor(m1, m2, i, true)
-    else
-        @. X += Y * (s1 * s2 * s3) * _band(g1 * g2 * g3)
-    end
-    return X
-end
-
-function _ns_unband!(X::Array, Y::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
-    s1, s2, s3 = ws.pa[j]
-    g1, g2, g3 = ws.pl[j]
-    m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    s1v, g1v = vec(s1), vec(g1)
-    _foreach_slab(X, ws, threaded) do ks
-        @inbounds for k in ks, l in axes(X, 2)
-            s23 = s2[1, l, 1] * s3[1, 1, k]
-            g23 = g2[1, l, 1] * g3[1, 1, k]
-            μ2 = m2[1, l, k]
-            x, y, μ1 = view(X, :, l, k), view(Y, :, l, k), view(m1, :, l, k)
-            if tight
-                @. x += y * (s1v * s23) * _band(g1v * g23) * _hg_factor(μ1, μ2, i, true)
+            d, s, μ1 = view(dst, :, l, k), view(src, :, l, k), view(m1, :, l, k)
+            if !add
+                @. d = s * (a1v * a23 * _band(l1v * l23) * _hg_factor(μ1, μ2, i, tight))
+            elseif tight
+                @. d += s * (a1v * a23 * _band(l1v * l23) * _hg_factor(μ1, μ2, i, true))
             else
-                @. x += y * (s1v * s23) * _band(g1v * g23)
+                @. d += s * (a1v * a23 * _band(l1v * l23))
             end
         end
     end
-    return X
+    return dst
 end
 
 # Y = X · a₁a₂a₃ (or Y += when `add`), the lowpass of the last pyramid level with
@@ -342,7 +319,7 @@ function _ns_forward!(target::F, done::G, volume::AbstractArray, ws::NSSurfacele
         na, nb = _ns_wedge_counts(ws, j)
         for i in 1:3
             for c in 1:nch
-                _ns_band!(ws.Y[c], ws.X[c], ws, j, i, threaded)
+                _ns_band!(ws.Y[c], ws.X[c], ws, j, i, false, threaded)
             end
             planes = ws.wedges[j][i]
             foreach_chunk(na * nb, nt, threaded) do range, t
@@ -404,7 +381,7 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
             end
             for c in 1:nch
                 threaded && add_partials!(ws.Y[c], ws.partial[c], true)
-                _ns_unband!(ws.X[c], ws.Y[c], ws, j, i, threaded)
+                _ns_band!(ws.X[c], ws.Y[c], ws, j, i, true, threaded)
             end
         end
     end

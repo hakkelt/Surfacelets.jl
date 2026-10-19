@@ -50,8 +50,8 @@ end
 Adapt.adapt_structure(to, fb::NDFB) = _adapt_ndfb(to, fb, Adapt.adapt(to, fb.fb))
 
 # The workspace's tables move; its buffers and FFT plans are rebuilt next to them.
-# The tables hold real and complex arrays, so adapt to the bare array type
-# (`CuArray`), not an element-typed one.
+# Adapt to the bare array type (`CuArray`), not an element-typed one, so the
+# tables keep the workspace's precision.
 function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, T}
     ad(x) = Adapt.adapt(to, x)
     wedges = [map(hg -> map(planes -> [ad(w) for w in planes], hg), s) for s in ws.wedges]

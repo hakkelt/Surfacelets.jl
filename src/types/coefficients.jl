@@ -1,8 +1,7 @@
 # Coefficient containers for the surfacelet transforms.
 #
 # The nonsubsampled transform keeps every subband at the size of the input; the
-# decimated and semi-translation-invariant transforms share one container, whose
-# subbands each have their own decimated size.
+# decimated transform's subbands each have their own decimated size.
 
 """
     NSSurfaceletCoefficients{Td, A}

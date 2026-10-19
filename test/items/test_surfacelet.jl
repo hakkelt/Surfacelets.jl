@@ -46,19 +46,16 @@ end
 @testitem "surfacelet — threaded and serial runs agree" tags = [:surfacelet] begin
     using Random
     x = randn(Xoshiro(5), 48, 24, 36)
-    for (make, fwd, inv, p) in (
-            (make_surfacelet, surfacelet_forward, surfacelet_inverse, SurfaceletParams(J = 2, L_array = [1, 2])),
-        )
-        pl = make(p, size(x))
-        c = fwd(x, p; plan = pl)
-        # A plan for one task plans its full-volume FFTs on one FFTW thread,
-        # which may round differently.
-        for (q, threaded) in ((pl, false), (make(p, size(x); tasks = 1), nothing))
-            d = fwd(x, p; plan = q, threaded = threaded)
-            @test d.coarse ≈ c.coarse
-            @test all(d.subbands[j][k] ≈ c.subbands[j][k] for j in eachindex(c.subbands) for k in eachindex(c.subbands[j]))
-            @test inv(d, p; plan = q, threaded = threaded) ≈ inv(c, p; plan = pl)
-        end
+    p = SurfaceletParams(J = 2, L_array = [1, 2])
+    pl = make_surfacelet(p, size(x))
+    c = surfacelet_forward(x, p; plan = pl)
+    # A plan for one task plans its full-volume FFTs on one FFTW thread, which may
+    # round differently.
+    for (q, threaded) in ((pl, false), (make_surfacelet(p, size(x); tasks = 1), nothing))
+        d = surfacelet_forward(x, p; plan = q, threaded = threaded)
+        @test d.coarse ≈ c.coarse
+        @test all(d.subbands[j][k] ≈ c.subbands[j][k] for j in eachindex(c.subbands) for k in eachindex(c.subbands[j]))
+        @test surfacelet_inverse(d, p; plan = q, threaded = threaded) ≈ surfacelet_inverse(c, p; plan = pl)
     end
     @test_throws ArgumentError make_surfacelet(SurfaceletParams(J = 1, L_array = [1]), (24, 24, 24); tasks = 0)
 end

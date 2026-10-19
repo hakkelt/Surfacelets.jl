@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" width="720" height="350" font-family="Helvetica, Arial, sans-serif" font-size="13">
-  <!-- Block diagrams of the three 3-D transforms (one pyramid level shown in
+  <!-- Block diagrams of the two 3-D transforms (one pyramid level shown in
        full).  Hand-written for the Theory page of Surfacelets.jl; render it with
        `rsvg-convert` to check the layout. -->
   <defs>

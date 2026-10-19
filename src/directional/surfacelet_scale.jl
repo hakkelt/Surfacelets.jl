@@ -1,5 +1,5 @@
-# Critically sampled directional stage of one surfacelet scale, shared by the
-# decimated and semi-translation-invariant transforms (`surfacelet.jl`).
+# Critically sampled directional stage of one scale of the decimated surfacelet
+# transform (`surfacelet.jl`).
 #
 # The scale's spectrum is split by the undecimated "ritf" hourglass bank
 # (`ritf.jl`) into three hourglasses, each kept on the half-spectrum of its own
@@ -7,8 +7,6 @@
 # refine it into wedges and decimate critically.  A wedge block is then the
 # half-spectrum of a real subband along its hourglass axis, so a real inverse FFT
 # along that axis first (`brfft` over `(K, others…)`) turns it into the subband.
-# The two transforms differ only in the pyramid that hands this stage its
-# bandpass.
 
 # Per-scale tables: hourglass masks and IRC stages for the three hourglasses.
 struct _SurfScale{T, R <: AbstractArray{T, 3}, S <: IRCStage}

@@ -23,9 +23,9 @@ a denoising comparison: the former is not tight and lost at equal redundancy,
 the latter was weakest on short-axis (x, y, t) data.
 
 The decimated transform runs on a `SurfaceletPlan` and one driver
-(`transforms/surfacelet.jl`); dispatch on the pyramid levels picks the stage-1
-functions (`_pyramid_band!`, `_pyramid_merge!`). The plan owns its spectra, IRC scratch, block buffers and FFT plans, so the `!`
-paths allocate only array headers — and a plan must not serve two tasks at once.
+(`transforms/surfacelet.jl`). The plan owns its spectra, IRC scratch, block
+buffers and FFT plans, so the `!` paths allocate only array headers — and a plan
+must not serve two tasks at once.
 A wedge block becomes its real subband through one `brfft` over `(K, others…)`,
 the hourglass axis halved; the `1/N` rides on the hourglass mask.
 
@@ -58,9 +58,6 @@ level has no `3d` tag, because the package name already says it.
   complex volume is filtered as its real part then its imaginary part through the
   identical kernel. Two real transforms cost about one complex transform, and it
   is what keeps the bit-for-bit linearity above true.
-- **Periodic filtering is a product on the DFT grid.** Every stage of the
-  nonsubsampled transform is a pointwise mask on the rfft grid, which is exact
-  (periodic filtering is circular convolution), not an approximation.
 - **FFTW plans: no Julia-side plan cache.** FFTW already caches `MEASURE` wisdom
   globally in the C library, so re-planning a previously-seen size is
   sub-millisecond. A `Dict` of plan objects only adds a lock and a type-unstable
@@ -79,7 +76,7 @@ level has no `3d` tag, because the package name already says it.
 
 - All tests are self-contained `@testitem` blocks (TestItemRunner): each block
   must import all dependencies except `Surfacelets` and `Test` inside the block.
-- Tag taxonomy: `:filters`, `:primitives`, `:pyramid`, `:directional`,
+- Tag taxonomy: `:filters`, `:pyramid`, `:directional`,
   `:ns_surfacelet`, `:surfacelet`, `:surfbox`, `:quality`, `:jet`, `:docs`, `:gpu`.
 - Seed every random input (`Random.seed!(42)`); never rely on global RNG state.
 - **Directional tests must assert the *index* of the subband a plane wave lands
@@ -117,11 +114,11 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
 ## Design Decisions
 
 - **No downsampling in the nonsubsampled transform** — all subbands have the same
-  spatial size as the input, and all NSP/NDFB filtering uses periodic (circular)
+  spatial size as the input, and all pyramid/NDFB filtering uses periodic (circular)
   convolution, so the transform is exactly invariant under circular shifts.
   Periodic filtering is a product on the DFT grid, so the workspace runs the whole
   cascade as masks on the input's rfft: pyramid bandpasses broadcast from per-axis
-  responses (`MultiscaleFilterBanks.nsp_responses`), the hourglass factor applied
+  responses (`_rc_responses`), the hourglass factor applied
   once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
   planes (stored square-rooted when tight) and one irfft. The subbands are
   threaded over with `foreach_chunk` (Polyester's `@batch`), single-threaded

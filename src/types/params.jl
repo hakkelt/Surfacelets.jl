@@ -1,11 +1,11 @@
-# Parameter types for the three surfacelet transforms.
+# Parameter types for the two surfacelet transforms.
 #
 # The nonsubsampled transform's directional stage is parameterised by a
 # Bernstein mapping order and a halfband split polynomial — the hourglass
 # partition has no filter-pair description at all, so these parameters have no
 # counterpart in a separable-lattice directional filter bank.  The decimated
-# and semi-translation-invariant transforms share SurfBox's directional stage
-# (hourglass diamond kernel + checkerboard filter order) instead.
+# transform uses SurfBox's directional stage (hourglass diamond kernel +
+# checkerboard filter order) instead.
 
 # ── Nonsubsampled ─────────────────────────────────────────────────────────────
 
