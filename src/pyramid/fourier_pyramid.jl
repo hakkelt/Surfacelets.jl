@@ -107,9 +107,12 @@ end
 # broadcast from its three 1-D profiles.
 function _pyramid_split!(low::AbstractArray{Complex{T}, 3}, X::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
     l1, l2, l3 = _separable_factors(lv.prof)
-    box = view(X, lv.idx...)
+    # Unchecked: `_pyramid_level` builds the indices inside `n` and `nlow`.  On a
+    # device the bounds check of an index vector is a reduction and a read back
+    # to the host, a stream sync per view.
+    box = @inbounds view(X, lv.idx...)
     fill!(low, zero(Complex{T}))
-    view(low, lv.idx_low...) .= (l1 .* l2 .* l3 .* inv(lv.D^T(1.5))) .* box
+    @inbounds view(low, lv.idx_low...) .= (l1 .* l2 .* l3 .* inv(lv.D^T(1.5))) .* box
     box .*= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2)
     return X
 end
@@ -118,8 +121,8 @@ end
 # spectrum on exit.
 function _pyramid_merge!(X::AbstractArray{Complex{T}, 3}, low::AbstractArray{Complex{T}, 3}, lv::FourierPyramidLevel{T}) where {T}
     l1, l2, l3 = _separable_factors(lv.prof)
-    box = view(X, lv.idx...)
-    box .= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2) .* box .+ (l1 .* l2 .* l3 .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
+    box = @inbounds view(X, lv.idx...)     # unchecked, see `_pyramid_split!`
+    box .= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2) .* box .+ (l1 .* l2 .* l3 .* lv.D^T(1.5)) .* @inbounds(view(low, lv.idx_low...))
     return X
 end
 

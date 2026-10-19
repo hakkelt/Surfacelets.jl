@@ -147,20 +147,38 @@ function _one_block(f::F, sc::_SurfScale, w::_ScaleWork, hw::_HourglassWork, K::
     return f(hw, _task_block(w.bufs, hw, t, bsize), _surf_block_ranges(counts, bsize, i), idx)
 end
 
-# subband = brfft(blk) (consumes `blk`); only a host block is not `hw.blk`
-function _block_to_subband!(sb::AbstractArray, hw::_HourglassWork, blk::AbstractArray)
-    hw.permuted || return mul!(sb, hw.bwd, blk)
-    permutedims!(hw.blkp, blk, hw.perm)
-    mul!(hw.sbp, hw.bwd, hw.blkp)
-    return permutedims!(sb, hw.sbp, invperm(hw.perm))
+# subband = brfft(src), with the block buffer `blk` (consumed; only a host block
+# is not `hw.blk`).  A permuted block is copied and permuted in one pass, a
+# broadcast: the devices' `permutedims!` does not take a view.
+function _block_to_subband!(sb::AbstractArray, hw::_HourglassWork, blk::AbstractArray, src::AbstractArray)
+    if hw.permuted
+        _permuted_copy!(hw.blkp, src, hw.perm)
+        mul!(hw.sbp, hw.bwd, hw.blkp)
+        return permutedims!(sb, hw.sbp, invperm(hw.perm))
+    end
+    _block_copy!(blk, src)
+    return mul!(sb, hw.bwd, blk)
 end
 
-# blk = rfft(sb)
-function _subband_to_block!(blk::AbstractArray, hw::_HourglassWork, sb::AbstractArray)
-    hw.permuted || return mul!(blk, hw.fwd, sb)
-    permutedims!(hw.sbp, sb, hw.perm)
-    mul!(hw.blkp, hw.fwd, hw.sbp)
-    return permutedims!(blk, hw.blkp, invperm(hw.perm))
+# dst = rfft(sb), through the block buffer `blk`
+function _subband_to_block!(dst::AbstractArray, hw::_HourglassWork, blk::AbstractArray, sb::AbstractArray)
+    if hw.permuted
+        permutedims!(hw.sbp, sb, hw.perm)
+        mul!(hw.blkp, hw.fwd, hw.sbp)
+        return _permuted_copy!(dst, hw.blkp, invperm(hw.perm))
+    end
+    mul!(blk, hw.fwd, sb)
+    return _block_copy!(dst, blk)
+end
+
+# dst = permutedims(src, p).  The permutation is a type parameter of
+# `PermutedDimsArray`, so each one a `perm` (K-first) or its inverse can be is
+# spelled out.
+function _permuted_copy!(dst::AbstractArray{<:Any, 3}, src::AbstractArray{<:Any, 3}, p::NTuple{3, Int})
+    p == (2, 1, 3) && return dst .= PermutedDimsArray(src, (2, 1, 3))
+    p == (3, 1, 2) && return dst .= PermutedDimsArray(src, (3, 1, 2))
+    p == (2, 3, 1) && return dst .= PermutedDimsArray(src, (2, 3, 1))
+    throw(ArgumentError("not a K-first permutation or its inverse"))
 end
 
 # A plan for `A`; FFTW flags only apply to host arrays.
@@ -185,8 +203,7 @@ function _surf_scale_forward!(
         _irc_analysis!(hw.S, sc.stages[K], hw.tmp)
     end
     _foreach_block(sc, w, threaded) do hw, blk, ranges, n
-        _block_copy!(blk, view(hw.S, ranges...))
-        _block_to_subband!(out[n], hw, blk)
+        _block_to_subband!(out[n], hw, blk, view(hw.S, ranges...))
     end
     return out
 end
@@ -205,8 +222,7 @@ function _surf_scale_inverse!(
             throw(DimensionMismatch("subband $(n) has size $(size(subbands[n])), expected $(expect)"))
     end
     _foreach_block(sc, w, threaded) do hw, blk, ranges, n
-        _subband_to_block!(blk, hw, subbands[n])
-        _block_copy!(view(hw.S, ranges...), blk)
+        _subband_to_block!(view(hw.S, ranges...), hw, blk, subbands[n])
     end
     fill!(X, zero(Complex{T}))
     third = inv(T(3))
