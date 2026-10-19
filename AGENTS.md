@@ -15,16 +15,16 @@ materialised coefficient set does not fit at working sizes (3.1 GB at 256³ `Flo
 counterpart: same frequency partition, each subband at its own reduced
 resolution, built through `make_surfacelet`.
 
-`sti_surfacelet_forward` / `sti_surfacelet_inverse` (and `!` variants) are the
-semi-translation-invariant (STI) transform: a nonsubsampled raised-cosine
-pyramid with the decimated transform's critically sampled directional stage at
-every scale (`make_sti_surfacelet`), redundancy `1 + 3J`. The name is for the
-structure it shares with Eslami & Radha's STICT; it is not a 3-D STICT.
+The nonsubsampled transform's pyramid is the raised-cosine one
+(`pyramid/raised_cosine_pyramid.jl`), so with `tight = true` the transform is a
+Parseval frame and its inverse is its adjoint; keep it that way. An à trous
+(CDF 9/7) pyramid and a semi-translation-invariant transform were removed after
+a denoising comparison: the former is not tight and lost at equal redundancy,
+the latter was weakest on short-axis (x, y, t) data.
 
-Both run on one `SurfaceletPlan` and one driver (`transforms/surfacelet.jl`);
-the pyramid is a vector of `FourierPyramidLevel`s or `RaisedCosineLevel`s and
-dispatch picks the stage-1 functions (`_pyramid_band!`, `_pyramid_merge!`). The
-plan owns its spectra, IRC scratch, block buffers and FFT plans, so the `!`
+The decimated transform runs on a `SurfaceletPlan` and one driver
+(`transforms/surfacelet.jl`); dispatch on the pyramid levels picks the stage-1
+functions (`_pyramid_band!`, `_pyramid_merge!`). The plan owns its spectra, IRC scratch, block buffers and FFT plans, so the `!`
 paths allocate only array headers — and a plan must not serve two tasks at once.
 A wedge block becomes its real subband through one `brfft` over `(K, others…)`,
 the hourglass axis halved; the `1/N` rides on the hourglass mask.
@@ -40,11 +40,8 @@ the hourglass axis halved; the `1/N` rides on the hourglass mask.
 
 ## Naming
 
-**Dimension tags in names are deliberate where they survive.** `conv3d_sep`,
-`conv3d_sep_fft`, `Conv3DFFTPlan`, `make_conv3d_fft_plan` and `nsp3d_*` keep the
-`3d`: dropping it would make them collide with Contourlets' `conv2d_sep` /
-`nsp_decompose` when a user loads both packages. Everything at the transform and
-filter-bank level has no tag, because the package name already says it.
+**No dimension tags in names.** Everything at the transform and filter-bank
+level has no `3d` tag, because the package name already says it.
 
 ---
 
@@ -61,15 +58,9 @@ filter-bank level has no tag, because the package name already says it.
   complex volume is filtered as its real part then its imaginary part through the
   identical kernel. Two real transforms cost about one complex transform, and it
   is what keeps the bit-for-bit linearity above true.
-- **Periodic filtering goes through the FFT by default.** Periodic separable
-  filtering is circular convolution, so an FFT evaluation is exact, not an
-  approximation, and its cost is independent of tap count — which matters because
-  à trous filters grow as `2^(j-1)` per axis. `conv3d_sep!` auto-selects it
-  (`_conv3d_use_fft`) from a single crossover — five taps, the same for real and
-  complex data and for any FFTW thread count. One threshold for both element types
-  is load-bearing, not just tidy: a complex volume and its real and imaginary
-  parts must reach the same kernel or the bit-for-bit linearity stops holding. At
-  64³ Float32 with 33 taps: 183 ms direct vs 4.2 ms via FFT.
+- **Periodic filtering is a product on the DFT grid.** Every stage of the
+  nonsubsampled transform is a pointwise mask on the rfft grid, which is exact
+  (periodic filtering is circular convolution), not an approximation.
 - **FFTW plans: no Julia-side plan cache.** FFTW already caches `MEASURE` wisdom
   globally in the C library, so re-planning a previously-seen size is
   sub-millisecond. A `Dict` of plan objects only adds a lock and a type-unstable
@@ -89,7 +80,7 @@ filter-bank level has no tag, because the package name already says it.
 - All tests are self-contained `@testitem` blocks (TestItemRunner): each block
   must import all dependencies except `Surfacelets` and `Test` inside the block.
 - Tag taxonomy: `:filters`, `:primitives`, `:pyramid`, `:directional`,
-  `:ns_surfacelet`, `:surfacelet` (also the STI transform), `:surfbox`, `:quality`, `:jet`, `:docs`, `:gpu`.
+  `:ns_surfacelet`, `:surfacelet`, `:surfbox`, `:quality`, `:jet`, `:docs`, `:gpu`.
 - Seed every random input (`Random.seed!(42)`); never rely on global RNG state.
 - **Directional tests must assert the *index* of the subband a plane wave lands
   in.** See the design decision on perfect reconstruction below.
@@ -137,8 +128,8 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   plans, and the full-volume passes between those loops (band, lowpass, the sum
   of the per-task partials) are split among the same tasks; only
   `threaded = false` and the streaming forms (whose callbacks need not be
-  thread-safe) run on one task. `nsp3d_*`, `ndfb_*` and `Conv3DFFTPlan` remain as
-  public building blocks; the transform no longer calls them.
+  thread-safe) run on one task. `ndfb_*` remain as public building blocks; the
+  transform no longer calls them.
 - **Host kernels avoid Base's broadcast where it is slow.** It checks every axis
   for a singleton at run time, so same-size products run ~2× slow and strided
   views (the decimated scales' blocks and Hermitian mirror) 3–5× slow. Same-size

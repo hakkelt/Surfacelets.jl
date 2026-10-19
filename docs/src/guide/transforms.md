@@ -1,33 +1,32 @@
 # [Transforms](@id guide)
 
-Three transforms share the same frequency partition — three hourglasses around
+Two transforms share the same frequency partition — three hourglasses around
 the frequency axes, each cut into wedges. The hourglass split cannot be
 critically sampled above two dimensions ([Theory](@ref theory)). They differ in
 which stages decimate:
 
 ```
-nonsubsampled  volume ─ à trous pyramid (no decimation) ─ NDFB masks (no decimation)
-STI            volume ─ raised-cosine pyramid (no decimation) ─ ritf + IRC (critical)
+nonsubsampled  volume ─ raised-cosine pyramid (no decimation) ─ NDFB masks (no decimation)
 decimated      volume ─ Fourier pyramid (resampled by 3/2, 2) ─ ritf + IRC (critical)
 ```
 
-| | [`ns_surfacelet_forward`](@ref) | [`sti_surfacelet_forward`](@ref) | [`surfacelet_forward`](@ref) |
-|---|---|---|---|
-| Subband sizes | all equal to the input | coarse full size; directional subbands decimated, same sizes at every scale | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | `1 + 3J` (10 at `J=3`), whatever the directions | ≈ 4 (`pyr_mode = 1.5`), whatever the directions |
-| Shift invariance | exact | scales exact; subbands only for shifts on their decimation lattice | no — decimation breaks it |
-| Frame | tight (Parseval) | perfect reconstruction (biorthogonal IRC) | biorthogonal, perfect reconstruction |
-| Streaming form | yes, one subband at a time | not needed | not needed, the set fits |
-| Size constraints | none | even, divisible by `2^level` per directional level | every scale must resample exactly — see [`make_surfacelet`](@ref) |
-| Use for | analysis, shift-invariant denoising | denoising / regularisation where 49× is too much but scale invariance matters | sparsifying transform in reconstruction |
+| | [`ns_surfacelet_forward`](@ref) | [`surfacelet_forward`](@ref) |
+|---|---|---|
+| Subband sizes | all equal to the input | decimated, one grid per subband |
+| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 4 (`pyr_mode = 1.5`), whatever the directions |
+| Shift invariance | exact | no — decimation breaks it |
+| Frame | tight (Parseval) | biorthogonal, perfect reconstruction |
+| Streaming form | yes, one subband at a time | not needed, the set fits |
+| Size constraints | none | every scale must resample exactly — see [`make_surfacelet`](@ref) |
+| Use for | analysis, shift-invariant denoising | sparsifying transform in reconstruction |
 
 Choosing: take the decimated transform when memory or iteration cost dominates
 and shift invariance does not matter (e.g. as a regulariser inside an iterative
-reconstruction), the nonsubsampled one when exact shift invariance or a
+reconstruction), and the nonsubsampled one when exact shift invariance or a
 Parseval frame is required and the volume is small enough (or the streaming form
-suffices), and the STI transform in between.
+suffices).
 
-All three split each scale into `3 · 2^L` directional subbands: three hourglasses
+Both split each scale into `3 · 2^L` directional subbands: three hourglasses
 aligned with the frequency axes, each cut into `2^L` wedges. Subbands are
 ordered hourglass-major — indices `1:2^L` belong to the first hourglass
 (``|\omega_1|`` dominant), the next `2^L` to the second, the last `2^L` to the
@@ -54,6 +53,19 @@ for j in 1:params.J
     println("scale $j: $(length(c.subbands[j])) subbands of $(size(c.subbands[j][1]))")
 end
 @assert maximum(abs, rec .- vol) < 1e-12
+```
+
+With the default `tight = true` the transform is a Parseval frame: the
+coefficients carry exactly the energy of the volume, ``\|Sx\| = \|x\|``, and
+the inverse is the adjoint. That is what an analysis-sparsity regulariser or a
+thresholding denoiser assumes: modified coefficients are synthesised by the
+adjoint of the analysis, and an error added to them reaches the image with no
+more energy than it had.
+
+```@example guide
+E = sum(abs2, c.coarse) + sum(sum(abs2, b) for scale in c.subbands for b in scale)
+println("‖Sx‖² / ‖x‖²: ", E / sum(abs2, vol))
+@assert isapprox(E, sum(abs2, vol); rtol = 1e-10)
 ```
 
 ### Workspace
@@ -295,64 +307,7 @@ println("shifted vs circshifted coefficients, scale 1 subband 1: ",
 
 The decimated grid does not carry the shift. Reconstruction is unaffected; only
 the coefficient values move. If a downstream algorithm needs shift invariance,
-use [`ns_surfacelet_forward`](@ref) and pay the redundancy — or the
-semi-translation-invariant transform below, which keeps most of it at a fraction
-of the cost.
-
-## Semi-translation-invariant (STI) surfacelets — a middle ground
-
-The nonsubsampled transform is exactly shift-invariant but stores
-`1 + Σ_j 3·2^{L_j}` volumes; the decimated one stores about 4 but is not
-shift-invariant at all. [`sti_surfacelet_forward`](@ref) combines a
-*nonsubsampled* pyramid with the *critically sampled* directional stage of the
-decimated transform. Every scale is a full-size volume, so the scale
-decomposition is exactly shift-invariant, and inside each scale the three
-hourglasses are refined and decimated by IRC — so each scale costs exactly three
-volumes, however many directions it has. The redundancy is `1 + 3J`:
-
-```@example guide
-stivol    = randn(Xoshiro(4), 32, 32, 32)
-stiparams = STISurfaceletParams(J = 3, L_array = [2, 2, 3])
-stiplan   = make_sti_surfacelet(stiparams, size(stivol))
-
-stic = sti_surfacelet_forward(stivol, stiparams; plan = stiplan)
-println("PR error:   ", maximum(abs, sti_surfacelet_inverse(stic, stiparams; plan = stiplan) .- stivol))
-println("redundancy: ", surfacelet_redundancy(stiplan),
-    "   (nonsubsampled at the same settings: ", 1 + sum(3 * 2^l for l in stiparams.L_array), ")")
-```
-
-| | nonsubsampled | STI | decimated |
-|---|---|---|---|
-| Redundancy at `J=3`, `L=[2,2,3]` | 49 | 10 | ≈ 4 |
-| Scale decomposition | shift-invariant | shift-invariant | resampled |
-| Directional subbands | shift-invariant | invariant to shifts on their decimation lattice | not invariant |
-| Size constraints | none | even, divisible by `2^level` | the 3/2 pyramid's |
-
-The coarse band commutes with any circular shift; a directional subband of
-hourglass `K` is decimated by `2^l` along each other axis, so a shift by a
-multiple of that moves its coefficients exactly:
-
-```@example guide
-s  = (8, 8, 16)
-stia = sti_surfacelet_forward(stivol, stiparams; plan = stiplan)
-stib = sti_surfacelet_forward(circshift(stivol, s), stiparams; plan = stiplan)
-println("coarse: ", maximum(abs, circshift(stia.coarse, s) .- stib.coarse))
-lv = stiparams.levels[1][1]                  # hourglass 1 of scale 1
-sh = (s[1], s[2] ÷ 2^lv[2], s[3] ÷ 2^lv[3])
-println("subband 1: ", maximum(abs, circshift(stia.subbands[1][1], sh) .- stib.subbands[1][1]))
-```
-
-The name comes from the structure this shares with Eslami and Radha's
-semi-translation-invariant contourlet transform (STICT): a nonsubsampled,
-shift-invariant pyramid followed by a critically sampled directional stage. It
-is not a 3-D STICT. The STICT uses the translation-invariant Laplacian pyramid —
-the decimated pyramid's polyphase channels for every lattice shift, four
-highpass channels per level, keeping its aliasing — where this transform uses
-one raised-cosine bandpass per scale (SurfBox's mode-1 band edges without the
-resampling) and Lu and Do's IRC directional stage. Neither Lu and Do's papers
-nor any later paper we know of describes this 3-D construction; it composes two
-published stages, each validated on its own: the directional stage against
-SurfBox, the pyramid by its tight-frame identity.
+use [`ns_surfacelet_forward`](@ref) and pay the redundancy.
 
 ## Directional selectivity
 

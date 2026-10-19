@@ -56,7 +56,6 @@ end
 end
 
 @testitem "positional-size convenience constructors" tags = [:primitives] begin
-    @test size(make_conv3d_fft_plan(8, 10, 12).ker) == size(make_conv3d_fft_plan((8, 10, 12)).ker)
     @test make_hourglass(8, 10, 12; order = 4).dims == (8, 10, 12)
     @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, order = 4)) == 6
 
@@ -68,15 +67,6 @@ end
     ws = make_ns_surfacelet_workspace(np, 16, 16, 16)
     x = randn(16, 16, 16)
     @test ns_surfacelet_inverse(ns_surfacelet_forward(x, np; workspace = ws), np; workspace = ws) ≈ x
-end
-
-@testitem "conv3d_sep_fft — allocating form and single-threaded plan" tags = [:primitives] begin
-    using Random
-    x = randn(Xoshiro(3), 16, 16, 16)
-    h = randn(Xoshiro(4), 7)
-    plan = make_conv3d_fft_plan(size(x); threaded = false)
-    @test conv3d_sep_fft(x, h, h, h) ≈ conv3d_sep_fft!(similar(x), x, h, h, h, plan)
-    @test conv3d_sep_fft(x, h, h, h) ≈ conv3d_sep(x, h, h, h; boundary = :periodic)
 end
 
 @testitem "Bernstein helpers — default precision and the 1-D kernel" tags = [:filters] begin

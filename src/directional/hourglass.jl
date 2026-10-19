@@ -27,8 +27,8 @@
 # Implementation: frequency domain, on the DFT grid.  Lu & Do deliberately chose
 # FIR spatial filters because their FFT-domain predecessor needed too much memory
 # for streaming video.  That trade-off inverts here — this package's 3-D stages
-# are nonsubsampled with a periodic boundary, so the FFT is already the default
-# backend (see `conv3d_fft.jl`), and evaluating the mapping kernel directly on
+# are nonsubsampled with a periodic boundary, so the FFT is the natural backend,
+# and evaluating the mapping kernel directly on
 # the grid is *exact*: no FIR truncation of a 37³ filter, no convolution.
 #
 # Perfect reconstruction is structural.  The 1-D polynomials satisfy
@@ -96,6 +96,12 @@ mutable struct HourglassFB{
     # above (128 MB at 256³ ComplexF32).
     cbuf::Union{Nothing, C3}
 end
+
+# FFTW thread count for the `threaded` keyword.  The default (`nothing`) uses every
+# Julia thread: an FFT here is always a big enough chunk of work to be worth
+# splitting.  The plan is made inside `with_fftw_threads`, so a restriction opened
+# around the call (a caller's `@budgeted_threads` loop) caps the count.
+_fftw_threads(threaded::Union{Bool, Nothing}) = threaded === false ? 1 : Threads.nthreads()
 
 """
     make_hourglass(dims::NTuple{3,Int}, ::Type{T}=Float64;
@@ -332,8 +338,7 @@ function hourglass_decompose!(
         fb::HourglassFB{T}
     ) where {T <: AbstractFloat}
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
-    # Real and imaginary parts go through the identical real kernel — the same
-    # construction `conv3d_fft.jl` uses, and for the same reason: it keeps
+    # Real and imaginary parts go through the identical real kernel, which keeps
     # `T(x + i·y) == T(x) + i·T(y)` exact.  Both spectra are held at once so each
     # subband is finished before moving to the next.
     _load_complex_spectra!(fb, volume)

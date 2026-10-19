@@ -4,13 +4,13 @@
 CurrentModule = Surfacelets
 ```
 
-![Block diagrams of the nonsubsampled, STI and decimated surfacelet transforms](assets/structure.svg)
+![Block diagrams of the nonsubsampled and decimated surfacelet transforms](assets/structure.svg)
 
 The surfacelet transform is a construction in its own right rather than a
 contourlet transform with an extra axis.  Its directional stage carves the
 spectrum into hourglass-shaped regions around the three frequency axes — from
 Bernstein mapping kernels in the nonsubsampled transform, from SurfBox's
-diamond kernels in the other two — a partition with no separable-lattice
+diamond kernels in the decimated one — a partition with no separable-lattice
 description, so there is no quincunx lattice, no shear index remap and no ladder
 filter anywhere in it.  Lu and Do prove that the *hourglass* partition — the
 first stage, which splits the spectrum into ``N`` hourglasses around the
@@ -22,31 +22,36 @@ which is why the paper's surfacelet transform reaches a redundancy of about
 [Iterated resampled checkerboard filter banks (IRC)](@ref)); the nonsubsampled
 one keeps every subband at full size instead.
 
-## Nonsubsampled pyramid (NSP3D)
+## Nonsubsampled pyramid
 
-The multiscale stage is the direct extension of the 2-D à trous pyramid.  At
-level ``j`` the filters are upsampled by ``2^{j-1}`` along each axis and nothing
-is decimated:
+Lu and Do do not build the surfacelet transform on a Laplacian pyramid, as
+contourlets are built; they use a frequency-domain pyramid "conceptually similar
+to the one used in the steerable pyramid" (Section VI-A of the paper [1]), whose
+lowpass ``L`` has a smooth transition band and whose highpass is
+``\sqrt{1 - L^2}``.  The nonsubsampled transform uses that pyramid without its
+downsampling, with SurfBox's mode-1 band edges (`pyr_mode = 1` in
+[Multiscale pyramid](@ref)): level ``j`` applies the separable raised-cosine
+lowpass ``\ell_j`` with cutoff ``w_j = 2^{-j}`` and transition
+``w_j/3`` (in units of ``\pi``), and
 
+```math
+b_j = \sqrt{1 - \ell_j^2}\, \prod_{i<j} \ell_i, \qquad
+c = \prod_i \ell_i, \qquad
+\sum_j b_j^2 + c^2 = 1 .
 ```
-coarse   = h_j ⊛ volume
-bandpass = volume − g_j ⊛ coarse
-```
 
-The synthesis rescale `_NSP_SYNTH_SCALE` is applied **per axis**, so the 2-D
-constant carries over unchanged.  This is worth stating explicitly because the
-obvious guess is wrong in an instructive way: the biorthogonal synthesis ``g``
-has DC gain 2 per axis, giving ``2^3 = 8`` across a separable 3-D filtering, and
-one might expect the correction to become ``1/8``.  It does not — the ``1/2``
-applies once per axis, and ``(1/2)^3`` is exactly the ``1/8`` needed.  A wrong
-normalisation here does not break perfect reconstruction, it merely fills the
-"bandpass" with low-pass leakage, which is why the test suite checks that a
-constant volume leaves the bandpass at zero.
+The pyramid is therefore a tight frame, and so is the hourglass and wedge stage
+with `tight = true`.  The frame bounds of a cascade are the products of its
+stages' bounds (da Cunha, Zhou and Do [4], Proposition 1), so the whole
+transform is a Parseval frame: ``\|Sx\| = \|x\|``, and its inverse is its
+adjoint.  That is what an analysis-sparsity regulariser and a denoiser that
+thresholds coefficients assume; Lu and Do design the hourglass bank as a
+near-tight frame for the same reasons ("optimality in noise reduction as well
+as numerical stability", [2]).
 
-All filtering is periodic, so the stage is exactly equivariant under circular
-shifts and — since periodic separable filtering *is* circular convolution — an
-FFT evaluation of it is exact rather than approximate.  See
-[`conv3d_sep_fft!`](@ref).
+No paper describes this pairing of the undecimated raised-cosine pyramid with
+the nonsubsampled hourglass bank; it is the paper's pyramid with the decimation
+removed, as the directional stage is the paper's with the decimation removed.
 
 ## Hourglass filter bank
 
@@ -274,8 +279,8 @@ savefig("ndfb_support.png"); nothing # hide
 Composing the two stages gives the transform:
 
 ```
-volume ─ NSP3D ─┬─ coarse ─→ next scale
-               └─ bandpass ─ NDFB ─→ 3·2^L directional subbands
+volume ─ pyramid ─┬─ coarse ─→ next scale
+                 └─ bandpass ─ NDFB ─→ 3·2^L directional subbands
 ```
 
 Every coefficient array keeps the size of the input, so the transform is exactly
@@ -319,9 +324,8 @@ hourglass stage a broadcast against precomputed masks, and each IRC stage a
 broadcast between the two halves of a reshaped view.  Its plan is built on the
 host — the checkerboard filter slices are evaluated point by point in closed
 form — and then adapted to the *bare* array type (`Adapt.adapt(CuArray, pl)`,
-never `typeof(x)`, since the plan holds real, complex and integer tables).  The
-STI transform reuses the same plan pieces.  Both are verified against the CPU
-path on CUDA, and on OpenCL in the same way as the nonsubsampled transform.  A
+never `typeof(x)`, since the plan holds real, complex and integer tables).  It
+is verified against the CPU path on CUDA, and on OpenCL in the same way as the nonsubsampled transform.  A
 device volume with no plan is an `ArgumentError`, not an implicit rebuild.
 
 ## Surfacelet transform (decimated)
@@ -423,42 +427,6 @@ closed forms reproduce the 2-D filters SurfBox ships (`cbd_filters_<bo>`, orders
 roughly 40 000 taps — and, evaluated directly on the frequency grid, they work at
 any block size, where SurfBox refuses a block narrower than its spatial filter.
 
-## Semi-translation-invariant (STI) surfacelet transform
-
-[`sti_surfacelet_forward`](@ref) keeps the directional stage of the decimated
-transform — ritf hourglass and IRC at every scale — but replaces its resampled
-pyramid with a nonsubsampled one: SurfBox's mode-1 band edges without the crops.
-Level ``j`` uses the separable raised-cosine lowpass ``\ell_j`` with cutoff
-``w_j = 2^{-j}`` and transition ``w_j/3`` (in units of ``\pi``) on the original
-grid, and
-
-```math
-b_j = \sqrt{1 - \ell_j^2}\, \prod_{i<j} \ell_i, \qquad
-c = \prod_i \ell_i, \qquad
-\sum_j b_j^2 + c^2 = 1,
-```
-
-so the pyramid is a tight frame of pointwise frequency weights and commutes with
-every circular shift.  Each bandpass is a full-size volume, the IRC stage
-decimates it critically inside each hourglass, and the redundancy is exactly
-``1 + 3J``.  A directional subband of hourglass ``K`` is sampled on the lattice
-``\mathrm{diag}(1, 2^{l_m}, 2^{l_{m'}})`` (Proposition 1 of the paper), so the
-transform is equivariant to shifts on that lattice, not to every shift.
-
-The name comes from the structure it shares with Eslami and Radha's
-semi-translation-invariant contourlet transform (STICT): a nonsubsampled,
-shift-invariant pyramid followed by a critically sampled directional stage.  It
-is not a 3-D STICT.  The STICT's pyramid is the translation-invariant Laplacian
-pyramid — the decimated Laplacian pyramid's polyphase channels for every lattice
-shift, four highpass channels per level, keeping that pyramid's aliasing.  This
-transform has one raised-cosine bandpass per scale (SurfBox's mode-1 band edges
-without the resampling) and Lu and Do's IRC directional stage.
-
-Neither Lu and Do's papers nor any later paper we know of describes this 3-D
-construction.  It composes two published stages, each validated separately: the
-directional stage against SurfBox, the pyramid by its tight-frame identity
-above.
-
 ## [A sign trap on the DFT grid](@id sign-trap)
 
 On the DFT grid, ``\omega \to -\omega`` is *not* a sign flip of the folded
@@ -537,14 +505,8 @@ different discrete realisation.
    multivariate Bernstein approximation behind the mapping kernels.
 4. A. L. da Cunha, J. Zhou, and M. N. Do, "The Nonsubsampled Contourlet
    Transform: Theory, Design, and Applications", *IEEE Transactions on Image
-   Processing*, 15(10):3089–3101, 2006 — the nonsubsampled pyramid.
-5. M. J. Shensa, "The Discrete Wavelet Transform: Wedding the À Trous and
-   Mallat Algorithms", *IEEE Transactions on Signal Processing*,
-   40(10):2464–2482, 1992.
-6. R. Eslami and H. Radha, "Translation-Invariant Contourlet Transform and Its
-   Application to Image Denoising", *IEEE Transactions on Image Processing*,
-   15(11):3362–3374, 2006 — the STICT, whose structure (nonsubsampled pyramid,
-   critically sampled directional stage) the STI surfacelet transform shares.
-7. Y. M. Lu and M. N. Do, SurfBox, MATLAB File Exchange 14485 — the reference
+   Processing*, 15(10):3089–3101, 2006 — the frame bounds of a cascade
+   (Proposition 1).
+5. Y. M. Lu and M. N. Do, SurfBox, MATLAB File Exchange 14485 — the reference
    implementation the decimated transform reproduces; its notice is retained
    in `LICENSE`.

@@ -48,7 +48,6 @@ end
     x = randn(Xoshiro(5), 48, 24, 36)
     for (make, fwd, inv, p) in (
             (make_surfacelet, surfacelet_forward, surfacelet_inverse, SurfaceletParams(J = 2, L_array = [1, 2])),
-            (make_sti_surfacelet, sti_surfacelet_forward, sti_surfacelet_inverse, STISurfaceletParams(J = 2, L_array = [1, 2])),
         )
         pl = make(p, size(x))
         c = fwd(x, p; plan = pl)

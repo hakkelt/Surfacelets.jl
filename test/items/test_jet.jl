@@ -10,19 +10,6 @@
     @test_call target_modules = (Surfacelets,) NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
     @test_call target_modules = (Surfacelets,) SurfaceletParams(J = 2, L_array = [1, 1])
 
-    # ── Primitives ───────────────────────────────────────────────────────────
-    h = [0.25, 0.5, 0.25]
-    @test_call target_modules = (Surfacelets,) conv3d_sep(x, h, h, h)
-    @test_call target_modules = (Surfacelets,) conv3d_sep!(dst, x, h, h, h)
-    @test_call target_modules = (Surfacelets,) make_conv3d_fft_plan(dims, Float64)
-    plan = make_conv3d_fft_plan(dims, Float64)
-    @test_call target_modules = (Surfacelets,) conv3d_sep_fft!(dst, x, h, h, h, plan)
-
-    # ── Pyramid ──────────────────────────────────────────────────────────────
-    @test_call target_modules = (Surfacelets,) nsp3d_decompose(x, CDF97, 1)
-    c, bp = nsp3d_decompose(x, CDF97, 1)
-    @test_call target_modules = (Surfacelets,) nsp3d_reconstruct(c, bp, CDF97, 1)
-
     # ── Directional FB ───────────────────────────────────────────────────────
     @test_call target_modules = (Surfacelets,) make_hourglass(dims, Float64; order = 6)
     hg = make_hourglass(dims, Float64; order = 6)
@@ -57,14 +44,6 @@
     @test_call target_modules = (Surfacelets,) surfacelet_inverse(sc, sp; plan = spl)
     @test_call target_modules = (Surfacelets,) surfacelet_redundancy(spl)
 
-    hp = STISurfaceletParams(J = 2, L_array = [1, 1])
-    @test_call target_modules = (Surfacelets,) make_sti_surfacelet(hp, dims, Float64)
-    hpl = make_sti_surfacelet(hp, dims, Float64)
-    @test_call target_modules = (Surfacelets,) sti_surfacelet_forward(x, hp; plan = hpl)
-    hc = sti_surfacelet_forward(x, hp; plan = hpl)
-    @test_call target_modules = (Surfacelets,) sti_surfacelet_inverse(hc, hp; plan = hpl)
-    @test_call target_modules = (Surfacelets,) sti_surfacelet_inverse!(similar(x), hc, hp; plan = hpl)
-    @test_call target_modules = (Surfacelets,) sti_surfacelet_forward!(hc, x, hp; plan = hpl)
     @test_call target_modules = (Surfacelets,) surfacelet_inverse!(similar(xs), sc, sp; plan = spl)
     @test_call target_modules = (Surfacelets,) surfacelet_forward!(sc, xs, sp; plan = spl)
 end
@@ -76,16 +55,6 @@ end
     dims = (16, 16, 16)
     x = randn(dims...)
     dst = similar(x)
-    h = [0.25, 0.5, 0.25]
-
-    # ── Primitives ───────────────────────────────────────────────────────────
-    @test_opt target_modules = (Surfacelets,) conv3d_sep(x, h, h, h)
-    @test_opt target_modules = (Surfacelets,) conv3d_sep!(dst, x, h, h, h)
-
-    # ── Pyramid ──────────────────────────────────────────────────────────────
-    @test_opt target_modules = (Surfacelets,) nsp3d_decompose(x, CDF97, 1)
-    c, bp = nsp3d_decompose(x, CDF97, 1)
-    @test_opt target_modules = (Surfacelets,) nsp3d_reconstruct(c, bp, CDF97, 1)
 
     # ── Directional FB ───────────────────────────────────────────────────────
     hg = make_hourglass(dims, Float64; order = 6)
@@ -111,24 +80,9 @@ end
 
     dims = (16, 16, 16)
     x = randn(dims...)
-    h = [0.25, 0.5, 0.25]
 
-    # ── Re-exported filter types ───────────────────────────────────────────────
-    @test_call target_modules = M FilterPair(CDF97.h, CDF97.g)
-    @test_call target_modules = M upsample_filter(CDF97.h, 2)
+    # ── Filter tables ────────────────────────────────────────────────────────
     @test_call target_modules = M checkerboard_orders()
-
-    # ── Primitives ───────────────────────────────────────────────────────────
-    @test_call target_modules = M conv3d_sep_fft(x, h, h, h)
-    plan = make_conv3d_fft_plan(dims, Float64)
-    @test plan isa Conv3DFFTPlan
-    xc = complex.(x)
-    @test_call target_modules = M conv3d_sep_fft!(similar(xc), xc, h, h, h, make_conv3d_fft_plan(dims, ComplexF64))
-
-    # ── Pyramid (in place) ───────────────────────────────────────────────────
-    c, bp = nsp3d_decompose(x, CDF97, 1)
-    @test_call target_modules = M nsp3d_decompose!(similar(c), similar(bp), x, CDF97, 1)
-    @test_call target_modules = M nsp3d_reconstruct!(similar(x), c, bp, CDF97, 1)
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
     hg = make_hourglass(dims, Float64; order = 6)
@@ -167,8 +121,6 @@ end
     spl = make_surfacelet(sp, (24, 24, 24), Float64)
     @test spl isa SurfaceletPlan
     @test surfacelet_forward(randn(24, 24, 24), sp; plan = spl) isa SurfaceletCoefficients
-    hp = STISurfaceletParams(J = 2, L_array = [1, 1])
-    @test_call target_modules = M sti_surfacelet_nsubbands(hp, 1)
 
     # ── Streaming (callback) forms ───────────────────────────────────────────
     @test_call target_modules = M ndfb_decompose((k, band) -> nothing, x, fb)
@@ -188,26 +140,11 @@ end
     dims = (16, 16, 16)
     x = randn(dims...)
     dst = similar(x)
-    h = [0.25, 0.5, 0.25]
 
     # ── Types / constructors / filters ───────────────────────────────────────
     @test_opt target_modules = M NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
     @test_opt target_modules = M SurfaceletParams(J = 2, L_array = [1, 1])
-    @test_opt target_modules = M STISurfaceletParams(J = 2, L_array = [1, 1])
-    @test_opt target_modules = M FilterPair(CDF97.h, CDF97.g)
-    @test_opt target_modules = M upsample_filter(CDF97.h, 2)
     @test_opt target_modules = M checkerboard_orders()
-
-    # ── Primitives ───────────────────────────────────────────────────────────
-    @test_opt target_modules = M make_conv3d_fft_plan(dims, Float64)
-    plan = make_conv3d_fft_plan(dims, Float64)
-    @test_opt target_modules = M conv3d_sep_fft(x, h, h, h)
-    @test_opt target_modules = M conv3d_sep_fft!(dst, x, h, h, h, plan)
-
-    # ── Pyramid ──────────────────────────────────────────────────────────────
-    c, bp = nsp3d_decompose(x, CDF97, 1)
-    @test_opt target_modules = M nsp3d_decompose!(similar(c), similar(bp), x, CDF97, 1)
-    @test_opt target_modules = M nsp3d_reconstruct!(similar(x), c, bp, CDF97, 1)
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
     @test_opt target_modules = M make_hourglass(dims, Float64; order = 6)
@@ -254,17 +191,6 @@ end
     @test_opt target_modules = M surfacelet_forward!(sc, xs, sp; plan = spl)
     @test_opt target_modules = M surfacelet_inverse(sc, sp; plan = spl)
     @test_opt target_modules = M surfacelet_inverse!(similar(xs), sc, sp; plan = spl)
-
-    # ── Decimated shift-invariant surfacelet transform ───────────────────────
-    hp = STISurfaceletParams(J = 2, L_array = [1, 1])
-    @test_opt target_modules = M sti_surfacelet_nsubbands(hp, 1)
-    @test_opt target_modules = M make_sti_surfacelet(hp, dims, Float64)
-    hpl = make_sti_surfacelet(hp, dims, Float64)
-    @test_opt target_modules = M sti_surfacelet_forward(x, hp; plan = hpl)
-    hc = sti_surfacelet_forward(x, hp; plan = hpl)
-    @test_opt target_modules = M sti_surfacelet_forward!(hc, x, hp; plan = hpl)
-    @test_opt target_modules = M sti_surfacelet_inverse(hc, hp; plan = hpl)
-    @test_opt target_modules = M sti_surfacelet_inverse!(similar(x), hc, hp; plan = hpl)
 
     # ── Streaming (callback) forms ───────────────────────────────────────────
     # Bind the captured variables with `let`: closures over top-level test variables return `Any`.

@@ -24,20 +24,15 @@
 # The checkerboard filters are biorthogonal, so the transform is a frame with
 # perfect reconstruction but not a tight one: `surfacelet_inverse` is the
 # inverse, not the adjoint, of `surfacelet_forward`.
-#
-# The semi-translation-invariant transform (`sti_surfacelet.jl`) is this one
-# with a nonsubsampled pyramid, so both run on one plan type and one driver; the
-# pyramid is a vector of `FourierPyramidLevel`s or of `RaisedCosineLevel`s, and
-# dispatch on it picks the stage-1 functions.
 
 """
     SurfaceletPlan
 
-Everything a decimated or semi-translation-invariant surfacelet transform needs
+Everything the decimated surfacelet transform needs
 for one volume size: the pyramid profiles, hourglass masks and checkerboard
 filter slices, and the spectra, block buffers and FFT plans the transform runs
 in, so that the `!` transforms allocate nothing.  Build with
-[`make_surfacelet`](@ref) or [`make_sti_surfacelet`](@ref) and pass as `plan =`.
+[`make_surfacelet`](@ref) and pass as `plan =`.
 
 A plan holds its own scratch buffers, so one plan must not run two transforms at
 the same time; give each task its own.  A transform with the plan spreads its
@@ -215,7 +210,7 @@ function surfacelet_inverse!(
     return _surfacelet_inverse!(volume, coeffs, pl, _s_threaded(threaded))
 end
 
-# ── Driver shared with the STI transform ──────────────────────────────────────
+# ── Driver ────────────────────────────────────────────────────────────────────
 
 # `threaded = false` runs serially; so does a call inside a caller's NestedThreading
 # restriction (`loop_threaded`).  Strided's kernels thread on their own, by a
@@ -289,7 +284,7 @@ function _check_coefficients(c::SurfaceletCoefficients, pl::SurfaceletPlan)
 end
 
 # The plan to use: `plan` after checking it, or a fresh host plan from `make`
-# (`make_surfacelet` / `make_sti_surfacelet`) when none was given.
+# (`make_surfacelet`) when none was given.
 function _resolve_plan(make::F, plan, params, x::Union{AbstractArray, SurfaceletCoefficients}) where {F}
     dims = x isa SurfaceletCoefficients ? x.dims : size(x)
     proto = x isa SurfaceletCoefficients ? x.coarse : x

@@ -154,3 +154,25 @@ end
     @test occursin("NSSurfaceletCoefficients", s)
     @test occursin("J=1", s)
 end
+
+@testitem "ns_surfacelet — a Parseval frame: the inverse is the adjoint" tags = [:ns_surfacelet] begin
+    using Random, LinearAlgebra
+    Random.seed!(98)
+    # ‖Sx‖ = ‖x‖ and ⟨Sx, c⟩ = ⟨x, S⁻¹c⟩ for random coefficients c: the inverse is
+    # the adjoint.  Odd and short axes included (a cardiac axis has 8 bins).
+    inner(a, b) = dot(a.coarse, b.coarse) +
+        sum(dot(u, v) for (su, sv) in zip(a.subbands, b.subbands) for (u, v) in zip(su, sv))
+    for dims in ((16, 16, 16), (15, 20, 8)), (J, L) in ((1, [1]), (3, [1, 1, 2]))
+        p = NSSurfaceletParams(J = J, L_array = L, order = 6)
+        x = randn(dims...)
+        c = ns_surfacelet_forward(x, p)
+        @test inner(c, c) ≈ sum(abs2, x) rtol = 1.0e-12
+        r = deepcopy(c)
+        r.coarse .= randn(dims...)
+        foreach(sj -> foreach(b -> b .= randn(dims...), sj), r.subbands)
+        @test inner(c, r) ≈ dot(x, ns_surfacelet_inverse(r, p)) rtol = 1.0e-12
+        z = complex.(x, randn(dims...))
+        cz = ns_surfacelet_forward(z, p)
+        @test real(inner(cz, cz)) ≈ sum(abs2, z) rtol = 1.0e-12
+    end
+end

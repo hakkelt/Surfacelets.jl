@@ -15,13 +15,8 @@
 # FFTW plans cannot be moved, so each is replanned against the adapted buffer;
 # `plan_rfft` is the AbstractFFTs generic, so it dispatches to the backend's FFT
 # implementation.  Planning happens once per adapt, not per call.
-#
-# The 1-D à trous kernel transforms in `Conv3DFFTPlan` stay on the host: they are
-# length-`n` and the result is three vectors, so a device FFT would cost more in
-# launch overhead than it saves.  Only the transfer-function arrays live on the
-# device.
 
-using Surfacelets: HourglassFB, NDFB, NSSurfaceletWorkspace, NSSurfaceletCoefficients, Conv3DFFTPlan
+using Surfacelets: HourglassFB, NDFB, NSSurfaceletWorkspace, NSSurfaceletCoefficients
 
 function Adapt.adapt_structure(to, fb::HourglassFB)
     m1 = Adapt.adapt(to, fb.m1)
@@ -54,20 +49,6 @@ end
 
 Adapt.adapt_structure(to, fb::NDFB) = _adapt_ndfb(to, fb, Adapt.adapt(to, fb.fb))
 
-function Adapt.adapt_structure(to, p::Conv3DFFTPlan)
-    ker = Adapt.adapt(to, p.ker)
-    fwd = Surfacelets.plan_rfft(ker)
-    freq = fwd * ker
-    inv = Surfacelets.plan_irfft(freq, size(ker, 1))
-    T = eltype(ker)
-    return Conv3DFFTPlan{T, typeof(ker), typeof(freq), typeof(fwd), typeof(inv)}(
-        p.dims, fwd, inv, freq, ker,
-        Adapt.adapt(to, p.w1), Adapt.adapt(to, p.w2), Adapt.adapt(to, p.w3),
-        p.kbuf1, p.kbuf2, p.kbuf3,
-        p.aux === nothing ? nothing : similar(ker),
-    )
-end
-
 # The workspace's tables move; its buffers and FFT plans are rebuilt next to them.
 # The tables hold real and complex arrays, so adapt to the bare array type
 # (`CuArray`), not an element-typed one.
@@ -77,7 +58,7 @@ function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, 
     resp(v) = [map(ad, axes3) for axes3 in v]
     proto = ad(Array{T, 3}(undef, 0, 0, 0))
     return Surfacelets._ns_workspace(
-        Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pgh), resp(ws.ps),
+        Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
         proto, 1, Surfacelets.FFTW.ESTIMATE
     )
 end

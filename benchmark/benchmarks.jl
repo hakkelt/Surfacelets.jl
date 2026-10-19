@@ -4,12 +4,11 @@
 USAGE:
     julia --project=benchmark benchmark/benchmarks.jl
 
-Covers the nonsubsampled, decimated and semi-translation-invariant surfacelet
-transforms, the nonsubsampled directional filter bank, and the primitives
-underneath them.
+Covers the nonsubsampled and decimated surfacelet transforms and the
+nonsubsampled directional filter bank.
 """
 
-using BenchmarkTools, Surfacelets, MultiscaleFilterBanks, Random
+using BenchmarkTools, Surfacelets, Random
 using FFTW: FFTW
 
 # Cap each @benchmarkable's tuning + steady-state phase: AirspeedVelocity runs this
@@ -23,9 +22,7 @@ const RNG = MersenneTwister(1234)
 const SUITE = BenchmarkGroup()
 SUITE["NSSurfacelet"] = BenchmarkGroup()
 SUITE["Surfacelet"] = BenchmarkGroup()
-SUITE["STISurfacelet"] = BenchmarkGroup()
 SUITE["NDFB"] = BenchmarkGroup()
-SUITE["primitives"] = BenchmarkGroup()
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║ SUITE                                                                        ║
@@ -68,14 +65,6 @@ for n in (32, 64)
     scoeffs = surfacelet_forward(vol, sparams; plan = splan)
     SUITE["Surfacelet"][sz_str]["inverse"] = @benchmarkable surfacelet_inverse($scoeffs, $sparams; plan = $splan)
 
-    # ── STI surfacelet (nonsubsampled pyramid + IRC) ─────────────────────────────
-    SUITE["STISurfacelet"][sz_str] = BenchmarkGroup()
-    stiparams = STISurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
-    stiplan = make_sti_surfacelet(stiparams, (n, n, n), Float32)
-    SUITE["STISurfacelet"][sz_str]["forward"] = @benchmarkable sti_surfacelet_forward($vol, $stiparams; plan = $stiplan)
-    sticoeffs = sti_surfacelet_forward(vol, stiparams; plan = stiplan)
-    SUITE["STISurfacelet"][sz_str]["inverse"] = @benchmarkable sti_surfacelet_inverse($sticoeffs, $stiparams; plan = $stiplan)
-
     # ── NDFB ───────────────────────────────────────────────────────────────
     SUITE["NDFB"][sz_str] = BenchmarkGroup()
     for L in (1, 3)
@@ -87,28 +76,4 @@ for n in (32, 64)
     dsts = ntuple(_ -> similar(vol), 3)
     SUITE["NDFB"][sz_str]["hourglass forward"] =
         @benchmarkable hourglass_decompose!($dsts, $vol, $hg)
-
-    # ── 3-D primitives ───────────────────────────────────────────────────────
-    SUITE["primitives"][sz_str] = BenchmarkGroup()
-    h_short = Float32[0.25, 0.5, 0.25]
-    h_long = upsample_filter(Float32.(CDF97.h), 4)      # 33 taps: the FFT regime
-    dst = similar(vol)
-    tmp = similar(vol)
-    fftplan = make_conv3d_fft_plan((n, n, n), Float32; flags = FFTW.ESTIMATE)
-    SUITE["primitives"][sz_str]["conv3d_sep direct (3 taps)"] =
-        @benchmarkable conv3d_sep!($dst, $vol, $h_short, $h_short, $h_short; tmp = $tmp, backend = :direct)
-    SUITE["primitives"][sz_str]["conv3d_sep direct (33 taps)"] =
-        @benchmarkable conv3d_sep!(
-        $dst, $vol, $h_long, $h_long, $h_long;
-        boundary = :periodic, tmp = $tmp, backend = :direct
-    )
-    SUITE["primitives"][sz_str]["conv3d_sep fft (33 taps)"] =
-        @benchmarkable conv3d_sep_fft!($dst, $vol, $h_long, $h_long, $h_long, $fftplan)
-
-    coarse = similar(vol)
-    bparams = similar(vol)
-    tmp2 = similar(vol)
-    SUITE["primitives"][sz_str]["nsp3d_decompose!"] = @benchmarkable nsp3d_decompose!(
-        $coarse, $bparams, $vol, CDF97, 3; tmp = $tmp, tmp2 = $tmp2, plan = $fftplan
-    )
 end

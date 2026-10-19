@@ -12,21 +12,24 @@
 """
     NSSurfaceletParams
 
-Describes a nonsubsampled surfacelet decomposition.
+Describes a nonsubsampled surfacelet decomposition.  The multiscale stage is
+Lu and Do's raised-cosine frequency-domain pyramid without its downsampling, a
+tight frame; see the "Theory" page.
 
 - `J` — number of pyramid levels.
 - `L_array` — directional depth per scale, length `J`.  Scale `j` produces
   `3 * 2^(L_array[j])` directional subbands.
-- `lp_filters` — the pyramid filter pair (`CDF97` by default).
 - `order` — Bernstein order of the hourglass mapping kernels; larger sharpens
   the boundaries between directional subbands.
 - `poly` — order of the 1-D halfband split polynomial.
 - `transition` — width of the overlap between neighbouring wedges, as a fraction
   of the wedge width.
-- `tight` — when `true` (the default) the directional masks are `√W`, making the
-  transform a Parseval frame in the directional stage; when `false` they are the
-  weights themselves and the directional inverse is a bare sum.  See
-  [`make_hourglass`](@ref).
+- `tight` — when `true` (the default) the directional masks are `√W`, which
+  makes the whole transform a Parseval frame: `‖Sx‖ = ‖x‖` and the inverse is
+  the adjoint.  When `false` they are the weights themselves and the
+  directional inverse is a bare sum.  See [`make_hourglass`](@ref).
+- `precision` — the real type of the parameters (`Float64` by default); the
+  workspace converts to the volume's precision.
 
 ```jldoctest
 julia> using Surfacelets
@@ -38,7 +41,6 @@ NSSurfaceletParams(J=2, L_array=[1, 2], order=12, …)
 struct NSSurfaceletParams{T <: AbstractFloat}
     J::Int
     L_array::Vector{Int}
-    lp_filters::FilterPair{T}
     order::Int
     poly::Int
     transition::T
@@ -48,24 +50,19 @@ end
 function NSSurfaceletParams(;
         J::Int,
         L_array::AbstractVector{<:Integer},
-        lp_filters::FilterPair = CDF97,
         order::Int = 12,
         poly::Int = 1,
         transition::Real = 1.0,
-        tight::Bool = true
-    )
+        tight::Bool = true,
+        precision::Type{T} = Float64
+    ) where {T <: AbstractFloat}
     J >= 1 || throw(ArgumentError("J must be ≥ 1"))
     length(L_array) == J || throw(ArgumentError("length(L_array) must equal J"))
     all(>=(0), L_array) || throw(ArgumentError("L_array entries must be ≥ 0"))
     order >= 1 || throw(ArgumentError("order must be ≥ 1"))
     poly >= 0 || throw(ArgumentError("poly must be ≥ 0"))
     transition >= 0 || throw(ArgumentError("transition must be ≥ 0"))
-    T = eltype(lp_filters)
-    return NSSurfaceletParams{T}(
-        J, collect(Int, L_array),
-        FilterPair{T}(T.(lp_filters.h), T.(lp_filters.g)),
-        order, poly, T(transition), tight
-    )
+    return NSSurfaceletParams{T}(J, collect(Int, L_array), order, poly, T(transition), tight)
 end
 
 Base.eltype(::NSSurfaceletParams{T}) where {T} = T
@@ -78,9 +75,7 @@ end
 _convert_params(::Type{Tf}, p::NSSurfaceletParams{Tf}) where {Tf} = p
 _convert_params(::Type{Tf}, p::NSSurfaceletParams) where {Tf <: AbstractFloat} =
     NSSurfaceletParams{Tf}(
-    p.J, p.L_array,
-    FilterPair{Tf}(Tf.(p.lp_filters.h), Tf.(p.lp_filters.g)),
-    p.order, p.poly, Tf(p.transition), p.tight
+    p.J, p.L_array, p.order, p.poly, Tf(p.transition), p.tight
 )
 
 """
@@ -191,65 +186,3 @@ _nsubbands(lv::NTuple{3, NTuple{3, Int}}) = sum(K -> 1 << sum(lv[K]), 1:3)
 _convert_sparams(::Type{T}, p::SurfaceletParams{T}) where {T} = p
 _convert_sparams(::Type{T}, p::SurfaceletParams) where {T <: AbstractFloat} =
     SurfaceletParams{T}(p.J, p.L_array, p.levels, p.pyr_mode, p.bo, p.msize, T(p.beta), p.lambda)
-
-# ── Semi-translation-invariant ────────────────────────────────────────────────
-
-"""
-    STISurfaceletParams
-
-Describes a semi-translation-invariant (STI) surfacelet decomposition: a
-nonsubsampled pyramid with the critically sampled directional stage of
-[`surfacelet_forward`](@ref) at every scale.  Fields as in
-[`SurfaceletParams`](@ref), without `pyr_mode`:
-
-- `J` — number of scales; `L_array` — directional levels per scale (integers or
-  `3 × 3` level matrices);
-- `bo`, `msize`, `beta`, `lambda` — checkerboard filter order and hourglass
-  kernel parameters.
-
-```jldoctest
-julia> using Surfacelets
-
-julia> STISurfaceletParams(J = 3, L_array = [2, 2, 3])
-STISurfaceletParams(J=3, L_array=[2, 2, 3], bo=12)
-```
-"""
-struct STISurfaceletParams{T <: AbstractFloat}
-    J::Int
-    L_array::Vector{Any}
-    levels::Vector{NTuple{3, NTuple{3, Int}}}
-    bo::Int
-    msize::Int
-    beta::T
-    lambda::Int
-end
-
-function STISurfaceletParams(;
-        J::Int, L_array::AbstractVector, bo::Int = 12, msize::Int = 15,
-        beta::Real = 2.5, lambda::Int = 4, precision::Type{T} = Float64
-    ) where {T <: AbstractFloat}
-    # Reuse the decimated transform's validation of the shared fields.
-    p = SurfaceletParams(;
-        J = J, L_array = L_array, bo = bo, msize = msize, beta = beta,
-        lambda = lambda, precision = T
-    )
-    return STISurfaceletParams{T}(p.J, p.L_array, p.levels, p.bo, p.msize, p.beta, p.lambda)
-end
-
-Base.eltype(::STISurfaceletParams{T}) where {T} = T
-
-function Base.show(io::IO, p::STISurfaceletParams)
-    L = "[" * join((repr(l) for l in p.L_array), ", ") * "]"
-    return print(io, "STISurfaceletParams(J=$(p.J), L_array=$(L), bo=$(p.bo))")
-end
-
-"""
-    sti_surfacelet_nsubbands(p::STISurfaceletParams, j::Int) -> Int
-
-Number of directional subbands at scale `j`.
-"""
-sti_surfacelet_nsubbands(p::STISurfaceletParams, j::Int) = _nsubbands(p.levels[j])
-
-_convert_stiparams(::Type{T}, p::STISurfaceletParams{T}) where {T} = p
-_convert_stiparams(::Type{T}, p::STISurfaceletParams) where {T <: AbstractFloat} =
-    STISurfaceletParams{T}(p.J, p.L_array, p.levels, p.bo, p.msize, T(p.beta), p.lambda)

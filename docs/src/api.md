@@ -8,7 +8,6 @@ CurrentModule = Surfacelets
 
 ```@docs
 Surfacelets
-MultiscaleFilterBanks.MultiscaleFilterBanks
 ```
 
 ## Nonsubsampled surfacelet transform
@@ -41,18 +40,6 @@ SurfaceletPlan
 checkerboard_orders
 ```
 
-## Semi-translation-invariant (STI) surfacelet transform
-
-```@docs
-sti_surfacelet_forward
-sti_surfacelet_forward!
-sti_surfacelet_inverse
-sti_surfacelet_inverse!
-sti_surfacelet_nsubbands
-make_sti_surfacelet
-STISurfaceletParams
-```
-
 ## Directional filter bank
 
 ```@docs
@@ -77,39 +64,6 @@ ndfb_decompose!
 ndfb_reconstruct
 ndfb_reconstruct!
 ```
-
-## Pyramid
-
-```@docs
-nsp3d_decompose
-nsp3d_decompose!
-nsp3d_reconstruct
-nsp3d_reconstruct!
-```
-
-## Primitives
-
-```@docs
-conv3d_sep
-conv3d_sep!
-conv3d_sep_fft
-conv3d_sep_fft!
-Conv3DFFTPlan
-make_conv3d_fft_plan
-```
-
-## Filters
-
-Re-exported from
-[MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl),
-the shared core, so `using Surfacelets` alone is enough.
-
-```@docs
-CDF97
-FilterPair
-upsample_filter
-```
-
 
 ## Filter design internals
 

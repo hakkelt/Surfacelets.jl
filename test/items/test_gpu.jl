@@ -78,7 +78,7 @@ end
     end
 end
 
-@testitem "GPU 3-D NSCT matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+@testitem "GPU nonsubsampled surfacelet matches CPU" tags = [:gpu] setup = [GPUBackends] begin
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(202)
@@ -166,27 +166,5 @@ end
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, randn(Float32, dims...))
         @test_throws ArgumentError surfacelet_forward(xg, p)
-    end
-end
-
-@testitem "GPU STI surfacelet matches CPU" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
-    using GPUEnv, Random
-    const Adapt = GPUBackends.Adapt
-    Random.seed!(206)
-    dims = (32, 32, 32)
-    x = randn(Float32, dims...)
-    p = STISurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
-    pl_cpu = make_sti_surfacelet(p, dims, Float32)
-    ref = sti_surfacelet_forward(x, p; plan = pl_cpu)
-    for backend in GPUBackends.fft_backends
-        xg = to_gpu(backend, x)
-        pl = Adapt.adapt(backend.array_type, pl_cpu)
-        c = sti_surfacelet_forward(xg, p; plan = pl)
-        @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
-        for j in 1:2, k in eachindex(c.subbands[j])
-            @test maximum(abs, Array(c.subbands[j][k]) .- ref.subbands[j][k]) < 1.0f-4
-        end
-        @test maximum(abs, Array(sti_surfacelet_inverse(c, p; plan = pl)) .- x) < 1.0f-4
-        @test_throws ArgumentError sti_surfacelet_forward(xg, p)
     end
 end

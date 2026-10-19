@@ -12,8 +12,7 @@
 
 
 *The surfacelet transform in Julia: a multiscale, multidirectional transform for
-volumes, in a nonsubsampled (shift-invariant), a decimated and a
-semi-translation-invariant form.*
+volumes, in a nonsubsampled (shift-invariant) and a decimated form.*
 
 A surfacelet transform splits a volume by scale, like a 3-D wavelet, and each
 scale further by direction, into wedges around the three frequency axes. Every
@@ -58,21 +57,14 @@ transform, reproducing their reference toolbox SurfBox to rounding error. Each
 subband sits on its own decimated grid, about 4 coefficients per voxel whatever
 the number of directions, at the cost of shift invariance.
 
-`sti_surfacelet_forward` is a semi-translation-invariant (STI) middle ground: a
-nonsubsampled raised-cosine pyramid followed by the decimated transform's
-critically sampled directional stage, redundancy `1 + 3J`. It shares the
-*structure* of Eslami and Radha's semi-translation-invariant contourlet
-transform, not its construction — it is not a 3-D STICT, and no paper we know
-of describes it; its two stages are validated separately.
-
-| | `ns_surfacelet_forward` | `sti_surfacelet_forward` | `surfacelet_forward` |
-|---|---|---|---|
-| Subband sizes | all equal to the input | coarse full size, directional subbands decimated | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | `1 + 3J` (10 at `J=3`) | ≈ 4 (`pyr_mode = 1.5`), flat in the direction count |
-| Shift invariance | exact | scales exact; subbands on their decimation lattice | no — decimation breaks it |
-| Frame | tight | perfect reconstruction | biorthogonal, perfect reconstruction |
-| Streaming form | yes, one subband at a time | not needed | not needed, the set fits |
-| GPU | Adapt-based | Adapt-based | Adapt-based |
+| | `ns_surfacelet_forward` | `surfacelet_forward` |
+|---|---|---|
+| Subband sizes | all equal to the input | decimated, one grid per subband |
+| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 4 (`pyr_mode = 1.5`), flat in the direction count |
+| Shift invariance | exact | no — decimation breaks it |
+| Frame | tight (Parseval) | biorthogonal, perfect reconstruction |
+| Streaming form | yes, one subband at a time | not needed, the set fits |
+| GPU | Adapt-based | Adapt-based |
 
 ## Not a 3-D contourlet transform
 
@@ -91,15 +83,15 @@ explains the constructions with figures.
 The 2-D contourlet and nonsubsampled contourlet transforms live in
 [Contourlets.jl](https://github.com/hakkelt/Contourlets.jl), and 2-D and 3-D
 shearlet transforms in [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl).
-The packages share only the pyramid filters and the threading, which live in
+The packages share only the threading, which lives in
 [MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl).
 
 ## Multithreading and GPU
 
 The transforms run in parallel over Julia's threads (start Julia with
 `-t auto`) unless `threaded = false`: the nonsubsampled transform computes its
-subbands in parallel, the decimated and STI transforms split each scale's
-blocks among the threads.
+subbands in parallel, the decimated transform splits each scale's blocks among
+the threads.
 
 The transforms are FFT plus a pointwise mask, and every mask is stored as
 broadcastable factors, so the device path needs no kernels — only `Adapt` and a

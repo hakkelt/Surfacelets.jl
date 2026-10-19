@@ -61,9 +61,6 @@ sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
   with `similar(mask, Complex{eltype(mask)}, dims)` — nothing needs copying, and
   adapting a complex array through an element-typed destination would try to
   narrow `Complex{T}` to `T`.
-- **The 1-D à trous kernel transforms stay on the host.** In `Conv3DFFTPlan` they
-  are length-`n` and produce three vectors; a device FFT would cost more in
-  launch overhead than it saves. Only the transfer-function arrays move.
 
 ## Deliberately absent
 

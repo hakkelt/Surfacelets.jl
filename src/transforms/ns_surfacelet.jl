@@ -1,6 +1,8 @@
 # Nonsubsampled surfacelet transform.
 #
-# Multiscale stage: the à trous nonsubsampled pyramid (`nsp3d_decompose`).
+# Multiscale stage: the raised-cosine nonsubsampled pyramid — Lu & Do's
+# frequency-domain pyramid without its downsampling, a tight frame
+# (`raised_cosine_pyramid.jl`).
 # Directional stage: the hourglass bank refined into wedges (`ndfb_decompose`).
 #
 # Every coefficient array keeps the spatial size of the input, so the transform
@@ -14,12 +16,13 @@
 # with X the input spectrum, Bⱼ the pyramid's bandpass of level j, Wᵢ the
 # hourglass mask and wₐ, w_b the two wedge factors (all square-rooted when the
 # bank is tight; `_hg_factor`).  None of these is stored as a volume except the
-# hourglass response: Bⱼ is a broadcast of per-axis vectors
-# (`MultiscaleFilterBanks.nsp_responses`) and the wedge factors are planes.  The
-# forward forms `Yᵢ = X·Bⱼ·Wᵢ` once per hourglass, so a subband costs one
+# hourglass response: Bⱼ = Π_{i<j}ℓᵢ · √(1 - ℓⱼ²), ℓⱼ the separable lowpass of
+# level j, is a broadcast of per-axis vectors, and the wedge factors are planes.
+# Every mask is real, so the synthesis applies the same masks again: with
+# `tight = true` the transform is a Parseval frame and its inverse is its
+# adjoint.  The forward forms `Yᵢ = X·Bⱼ·Wᵢ` once per hourglass, so a subband costs one
 # multiply by two planes and one inverse FFT; the inverse mirrors it with one
 # forward FFT per subband, a per-hourglass sum, and one inverse FFT in total.
-# This equals `nsp3d_decompose` followed by `ndfb_decompose` to rounding.
 #
 # The subbands are independent, so with threading the wedges of each hourglass
 # are split into contiguous chunks, one task per FFT buffer
@@ -59,9 +62,8 @@ struct NSSurfaceletWorkspace{
     m1::A3                                      # hourglass f₀(M₁), rfft grid
     m2::A3                                      # hourglass f₀(M₂), (1, n₂, n₃)
     wedges::Vector{NTuple{3, NTuple{2, Vector{A3}}}}  # [scale][hourglass][plane][wedge], √ when tight
-    pa::Vector{NTuple{3, C3}}                   # Π_{i<j} Hᵢ per axis, j = 1:J+1
-    pgh::Vector{NTuple{3, C3}}                  # Gⱼ Hⱼ per axis, j = 1:J
-    ps::Vector{NTuple{3, C3}}                   # Π_{i<j} Gᵢ per axis, j = 1:J+1
+    pa::Vector{NTuple{3, C3}}                   # Π_{i<j} ℓᵢ per axis, j = 1:J+1
+    pl::Vector{NTuple{3, C3}}                   # ℓⱼ per axis, j = 1:J
     # Buffers.  A complex volume is two real channels, filtered alike, which
     # keeps `T(x + i·y) == T(x) + i·T(y)` exact.
     X::Vector{C3}                               # [channel] input spectrum / synthesis sum
@@ -100,18 +102,18 @@ function make_ns_surfacelet_workspace(
     p = _convert_params(T, params)
     m1, m2 = _hourglass_tables(T, dims, p.order, p.poly)
     wedges = [_ns_wedge_factors(dims, l, p) for l in p.L_array]
-    resp = ntuple(3) do d
-        nsp_responses(p.lp_filters, p.J, dims[d]; bins = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d]))
-    end
+    bins(d) = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d])
+    resp = ntuple(d -> _rc_responses(T, p.J, dims[d], bins(d)), 3)
     orient(v, d) = reshape(Complex{T}.(v), ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
-    pa, pgh, ps = per_level(1, p.J + 1), per_level(2, p.J), per_level(3, p.J + 1)
+    pa, pl = per_level(1, p.J + 1), per_level(2, p.J)
     proto = Array{T, 3}(undef, 0, 0, 0)
-    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pgh, ps, proto, tasks, flags)
+    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, proto, tasks, flags)
 end
 
 make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
     make_ns_surfacelet_workspace(params, dims; kwargs...)
+
 
 # The wedge factors of one scale with depth `L`: the analysis masks' planes,
 # square-rooted when the bank is tight (the weights are ≥ 0 up to rounding).
@@ -127,7 +129,7 @@ end
 # The workspace around its tables, with buffers like `proto` (host or device).
 # Host plans use `flags` on one FFTW thread; a device gets one task.
 function _ns_workspace(
-        ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pgh, ps,
+        ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pl,
         proto::AbstractArray, tasks::Integer, flags
     ) where {Td, T}
     tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1"))
@@ -147,17 +149,8 @@ function _ns_workspace(
         (_fft_plan(plan_rfft, rbuf[1][1], flags), _fft_plan(plan_irfft, work[1], flags, dims[1]))
     end
     return NSSurfaceletWorkspace{Td, T, typeof(m1), eltype(X), typeof(coarse), typeof(pfwd), typeof(pinv)}(
-        dims, p, m1, m2, wedges, pa, pgh, ps, X, Y, work, rbuf, partial, cbuf, coarse, pfwd, pinv
+        dims, p, m1, m2, wedges, pa, pl, X, Y, work, rbuf, partial, cbuf, coarse, pfwd, pinv
     )
-end
-
-# Equality of two filter pairs at the workspace's precision — the workspace holds
-# `params`' filters already converted, so the comparison converts rather than
-# promoting (and stays allocation-free).
-function _same_filters(a::FilterPair{T}, b::FilterPair) where {T}
-    length(a.h) == length(b.h) && length(a.g) == length(b.g) || return false
-    all(i -> a.h[i] == T(b.h[i]), eachindex(a.h)) || return false
-    return all(i -> a.g[i] == T(b.g[i]), eachindex(a.g))
 end
 
 # Build a workspace on demand when the caller did not supply one, or check that
@@ -178,8 +171,6 @@ function _ns_surfacelet_workspace(
         throw(ArgumentError("workspace was built with tight = $(q.tight), not $(params.tight)"))
     (q.order, q.poly) == (params.order, params.poly) && q.transition == eltype(q)(params.transition) ||
         throw(ArgumentError("workspace was built for a different hourglass or wedge design"))
-    _same_filters(q.lp_filters, params.lp_filters) ||
-        throw(ArgumentError("workspace was built for a different pyramid filter pair"))
     return ws
 end
 
@@ -195,12 +186,16 @@ _ns_threaded(threaded::Union{Bool, Nothing}) = threaded !== false
     return tight ? _tight_sqrt(w) : w
 end
 
+# √(1 - ℓⱼ²), the level-j factor of the bandpass (analysis and synthesis), from
+# ℓⱼ held as a complex number with zero imaginary part.
+@inline _band(l::Complex{T}) where {T} = Complex{T}(sqrt(max(1 - real(l)^2, zero(T))))
+
 # Y = X · Bⱼ · Wᵢ: the hourglass-i part of the scale-j bandpass.
 function _ns_band!(Y, X, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
-    g1, g2, g3 = ws.pgh[j]
+    g1, g2, g3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    @. Y = X * (a1 * a2 * a3) * (1 - g1 * g2 * g3) * _hg_factor(m1, m2, i, tight)
+    @. Y = X * (a1 * a2 * a3) * _band(g1 * g2 * g3) * _hg_factor(m1, m2, i, tight)
     return Y
 end
 
@@ -210,7 +205,7 @@ end
 # workspace's tasks too.
 function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
     a1, a2, a3 = ws.pa[j]
-    g1, g2, g3 = ws.pgh[j]
+    g1, g2, g3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     a1v, g1v = vec(a1), vec(g1)
     _foreach_slab(Y, ws, threaded) do ks
@@ -219,7 +214,7 @@ function _ns_band!(Y::Array, X::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int
             g23 = g2[1, l, 1] * g3[1, 1, k]
             μ2 = m2[1, l, k]
             y, x, μ1 = view(Y, :, l, k), view(X, :, l, k), view(m1, :, l, k)
-            @. y = x * (a1v * a23) * (1 - g1v * g23) * _hg_factor(μ1, μ2, i, tight)
+            @. y = x * (a1v * a23) * _band(g1v * g23) * _hg_factor(μ1, μ2, i, tight)
         end
     end
     return Y
@@ -228,29 +223,32 @@ end
 # X += Y · Sⱼ · Wᵢ, the synthesis counterpart (Wᵢ = 1 when not tight: the
 # directional inverse is then a bare sum).
 function _ns_unband!(X, Y, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
-    s1, s2, s3 = ws.ps[j]
+    s1, s2, s3 = ws.pa[j]
+    g1, g2, g3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     if tight
-        @. X += Y * (s1 * s2 * s3) * _hg_factor(m1, m2, i, true)
+        @. X += Y * (s1 * s2 * s3) * _band(g1 * g2 * g3) * _hg_factor(m1, m2, i, true)
     else
-        @. X += Y * (s1 * s2 * s3)
+        @. X += Y * (s1 * s2 * s3) * _band(g1 * g2 * g3)
     end
     return X
 end
 
 function _ns_unband!(X::Array, Y::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, threaded::Bool)
-    s1, s2, s3 = ws.ps[j]
+    s1, s2, s3 = ws.pa[j]
+    g1, g2, g3 = ws.pl[j]
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    s1v = vec(s1)
+    s1v, g1v = vec(s1), vec(g1)
     _foreach_slab(X, ws, threaded) do ks
         @inbounds for k in ks, l in axes(X, 2)
             s23 = s2[1, l, 1] * s3[1, 1, k]
+            g23 = g2[1, l, 1] * g3[1, 1, k]
             μ2 = m2[1, l, k]
             x, y, μ1 = view(X, :, l, k), view(Y, :, l, k), view(m1, :, l, k)
             if tight
-                @. x += y * (s1v * s23) * _hg_factor(μ1, μ2, i, true)
+                @. x += y * (s1v * s23) * _band(g1v * g23) * _hg_factor(μ1, μ2, i, true)
             else
-                @. x += y * (s1v * s23)
+                @. x += y * (s1v * s23) * _band(g1v * g23)
             end
         end
     end
@@ -412,7 +410,7 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
     end
     for c in 1:nch
         _ns_spectrum!(ws.work[1], coarse, ws.rbuf[1][c], ws, c)
-        _ns_lowpass!(ws.X[c], ws.work[1], ws.ps[end], true, ws, threaded)
+        _ns_lowpass!(ws.X[c], ws.work[1], ws.pa[end], true, ws, threaded)
         mul!(ws.rbuf[1][c], ws.pinv, ws.X[c])
     end
     return _ns_combine!(volume, ws.rbuf[1])

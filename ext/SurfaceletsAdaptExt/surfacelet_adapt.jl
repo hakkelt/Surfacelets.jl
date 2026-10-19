@@ -1,4 +1,4 @@
-# Decimated and STI surfacelet transforms on the device.
+# The decimated surfacelet transform on the device.
 #
 # Like `ns_surfacelet_adapt.jl`, no kernel is needed and none is written here.
 # Every stage is an FFT, a pointwise broadcast against precomputed tables (the
@@ -16,7 +16,7 @@
 # `surfacelet_forward` refuses a device volume without a plan rather than doing
 # that implicitly.
 
-using Surfacelets: SurfaceletPlan, SurfaceletCoefficients, FourierPyramidLevel, RaisedCosineLevel,
+using Surfacelets: SurfaceletPlan, SurfaceletCoefficients, FourierPyramidLevel,
     IRCStage, _SurfScale, _surfacelet_plan
 
 function Adapt.adapt_structure(to, lv::FourierPyramidLevel)
@@ -27,8 +27,6 @@ function Adapt.adapt_structure(to, lv::FourierPyramidLevel)
         map(v -> Adapt.adapt(to, v), lv.prof),
     )
 end
-
-Adapt.adapt_structure(to, lv::RaisedCosineLevel) = RaisedCosineLevel(map(v -> Adapt.adapt(to, v), lv.prof))
 
 function Adapt.adapt_structure(to, st::IRCStage)
     return IRCStage(st.m, st.b, map(a -> Adapt.adapt(to, a), st.ana), map(a -> Adapt.adapt(to, a), st.syn))
