@@ -2,7 +2,7 @@
 #
 # Multiscale stage: the raised-cosine nonsubsampled pyramid — Lu & Do's
 # frequency-domain pyramid without its downsampling, a tight frame
-# (`raised_cosine_pyramid.jl`).
+# (the nonsubsampled variant in `fourier_pyramid.jl`).
 # Directional stage: the hourglass bank refined into wedges (`ndfb_decompose`).
 #
 # Every coefficient array keeps the spatial size of the input, so the transform
@@ -58,12 +58,14 @@ struct NSSurfaceletWorkspace{
     }
     dims::NTuple{3, Int}
     params::NSSurfaceletParams{T}
+    tasks::Int                                  # as requested; a device runs one
     # Tables (moved by `Adapt`).
     m1::A3                                      # hourglass f₀(M₁), rfft grid
     m2::A3                                      # hourglass f₀(M₂), (1, n₂, n₃)
     wedges::Vector{NTuple{3, NTuple{2, Vector{A3}}}}  # [scale][hourglass][plane][wedge], √ when tight
     pa::Vector{NTuple{3, A3}}                   # Π_{i<j} ℓᵢ per axis, j = 1:J+1
     pl::Vector{NTuple{3, A3}}                   # ℓⱼ per axis, j = 1:J
+    band::Vector{A3}                            # [scale] Bⱼ on the rfft grid; empty when not cached
     # Buffers.  A complex volume is two real channels, filtered alike, which
     # keeps `T(x + i·y) == T(x) + i·T(y)` exact.
     X::Vector{C3}                               # [channel] input spectrum / synthesis sum
@@ -84,7 +86,8 @@ _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 
 """
     make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::NTuple{3,Int},
-                         ::Type{Td}=Float64; tasks=Threads.nthreads(), flags=FFTW.MEASURE)
+                         ::Type{Td}=Float64; tasks=Threads.nthreads(), flags=FFTW.MEASURE,
+                         cache_bandpass=true)
 
 Allocate the workspace for `params` at volume size `dims` and element type `Td`
 (real or complex).
@@ -92,11 +95,19 @@ Allocate the workspace for `params` at volume size `dims` and element type `Td`
 Memory: the hourglass response is one `real(Td)` array on the rfft grid,
 `(n₁÷2+1) × n₂ × n₃`; the buffers are about `4 + 2·tasks` such arrays for real
 data (twice for complex).  `tasks` bounds the threads the transform uses, and so
-the buffers; everything per-scale is vectors and planes.
+the buffers.  With `cache_bandpass = true` the pyramid's bandpass of each scale
+is precomputed as well, `J` more such arrays; it saves recomputing the
+non-separable factor `√(1 - ℓⱼ²)` once per hourglass and channel in both
+directions.  Pass `false` to broadcast it from per-axis vectors instead, so that
+everything per-scale is vectors and planes.
+
+Throws an `ArgumentError` when `dims` is too small for `params.J` scales: a
+scale whose bandpass would be identically zero.
 """
 function make_ns_surfacelet_workspace(
         params::NSSurfaceletParams, dims::NTuple{3, Int}, ::Type{Td} = Float64;
-        tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE
+        tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE,
+        cache_bandpass::Bool = true
     ) where {Td <: Number}
     T = filter_eltype(Td)
     p = _convert_params(T, params)
@@ -104,11 +115,18 @@ function make_ns_surfacelet_workspace(
     wedges = [_ns_wedge_factors(dims, l, p) for l in p.L_array]
     bins(d) = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d])
     resp = ntuple(d -> _rc_responses(T, p.J, dims[d], bins(d)), 3)
+    # Bⱼ ≡ 0 exactly when ℓⱼ = 1 wherever Π_{i<j} ℓᵢ > 0, on every axis: the
+    # factors are separable, ≤ 1, and 1 at DC.
+    for j in 1:p.J
+        all(d -> all(((a, l),) -> a == 0 || l == 1, zip(resp[d][1][j], resp[d][2][j])), 1:3) &&
+            throw(ArgumentError("size $(dims) is too small for $(p.J) scales: scale $(j) would be empty"))
+    end
     orient(v, d) = reshape(v, ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
     pa, pl = per_level(1, p.J + 1), per_level(2, p.J)
+    band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:p.J] : typeof(m1)[]
     proto = Array{T, 3}(undef, 0, 0, 0)
-    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, proto, tasks, flags)
+    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, band, proto, tasks, flags)
 end
 
 make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
@@ -128,7 +146,7 @@ end
 # The workspace around its tables, with buffers like `proto` (host or device).
 # Host plans use `flags` on one FFTW thread; a device gets one task.
 function _ns_workspace(
-        ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pl,
+        ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pl, band,
         proto::AbstractArray, tasks::Integer, flags
     ) where {Td, T}
     tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1"))
@@ -148,7 +166,7 @@ function _ns_workspace(
         (_fft_plan(plan_rfft, rbuf[1][1], flags), _fft_plan(plan_irfft, work[1], flags, dims[1]))
     end
     return NSSurfaceletWorkspace{Td, T, typeof(m1), eltype(X), typeof(coarse), typeof(pfwd), typeof(pinv)}(
-        dims, p, m1, m2, wedges, pa, pl, X, Y, work, rbuf, partial, cbuf, coarse, pfwd, pinv
+        dims, p, Int(tasks), m1, m2, wedges, pa, pl, band, X, Y, work, rbuf, partial, cbuf, coarse, pfwd, pinv
     )
 end
 
@@ -185,51 +203,80 @@ _ns_threaded(threaded::Union{Bool, Nothing}) = threaded !== false
     return tight ? _tight_sqrt(w) : w
 end
 
-# √(1 - ℓⱼ²), the level-j factor of the bandpass.
-@inline _band(l::T) where {T <: Real} = sqrt(max(1 - l^2, zero(T)))
+# The scale-j bandpass Bⱼ = Π_{i<j}ℓᵢ · √(1 - ℓⱼ²) from its per-axis factors.
+@inline _bandpass(a1::T, a2::T, a3::T, l1::T, l2::T, l3::T) where {T} =
+    a1 * a2 * a3 * sqrt(max(1 - (l1 * l2 * l3)^2, zero(T)))
+
+# Bⱼ as `_ns_band!` reads it: the cached volume, or a lazy broadcast of the
+# per-axis factors.
+_ns_bandpass(ws::NSSurfaceletWorkspace, j::Int) =
+    isempty(ws.band) ? Broadcast.broadcasted(_bandpass, ws.pa[j]..., ws.pl[j]...) : ws.band[j]
 
 # Y = X · Bⱼ · Wᵢ, the hourglass-i part of the scale-j bandpass, or with `add` its
 # synthesis counterpart X += Y · Bⱼ · Wᵢ (Wᵢ = 1 when not tight: the directional
 # inverse is then a bare sum).  Bⱼ is the same mask both ways.
-function _ns_band!(dst, src, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool)
-    a1, a2, a3 = ws.pa[j]
-    l1, l2, l3 = ws.pl[j]
+_ns_band!(dst, src, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool) =
+    _ns_band_apply!(dst, src, _ns_bandpass(ws, j), ws, i, add, threaded)
+
+function _ns_band_apply!(dst, src, B, ws::NSSurfaceletWorkspace, i::Int, add::Bool, threaded::Bool)
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
     if !add
-        @. dst = src * (a1 * a2 * a3 * _band(l1 * l2 * l3) * _hg_factor(m1, m2, i, tight))
+        @. dst = src * (B * _hg_factor(m1, m2, i, tight))
     elseif tight
-        @. dst += src * (a1 * a2 * a3 * _band(l1 * l2 * l3) * _hg_factor(m1, m2, i, true))
+        @. dst += src * (B * _hg_factor(m1, m2, i, true))
     else
-        @. dst += src * (a1 * a2 * a3 * _band(l1 * l2 * l3))
+        @. dst += src * B
     end
     return dst
 end
 
-# The host method walks the columns, as `_wedge_mul!` does: everything but `a1`,
-# `l1` and `m1` is a scalar per column.  These full-volume passes sit between the
-# threaded subband loops, so with threading they split the third axis among the
-# workspace's tasks too.
-function _ns_band!(dst::Array, src::Array, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool)
-    a1, a2, a3 = ws.pa[j]
-    l1, l2, l3 = ws.pl[j]
+# The host method walks the columns, as `_wedge_mul!` does: everything but `m1`
+# and the cached Bⱼ (or `a1`, `l1`) is a scalar per column.  These full-volume
+# passes sit between the threaded subband loops, so with threading they split
+# the third axis among the workspace's tasks too.
+function _ns_band_apply!(dst::Array, src::Array, B, ws::NSSurfaceletWorkspace, i::Int, add::Bool, threaded::Bool)
     m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    a1v, l1v = vec(a1), vec(l1)
     _foreach_slab(dst, ws, threaded) do ks
         @inbounds for k in ks, l in axes(dst, 2)
-            a23 = a2[1, l, 1] * a3[1, 1, k]
-            l23 = l2[1, l, 1] * l3[1, 1, k]
             μ2 = m2[1, l, k]
             d, s, μ1 = view(dst, :, l, k), view(src, :, l, k), view(m1, :, l, k)
-            if !add
-                @. d = s * (a1v * a23 * _band(l1v * l23) * _hg_factor(μ1, μ2, i, tight))
-            elseif tight
-                @. d += s * (a1v * a23 * _band(l1v * l23) * _hg_factor(μ1, μ2, i, true))
-            else
-                @. d += s * (a1v * a23 * _band(l1v * l23))
-            end
+            _band_col!(d, s, _band_column(B, l, k), μ1, μ2, i, add, tight)
         end
     end
     return dst
+end
+
+# One column of `_ns_band_apply!`.  A cached column goes through FastBroadcast's
+# `@..`, about twice as fast as Base's broadcast here; the lazy column of an
+# uncached Bⱼ is a `Broadcasted`, which only Base's broadcast fuses.
+@inline function _band_col!(d, s, b::SubArray, μ1, μ2, i::Int, add::Bool, tight::Bool)
+    if !add
+        @.. d = s * (b * _hg_factor(μ1, μ2, i, tight))
+    elseif tight
+        @.. d += s * (b * _hg_factor(μ1, μ2, i, true))
+    else
+        @.. d += s * b
+    end
+    return d
+end
+
+@inline function _band_col!(d, s, b::Broadcast.Broadcasted, μ1, μ2, i::Int, add::Bool, tight::Bool)
+    if !add
+        @. d = s * (b * _hg_factor(μ1, μ2, i, tight))
+    elseif tight
+        @. d += s * (b * _hg_factor(μ1, μ2, i, true))
+    else
+        @. d += s * b
+    end
+    return d
+end
+
+# Column (:, l, k) of Bⱼ, cached or broadcast from its factors.
+@inline _band_column(B::Array, l::Int, k::Int) = view(B, :, l, k)
+
+@inline function _band_column(B::Broadcast.Broadcasted, l::Int, k::Int)
+    a1, a2, a3, l1, l2, l3 = B.args
+    return Broadcast.broadcasted(_bandpass, vec(a1), a2[1, l, 1], a3[1, 1, k], vec(l1), l2[1, l, 1], l3[1, 1, k])
 end
 
 # Y = X · a₁a₂a₃ (or Y += when `add`), the lowpass of the last pyramid level with
@@ -244,7 +291,7 @@ function _ns_lowpass!(Y::Array, X::Array, a, add::Bool, ws::NSSurfaceletWorkspac
         @inbounds for k in ks, l in axes(Y, 2)
             a23 = a2[1, l, 1] * a3[1, 1, k]
             y, x = view(Y, :, l, k), view(X, :, l, k)
-            add ? (@. y += x * (a1v * a23)) : (@. y = x * (a1v * a23))
+            add ? (@.. y += x * (a1v * a23)) : (@.. y = x * (a1v * a23))
         end
     end
     return Y
@@ -259,7 +306,8 @@ _foreach_slab(f::F, A::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool)
 # planes (singleton on one axis each).  On the host the 3-D broadcast does not
 # vectorise across the singleton axes — it runs at a tenth of a plain copy — so
 # the host method walks the columns, each a contiguous 1-D broadcast in which a
-# plane contributes a column or a scalar.
+# plane contributes a column or a scalar, through FastBroadcast's `@..` (15–25%
+# faster than Base's broadcast on these columns).
 _wedge_mul!(dst, Y, wa, wb, add::Bool) = add ? (dst .+= Y .* wa .* wb) : (dst .= Y .* wa .* wb)
 
 function _wedge_mul!(dst::Array{T, 3}, Y::Array{T, 3}, wa::Array{R, 3}, wb::Array{R, 3}, add::Bool) where {T, R}
@@ -274,13 +322,15 @@ end
 @inline function _wedge_col!(d, y, a, b, add::Bool)
     if length(a) == 1 && length(b) == 1
         s = a[1] * b[1]
-        add ? (d .+= y .* s) : (d .= y .* s)
+        add ? (@.. d += y * s) : (@.. d = y * s)
     elseif length(a) == 1
-        add ? (d .+= y .* b .* a[1]) : (d .= y .* b .* a[1])
+        s = a[1]
+        add ? (@.. d += y * b * s) : (@.. d = y * b * s)
     elseif length(b) == 1
-        add ? (d .+= y .* a .* b[1]) : (d .= y .* a .* b[1])
+        s = b[1]
+        add ? (@.. d += y * a * s) : (@.. d = y * a * s)
     else
-        add ? (d .+= y .* a .* b) : (d .= y .* a .* b)
+        add ? (@.. d += y * a * b) : (@.. d = y * a * b)
     end
     return d
 end

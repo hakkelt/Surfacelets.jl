@@ -76,7 +76,9 @@ transformed hundreds of times. The whole cascade runs as masks on the input's
 spectrum — one forward FFT, then one inverse FFT per subband — and the subbands
 are computed in parallel on Julia's threads unless `threaded = false`.
 With [`ns_surfacelet_forward!`](@ref) and [`ns_surfacelet_inverse!`](@ref) a loop
-allocates nothing but the threads' tasks.
+allocates nothing but the threads' tasks.  The workspace caches each scale's
+pyramid bandpass as one real array on the rfft grid; pass
+`cache_bandpass = false` to save that memory at some speed.
 
 ```@example guide
 ws     = make_ns_surfacelet_workspace(params, size(vol), Float64)

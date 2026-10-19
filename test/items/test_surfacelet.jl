@@ -152,3 +152,23 @@ end
     p2 = SurfaceletParams(J = 2, L_array = [1, 1])
     @test_throws ArgumentError surfacelet_inverse(c, p2)
 end
+
+@testitem "surfacelet — serial calls use single-threaded FFT plans" tags = [:surfacelet] begin
+    using Adapt, Random
+    x = randn(Xoshiro(13), 48, 24, 36)
+    p = SurfaceletParams(J = 2, L_array = [1, 2])
+    pl = make_surfacelet(p, size(x); tasks = 2)
+    for f in (pl.pfwd, pl.pbwd, pl.cfwd, pl.cbwd)
+        @test f[1] !== f[2]
+    end
+    one = make_surfacelet(p, size(x); tasks = 1)
+    @test one.pfwd[1] === one.pfwd[2]
+    c = surfacelet_forward(x, p; plan = pl)
+    d = surfacelet_forward(x, p; plan = pl, threaded = false)
+    @test d.coarse ≈ c.coarse
+    @test surfacelet_inverse(d, p; plan = pl, threaded = false) ≈ x
+    # Adapting to the host keeps the task count.
+    ph = Adapt.adapt(Array, pl)
+    @test ph.tasks == 2 && ph.pfwd[1] !== ph.pfwd[2]
+    @test surfacelet_inverse(surfacelet_forward(x, p; plan = ph), p; plan = ph) ≈ x
+end

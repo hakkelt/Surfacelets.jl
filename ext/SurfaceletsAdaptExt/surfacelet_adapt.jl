@@ -48,8 +48,8 @@ function Adapt.adapt_structure(to, pl::SurfaceletPlan{T}) where {T}
     pyramid = [Adapt.adapt(to, lv) for lv in pl.pyramid]
     scales = [_adapt_scale(to, sc, memo) for sc in pl.scales]
     proto = Adapt.adapt(to, Array{T, 3}(undef, 0, 0, 0))
-    # The flags reach FFTW only when `to` is the host after all.
-    return _surfacelet_plan(pl.dims, pl.params, pyramid, scales, proto, Surfacelets.FFTW.ESTIMATE, 1)
+    # The flags and task count matter only when `to` is the host after all.
+    return _surfacelet_plan(pl.dims, pl.params, pyramid, scales, proto, Surfacelets.FFTW.ESTIMATE, pl.tasks)
 end
 
 function Adapt.adapt_structure(to, c::SurfaceletCoefficients)

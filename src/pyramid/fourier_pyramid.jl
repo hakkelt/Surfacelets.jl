@@ -1,7 +1,8 @@
-# Frequency-domain multiscale pyramid of the decimated surfacelet transform —
-# Lu & Do, "Multidimensional Directional Filter Banks and Surfacelets", IEEE TIP
-# 16(4), 2007, Section VI-A (eqs. 12–13); reference implementation SurfBox
-# `PyrNDDec_mm.m` / `PrySDdec_onestep.m`.
+# Frequency-domain multiscale pyramids of the surfacelet transforms — Lu & Do,
+# "Multidimensional Directional Filter Banks and Surfacelets", IEEE TIP 16(4),
+# 2007, Section VI-A (eqs. 12–13); reference implementation SurfBox
+# `PyrNDDec_mm.m` / `PrySDdec_onestep.m`.  The decimated transform uses it as
+# published; the nonsubsampled one drops the resampling (end of this file).
 #
 # One level splits a spectrum `X` of size `n` with a separable lowpass `L(ω)`
 # that is compactly supported inside `|ω_d| ≤ π (w + tbw)`:
@@ -48,6 +49,17 @@ _rcos_edges(n::Int, w::Rational, t::Rational) = (ceil(Int, n // 2 * (w + t)), fl
 # The profile's value at bin `|f| ≤ P`: a √rcos ramp from 1 down to 0.
 _rcos_profile(::Type{T}, f::Int, P::Int, Q::Int) where {T} = sqrt(_rcos(T(P - f) / T(P - Q)))
 
+# The 1-D lowpass on a full `n`-point DFT axis (bin k at frequency k or k - n):
+# the √rcos ramp up to `|f| = P`, zero beyond.  Also returns `P`.
+function _rcos_axis(::Type{T}, n::Int, w::Rational, t::Rational) where {T}
+    P, Q = _rcos_edges(n, w, t)
+    prof = T[
+        (f = abs(k <= n ÷ 2 ? k : k - n); f <= P ? _rcos_profile(T, f, P, Q) : zero(T))
+            for k in 0:(n - 1)
+    ]
+    return prof, P
+end
+
 # Three 1-D profiles of a separable lowpass `L[i,j,k] = p₁[i] p₂[j] p₃[k]`,
 # oriented along their axes for broadcasting the product.
 _separable_factors(prof::NTuple{3, <:AbstractVector}) =
@@ -62,13 +74,12 @@ function _pyramid_level(::Type{T}, n::NTuple{3, Int}, w::Rational, tbw::Rational
     prof = Vector{Vector{T}}(undef, 3)
     for a in 1:3
         nr = n[a]
-        P, Q = _rcos_edges(nr, w, tbw)
+        full, P = _rcos_axis(T, nr, w, tbw)
         2P < nr || throw(ArgumentError("size $(nr) is too small for the pyramid"))
-        v = [_rcos_profile(T, p, P, Q) for p in 0:P]
         # non-negative bins 0:P, then the mirrored negative bins -P:-1
         idx[a] = vcat(collect(0:P), collect((nr - P):(nr - 1))) .+ 1
         idx_low[a] = vcat(collect(0:P), collect((nlow[a] - P):(nlow[a] - 1))) .+ 1
-        prof[a] = vcat(v, reverse(v[2:end]))
+        prof[a] = full[idx[a]]
     end
     return FourierPyramidLevel(n, nlow, T(D), Tuple(idx), Tuple(idx_low), Tuple(prof))
 end
@@ -110,4 +121,27 @@ function _pyramid_merge!(X::AbstractArray{Complex{T}, 3}, low::AbstractArray{Com
     box = view(X, lv.idx...)
     box .= sqrt.(1 .- (l1 .* l2 .* l3) .^ 2) .* box .+ (l1 .* l2 .* l3 .* lv.D^T(1.5)) .* view(low, lv.idx_low...)
     return X
+end
+
+# ── Nonsubsampled variant ─────────────────────────────────────────────────────
+#
+# The pyramid of the nonsubsampled transform (`ns_surfacelet.jl`): the levels
+# above without the resampling, with mode 1's band edges carried on to every
+# level — level j uses the separable lowpass `ℓ_j` with cutoff `w_j = 1/2^j` and
+# transition `t_j = w_j / 3` (in units of π), on the original grid.  With
+#     bandpass_j = √(1 - ℓ_j²) · Π_{i<j} ℓ_i,    coarse = Π_i ℓ_i,
+# `Σ_j bandpass_j² + coarse² = 1` telescopes, so the pyramid is a tight frame,
+# and every factor is a pointwise frequency weight, so it commutes with circular
+# shifts.
+
+# The per-axis factors on the DFT bins `bins` of an axis of length `n`:
+# Π_{i<j} ℓᵢ for j = 1:J+1 (the lowpass products, the last one the coarse band)
+# and ℓⱼ for j = 1:J.
+function _rc_responses(::Type{T}, J::Int, n::Int, bins) where {T}
+    prof = [first(_rcos_axis(T, n, 1 // 2^j, 1 // (3 * 2^j)))[bins] for j in 1:J]
+    acc = [ones(T, length(bins))]
+    for j in 1:J
+        push!(acc, acc[end] .* prof[j])
+    end
+    return acc, prof
 end

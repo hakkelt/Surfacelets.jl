@@ -42,13 +42,14 @@ to a device, rebuilding the buffers and FFT plans there.
 struct SurfaceletPlan{T, P <: SurfaceletParams{T}, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G}
     dims::NTuple{3, Int}
     params::P
+    tasks::Int              # as requested; a device runs one
     pyramid::Vector{L}
     scales::Vector{C}
     work::Vector{W}         # scales with equal tables share one
     spectra::Vector{A}      # [j] the spectrum entering level j; [end] the coarse lowpass
     pfwd::F                 # in-place FFT and unnormalised inverse on spectra[1] …
     pbwd::G
-    cfwd::F                 # … and on the coarse spectrum
+    cfwd::F                 # … and on the coarse spectrum; each a pair (threaded, serial)
     cbwd::G
 end
 
@@ -56,7 +57,7 @@ Base.eltype(::SurfaceletPlan{T}) where {T} = T
 
 # The plan around `pyramid` and `scales`, with buffers like `proto` (host or
 # device) for `tasks` tasks.  Host FFT plans use `flags`; the block plans run on
-# one FFTW thread each, the full-volume plans on `tasks`.
+# one FFTW thread each, the full-volume plans on `tasks` or, in a serial call, one.
 function _surfacelet_plan(
         dims::NTuple{3, Int}, params, pyramid::AbstractVector, scales::AbstractVector{<:_SurfScale{T}},
         proto::AbstractArray, flags, tasks::Integer
@@ -74,13 +75,26 @@ function _surfacelet_plan(
     spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in sizes]
     pfwd, pbwd = _inplace_plans(spectra[1], flags, tasks)
     cfwd, cbwd = _inplace_plans(spectra[end], flags, tasks)
-    return SurfaceletPlan(dims, params, collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd)
+    return SurfaceletPlan(dims, params, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd)
 end
 
+# In-place FFT and unnormalised inverse of `A`, each as a pair: on `tasks` FFTW
+# threads for a threaded call, on one for a serial call (`threaded = false`, or
+# inside a caller's NestedThreading restriction).  A plan keeps the thread count
+# it was made with, so a serial call needs a plan of its own.  One plan serves
+# both on a device or with one task.
 function _inplace_plans(A::AbstractArray, flags, tasks::Integer)
     make() = (_fft_plan(plan_fft!, A, flags), _fft_plan(plan_bfft!, A, flags))
-    return A isa Array ? with_fftw_threads(make, tasks) : make()
+    if !(A isa Array) || tasks == 1
+        fwd, bwd = A isa Array ? with_fftw_threads(make, 1) : make()
+        return (fwd, fwd), (bwd, bwd)
+    end
+    fwd, bwd = with_fftw_threads(make, tasks)
+    fwd1, bwd1 = with_fftw_threads(make, 1)
+    return (fwd, fwd1), (bwd, bwd1)
 end
+
+_pick_plan(p::Tuple, threaded::Bool) = threaded ? p[1] : p[2]
 
 # Host plans applied to the blocks of a scale use one FFTW thread: the blocks
 # themselves are split among tasks (`_foreach_block`).
@@ -96,7 +110,8 @@ dimension must be divisible by `3 · 2^J`, with `2` by `2^(J+1)`, and with `1` b
 `2^J`; each scale must also allow its directional levels (axis length divisible
 by `2^level`).  `tasks` bounds the threads a transform with the plan uses: the
 blocks of a scale are split among that many tasks, each with a buffer of one
-block, and the full-volume FFTs run on that many FFTW threads.  `flags` are the
+block, and the full-volume FFTs run on that many FFTW threads (on one in a
+serial call).  `flags` are the
 FFTW planner flags; pass `FFTW.ESTIMATE` for a plan used once.
 """
 function make_surfacelet(
@@ -233,13 +248,13 @@ function _surfacelet_forward_body!(c::SurfaceletCoefficients, volume::AbstractAr
     size(volume) == pl.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(pl.dims)"))
     X = pl.spectra[1]
     X .= volume
-    pl.pfwd * X
+    _pick_plan(pl.pfwd, threaded) * X
     for j in eachindex(pl.scales)
         band = _pyramid_split!(pl.spectra[j + 1], pl.spectra[j], pl.pyramid[j])
         _surf_scale_forward!(c.subbands[j], band, pl.scales[j], pl.work[j], threaded)
     end
     C = pl.spectra[end]
-    pl.cbwd * C
+    _pick_plan(pl.cbwd, threaded) * C
     c.coarse .= real.(C) .* inv(real(eltype(C))(length(C)))
     return c
 end
@@ -248,13 +263,13 @@ function _surfacelet_inverse_body!(volume::AbstractArray{<:Real, 3}, c::Surfacel
     _check_coefficients(c, pl)
     C = pl.spectra[end]
     C .= c.coarse
-    pl.cfwd * C
+    _pick_plan(pl.cfwd, threaded) * C
     for j in reverse(eachindex(pl.scales))
         _surf_scale_inverse!(pl.spectra[j], c.subbands[j], pl.scales[j], pl.work[j], threaded)
         _pyramid_merge!(pl.spectra[j], pl.spectra[j + 1], pl.pyramid[j])
     end
     X = pl.spectra[1]
-    pl.pbwd * X
+    _pick_plan(pl.pbwd, threaded) * X
     volume .= real.(X) .* inv(real(eltype(X))(length(X)))
     return volume
 end

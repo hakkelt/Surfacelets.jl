@@ -16,7 +16,7 @@ counterpart: same frequency partition, each subband at its own reduced
 resolution, built through `make_surfacelet`.
 
 The nonsubsampled transform's pyramid is the raised-cosine one
-(`pyramid/raised_cosine_pyramid.jl`), so with `tight = true` the transform is a
+(the nonsubsampled variant in `pyramid/fourier_pyramid.jl`), so with `tight = true` the transform is a
 Parseval frame and its inverse is its adjoint; keep it that way. An à trous
 (CDF 9/7) pyramid and a semi-translation-invariant transform were removed after
 a denoising comparison: the former is not tight and lost at equal redundancy,
@@ -117,8 +117,9 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   spatial size as the input, and all pyramid/NDFB filtering uses periodic (circular)
   convolution, so the transform is exactly invariant under circular shifts.
   Periodic filtering is a product on the DFT grid, so the workspace runs the whole
-  cascade as masks on the input's rfft: pyramid bandpasses broadcast from per-axis
-  responses (`_rc_responses`), the hourglass factor applied
+  cascade as masks on the input's rfft: pyramid bandpasses precomputed per scale
+  (or, with `cache_bandpass = false`, broadcast from the per-axis responses of
+  `_rc_responses`), the hourglass factor applied
   once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
   planes (stored square-rooted when tight) and one irfft. The subbands are
   threaded over with `foreach_chunk` (Polyester's `@batch`), single-threaded
@@ -132,7 +133,8 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   views (the decimated scales' blocks and Hermitian mirror) 3–5× slow. Same-size
   products use FastBroadcast's `@..`; the view kernels in `surfacelet_scale.jl`
   use Strided on host arrays; singleton-axis products walk columns by hand
-  (`_wedge_mul!`, `_ns_band!`). Device arrays keep the plain broadcast.
+  (`_wedge_mul!`, `_ns_band!`), each column through `@..` as well (Base's 1-D
+  broadcast still costs 15–100% there). Device arrays keep the plain broadcast.
 - **FFTW thread counts are scoped, never set.** Plan inside
   `with_fftw_threads` (MultiscaleFilterBanks, through NestedThreading); a bare
   `FFTW.set_num_threads` leaks into every later plan in the process and overrides

@@ -176,3 +176,49 @@ end
         @test real(inner(cz, cz)) ≈ sum(abs2, z) rtol = 1.0e-12
     end
 end
+
+@testitem "ns_surfacelet — a scale with an empty bandpass is refused" tags = [:ns_surfacelet] begin
+    using Random
+    # At 8 bins the third level's lowpass passes DC alone, which the fourth keeps
+    # whole: scale 4 would be identically zero.
+    p = NSSurfaceletParams(J = 4, L_array = [0, 0, 0, 0], order = 4)
+    @test_throws ArgumentError make_ns_surfacelet_workspace(p, (8, 8, 8))
+    # A short axis alone is not refused while the others still split the band.
+    x = randn(Xoshiro(3), 32, 32, 8)
+    q = NSSurfaceletParams(J = 3, L_array = [0, 1, 1], order = 4)
+    c = ns_surfacelet_forward(x, q)
+    @test all(j -> maximum(abs, c.subbands[j][1]) > 0, 1:3)
+    @test maximum(abs, ns_surfacelet_inverse(c, q) .- x) < 1.0e-12
+end
+
+@testitem "ns_surfacelet — uncached bandpass matches the cache" tags = [:ns_surfacelet] begin
+    using Random
+    for (Td, tight) in ((Float64, true), (Float64, false), (ComplexF64, true))
+        x = randn(Xoshiro(7), Td, 16, 12, 20)
+        p = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 6, tight = tight)
+        ws = make_ns_surfacelet_workspace(p, size(x), Td)
+        wu = make_ns_surfacelet_workspace(p, size(x), Td; cache_bandpass = false)
+        @test length(ws.band) == 2 && isempty(wu.band)
+        c = ns_surfacelet_forward(x, p; workspace = ws)
+        d = ns_surfacelet_forward(x, p; workspace = wu)
+        @test d.coarse ≈ c.coarse
+        @test all(d.subbands[j][k] ≈ c.subbands[j][k] for j in 1:2 for k in eachindex(c.subbands[j]))
+        @test maximum(abs, ns_surfacelet_inverse(d, p; workspace = wu) .- x) < 1.0e-12
+        for threaded in (true, false)
+            @test ns_surfacelet_inverse(d, p; workspace = wu, threaded) ≈ ns_surfacelet_inverse(c, p; workspace = ws, threaded)
+        end
+    end
+end
+
+@testitem "ns_surfacelet — adapting a workspace to the host keeps it" tags = [:ns_surfacelet] begin
+    using Adapt, Random
+    x = randn(Xoshiro(11), 16, 16, 16)
+    p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
+    for cache in (true, false)
+        ws = make_ns_surfacelet_workspace(p, size(x); tasks = 3, cache_bandpass = cache)
+        wh = Adapt.adapt(Array, ws)
+        @test wh.tasks == 3 && length(wh.work) == 3
+        @test length(wh.band) == length(ws.band)
+        @test ns_surfacelet_forward(x, p; workspace = wh).subbands ≈ ns_surfacelet_forward(x, p; workspace = ws).subbands
+    end
+end

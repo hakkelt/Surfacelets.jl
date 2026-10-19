@@ -49,7 +49,6 @@ include("filters/checkerboard.jl")
 
 # ── Pyramid stage ─────────────────────────────────────────────────────────────
 include("pyramid/fourier_pyramid.jl")
-include("pyramid/raised_cosine_pyramid.jl")
 
 # ── Directional filter bank ───────────────────────────────────────────────────
 include("directional/hourglass.jl")
