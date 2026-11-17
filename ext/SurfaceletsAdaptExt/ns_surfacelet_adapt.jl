@@ -22,9 +22,9 @@ function Adapt.adapt_structure(to, fb::HourglassFB)
     m1 = Adapt.adapt(to, fb.m1)
     m2 = Adapt.adapt(to, fb.m2)
     rbuf = Adapt.adapt(to, fb.rbuf)
-    fwd = Surfacelets.plan_rfft(rbuf)
+    fwd = plan_rfft(rbuf)
     spec = fwd * rbuf
-    inv = Surfacelets.plan_irfft(spec, size(rbuf, 1))
+    inv = plan_irfft(spec, size(rbuf, 1))
     T = eltype(m1)
     return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
         fb.dims, fb.order, fb.poly, fb.tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
@@ -59,7 +59,7 @@ function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, 
     proto = ad(Array{T, 3}(undef, 0, 0, 0))
     return Surfacelets._ns_workspace(
         Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
-        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, ws.tasks, Surfacelets.FFTW.ESTIMATE
+        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, ws.tasks, FFTW.ESTIMATE
     )
 end
 

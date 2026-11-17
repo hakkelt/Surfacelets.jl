@@ -13,6 +13,7 @@ module SurfaceletsAdaptExt
 using Surfacelets: Surfacelets, HourglassFB, NDFB, NSSurfaceletCoefficients,
     NSSurfaceletWorkspace, SurfaceletCoefficients, SurfaceletPlan
 using Adapt: Adapt
+using FFTW: FFTW, plan_rfft, plan_irfft
 
 include("SurfaceletsAdaptExt/ns_surfacelet_adapt.jl")
 include("SurfaceletsAdaptExt/surfacelet_adapt.jl")

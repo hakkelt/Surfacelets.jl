@@ -92,7 +92,7 @@ end
 @testitem "ritf hourglass and IRC stages reproduce SurfBox" tags = [:directional, :surfbox] setup = [SurfBoxIRC] begin
     S = Surfacelets
     x = testvol(32)
-    X = S.fft(complex.(x))
+    X = S.FFTW.fft(complex.(x))
     V = S._ritf_masks(Float64, size(x))
     for K in 1:3
         half = ntuple(d -> d == K ? (1:17) : (1:32), 3)
@@ -124,7 +124,7 @@ end
         sc = S._SurfScale(size(x), lv, masks, stages)
         work = S._scale_work(sc, x, S.FFTW.ESTIMATE, Threads.nthreads())
         bands = [zeros(S._surf_subband_size(sc, K)) for K in 1:3 for _ in 1:(1 << sum(lv[K]))]
-        S._surf_scale_forward!(bands, S.fft(complex.(x)), sc, work, true)
+        S._surf_scale_forward!(bands, S.FFTW.fft(complex.(x)), sc, work, true)
         i = 0
         for K in 1:3, w in 1:(1 << sum(lv[K]))
             i += 1
@@ -141,7 +141,7 @@ end
     for (tag, n, mode) in (("m15", 48, 1.5), ("m1", 32, 1), ("m2", 32, 2))
         x = testvol(n)
         levels = S._fourier_pyramid(Float64, size(x), 2, mode)
-        X = S.fft(complex.(x))
+        X = S.FFTW.fft(complex.(x))
         orig = copy(X)
         highs = Any[]
         for lv in levels

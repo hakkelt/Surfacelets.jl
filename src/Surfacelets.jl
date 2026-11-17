@@ -29,8 +29,8 @@ whatever the number of directions; not shift-invariant.  See the "Theory" page.
 module Surfacelets
 
 using Compat: @compat
-using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!, rfft, fft
-using LinearAlgebra: mul!, adjoint
+using FFTW: FFTW, plan_rfft, plan_irfft, plan_brfft, plan_fft!, plan_bfft!
+using LinearAlgebra: mul!
 using FastBroadcast: @..
 using Strided: Strided, @strided
 using NestedThreading: NestedThreading
