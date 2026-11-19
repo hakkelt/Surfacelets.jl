@@ -48,6 +48,7 @@ end
 end
 
 @testitem "hourglass — weights are a partition of unity in [0,1]" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight
     fb = make_hourglass((12, 14, 10), Float64; order = 6, poly = 1)
     w = ntuple(i -> hourglass_weight(fb, i), 3)
     @test maximum(abs, w[1] .+ w[2] .+ w[3] .- 1) < 1.0e-14
@@ -60,6 +61,8 @@ end
 end
 
 @testitem "hourglass — tight masks are a Parseval frame" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_mask, hourglass_decompose,
+        hourglass_reconstruct
     using Random
     fb = make_hourglass((12, 14, 10), Float64; order = 6, poly = 1)
     @test fb.tight
@@ -84,6 +87,7 @@ end
 end
 
 @testitem "hourglass — perfect reconstruction" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     using Random
     Random.seed!(70)
     for dims in ((16, 16, 16), (12, 20, 8))
@@ -98,6 +102,7 @@ end
 end
 
 @testitem "hourglass — axis-aligned plane waves land in the matching subband" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose
     n = 16
     fb = make_hourglass((n, n, n), Float64; order = 8, poly = 1)
     for ax in 1:3
@@ -114,6 +119,7 @@ end
 end
 
 @testitem "hourglass — a diagonal wave splits between its two axes" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose
     # Equal frequency along axes 1 and 2 sits exactly on the P₁/P₂ boundary, so
     # it must divide evenly between those subbands and leave P₃ empty.
     n = 16
@@ -130,6 +136,7 @@ end
 end
 
 @testitem "hourglass — sharper with a higher Bernstein order" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_mask
     # Mean absolute deviation of mask 1 from the ideal indicator must fall as the
     # Bernstein order grows (Lu & Do 2008, Fig. 10).
     n = 24
@@ -156,6 +163,7 @@ end
 end
 
 @testitem "hourglass — exact circular-shift equivariance" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose
     using Random
     Random.seed!(71)
     n = 16
@@ -170,6 +178,7 @@ end
 end
 
 @testitem "hourglass — complex equals real + i·imag bit-for-bit" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     using Random
     Random.seed!(72)
     n = 16
@@ -185,6 +194,7 @@ end
 end
 
 @testitem "hourglass — Float32 plan" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     using Random
     Random.seed!(73)
     n = 16
@@ -198,6 +208,7 @@ end
 end
 
 @testitem "hourglass — argument validation" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_decompose
     @test_throws ArgumentError make_hourglass((0, 4, 4), Float64)
     @test_throws ArgumentError make_hourglass((8, 8, 8), Float64; order = 0)
     fb = make_hourglass((8, 8, 8), Float64; order = 4)

@@ -10,7 +10,7 @@ Three-dimensional nonsubsampled and decimated surfacelet transforms.
 | `ns_surfacelet_forward` / `ns_surfacelet_inverse` | Nonsubsampled surfacelet transform on volumes, with a streaming form |
 | `surfacelet_forward` / `surfacelet_inverse` | Decimated counterpart, subbands at reduced resolution |
 | `make_ns_surfacelet_workspace` | Allocate a reusable workspace for volumes |
-| `make_hourglass` / `make_ndfb` | The directional stage on its own |
+| `Surfacelets.make_hourglass` / `Surfacelets.make_ndfb` | The directional stage on its own (public, not exported) |
 
 The surfacelet transform is a construction in its own right, not a
 dimension-raised contourlet transform.  Its first directional stage carves the
@@ -71,15 +71,6 @@ export
     NSSurfaceletParams, NSSurfaceletCoefficients, NSSurfaceletWorkspace,
     SurfaceletParams, SurfaceletCoefficients, SurfaceletPlan,
 
-    # Building blocks
-    HourglassFB, make_hourglass, hourglass_mask, hourglass_weight,
-    hourglass_decompose, hourglass_decompose!,
-    hourglass_reconstruct, hourglass_reconstruct!,
-    NDFB, make_ndfb, ndfb_sharing, ndfb_nsubbands, ndfb_subband_index,
-    ndfb_subband_triple, ndfb_mask, ndfb_weight,
-    ndfb_decompose, ndfb_decompose!,
-    ndfb_reconstruct, ndfb_reconstruct!,
-
     # Top-level transforms
     ns_surfacelet_forward, ns_surfacelet_forward!, ns_surfacelet_inverse, ns_surfacelet_inverse!,
     ns_surfacelet_nsubbands,
@@ -87,7 +78,15 @@ export
     surfacelet_forward, surfacelet_forward!, surfacelet_inverse, surfacelet_inverse!,
     surfacelet_nsubbands, surfacelet_redundancy, make_surfacelet, checkerboard_orders
 
-# Not exported, but public: the pieces the hourglass bank is built from.
+# Not exported, but public: the directional stage on its own, and the pieces
+# the hourglass bank is built from.
+@compat public HourglassFB, make_hourglass, hourglass_mask, hourglass_weight,
+    hourglass_decompose, hourglass_decompose!,
+    hourglass_reconstruct, hourglass_reconstruct!,
+    NDFB, make_ndfb, ndfb_sharing, ndfb_nsubbands, ndfb_subband_index,
+    ndfb_subband_triple, ndfb_mask, ndfb_weight,
+    ndfb_decompose, ndfb_decompose!,
+    ndfb_reconstruct, ndfb_reconstruct!
 @compat public bernstein_table, dft_frequencies, mapping_coefficients, mapping_response, halfband_split
 
 end # module

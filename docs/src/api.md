@@ -42,6 +42,10 @@ checkerboard_orders
 
 ## Directional filter bank
 
+Public but not exported (call them as `Surfacelets.make_ndfb` etc., or bring
+them in with `using Surfacelets: make_ndfb, ndfb_decompose`): the directional
+stage on its own, without the pyramid.
+
 ```@docs
 HourglassFB
 make_hourglass

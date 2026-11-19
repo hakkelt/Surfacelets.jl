@@ -9,6 +9,7 @@ nonsubsampled directional filter bank.
 """
 
 using BenchmarkTools, Surfacelets, Random
+using Surfacelets: make_ndfb, ndfb_decompose, make_hourglass, hourglass_decompose!
 using FFTW: FFTW
 
 # Cap each @benchmarkable's tuning + steady-state phase: AirspeedVelocity runs this

@@ -117,6 +117,7 @@ dominant(planes) = map(I -> argmax([P[I] for P in planes]), CartesianIndices(fir
 ```
 
 ```@example theory
+using Surfacelets: make_hourglass, hourglass_weight
 n  = 64
 hg = make_hourglass((n, n, n), Float64; order = 12)
 w  = [hourglass_weight(hg, i) for i in 1:3]
@@ -240,6 +241,7 @@ into — four per hourglass on this plane, since ``\omega_3 = 0`` fixes the seco
 transverse ratio:
 
 ```@example theory
+using Surfacelets: make_ndfb, ndfb_weight, ndfb_nsubbands
 fb = make_ndfb((n, n, n), Float64; levels = 4, order = 12)
 wk = [fullplane(ndfb_weight(fb, k), 0) for k in 1:ndfb_nsubbands(fb)]
 heatmap(f, f, permutedims(dominant(wk)); color = :turbo, aspect_ratio = :equal,

@@ -327,6 +327,7 @@ wave = [
         for i in 1:n, j in 1:n, l in 1:n
 ]
 
+using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_subband_triple
 fb = make_ndfb((n, n, n), Float64; levels = 4, transition = 0.5)
 e  = zeros(ndfb_nsubbands(fb))
 ndfb_decompose(wave, fb) do idx, band

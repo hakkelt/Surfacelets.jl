@@ -1,4 +1,6 @@
 @testitem "@test_call Surfacelets public API" tags = [:jet] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct,
+        make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_reconstruct
     using JET, Random
     Random.seed!(100)
 
@@ -49,6 +51,8 @@
 end
 
 @testitem "@test_opt Surfacelets core functions" tags = [:jet] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct,
+        make_ndfb, ndfb_decompose
     using JET, Random
     Random.seed!(101)
 
@@ -74,6 +78,10 @@ end
 end
 
 @testitem "@test_call Surfacelets remaining API" tags = [:jet] begin
+    using Surfacelets: HourglassFB, NDFB, make_hourglass, hourglass_mask, hourglass_weight,
+        hourglass_decompose, hourglass_decompose!, hourglass_reconstruct!, make_ndfb,
+        ndfb_sharing, ndfb_subband_index, ndfb_subband_triple, ndfb_mask, ndfb_weight,
+        ndfb_decompose, ndfb_decompose!, ndfb_reconstruct!
     using JET, Random
     Random.seed!(102)
     M = (Surfacelets,)
@@ -133,6 +141,10 @@ end
 end
 
 @testitem "@test_opt Surfacelets remaining API" tags = [:jet] begin
+    using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight,
+        hourglass_decompose, hourglass_decompose!, hourglass_reconstruct!, make_ndfb,
+        ndfb_sharing, ndfb_nsubbands, ndfb_subband_index, ndfb_subband_triple, ndfb_mask,
+        ndfb_weight, ndfb_decompose, ndfb_decompose!, ndfb_reconstruct, ndfb_reconstruct!
     using JET, Random
     Random.seed!(103)
     M = (Surfacelets,)

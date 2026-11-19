@@ -266,6 +266,8 @@ of `3 * 2^levels` of them.
 ```jldoctest
 julia> using Surfacelets, Random
 
+julia> using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
+
 julia> x = randn(Xoshiro(4), 16, 16, 16);
 
 julia> fb = make_ndfb(size(x), Float64; levels = 2, order = 6);

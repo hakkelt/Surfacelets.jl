@@ -299,6 +299,8 @@ above 2-D).
 ```jldoctest
 julia> using Surfacelets, Random
 
+julia> using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
+
 julia> x = randn(Xoshiro(2), 16, 16, 16);
 
 julia> fb = make_hourglass(size(x), Float64; order = 6);

@@ -23,7 +23,7 @@ makedocs(;
         ],
         "API Reference" => "api.md",
     ],
-    checkdocs = :exports,
+    checkdocs = :public,
 )
 
 deploydocs(;

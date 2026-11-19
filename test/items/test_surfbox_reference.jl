@@ -15,6 +15,7 @@
 # (which hourglass dominates a given frequency) rather than value.
 
 @testitem "hourglass matches the SurfBox reference partition" tags = [:directional] begin
+    using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight
     reference_octant() = reshape(
         reinterpret(Float32, read(joinpath(@__DIR__, "..", "reference", "surfbox_hourglass_32.bin"))),
         17, 17, 17
@@ -94,6 +95,7 @@ end
 # directions, up to relabelling.
 
 @testitem "ndfb matches the SurfBox reference wedge partition" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
     raw = reshape(
         reinterpret(Float64, read(joinpath(@__DIR__, "..", "reference", "surfbox_directions_32.bin"))),
         :

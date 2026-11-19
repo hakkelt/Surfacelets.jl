@@ -3,6 +3,7 @@
 # deliberate edit to the documentation rather than a silent drift.
 
 @testitem "ndfb — wedge-centre energy follows the transition width" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_decompose
     # `transition` is the half-width of each wedge-boundary step, so at the
     # default of 1 the steps on either side of a wedge overlap at its centre and
     # no wedge has a flat passband. The `make_ndfb` docstring quotes the 71 %.
@@ -32,6 +33,7 @@
 end
 
 @testitem "ndfb — subband count is 3·2^L, the paper's NDFB count" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands
     # Lu & Do (2007), Theorem 1: an L-level NDFB in 3-D has 3·2^L subbands,
     # split between the two transverse planes of each hourglass.
     for L in 0:5
@@ -56,6 +58,7 @@ end
 end
 
 @testitem "positional-size convenience constructors" tags = [:directional] begin
+    using Surfacelets: make_hourglass, make_ndfb, ndfb_nsubbands
     @test make_hourglass(8, 10, 12; order = 4).dims == (8, 10, 12)
     @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, order = 4)) == 6
 
@@ -80,6 +83,7 @@ end
 end
 
 @testitem "ndfb_decompose! — wrong number of destination subbands" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose!
     fb = make_ndfb((8, 8, 8), Float64; levels = 1, order = 4)
     x = randn(8, 8, 8)
     @test_throws DimensionMismatch ndfb_decompose!([similar(x)], x, fb)

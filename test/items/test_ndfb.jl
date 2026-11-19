@@ -1,4 +1,5 @@
 @testitem "ndfb — subband counting and index round trip" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_subband_triple
     for L in 0:3
         fb = make_ndfb((8, 8, 8), Float64; levels = L, order = 4)
         @test ndfb_nsubbands(fb) == 3 * 2^L
@@ -20,6 +21,7 @@
 end
 
 @testitem "ndfb — weights are a partition of unity" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_mask, ndfb_weight
     for L in 0:3
         fb = make_ndfb((10, 12, 8), Float64; levels = L, order = 6)
         total = sum(ndfb_weight(fb, i) for i in 1:ndfb_nsubbands(fb))
@@ -31,6 +33,7 @@ end
 end
 
 @testitem "ndfb — tight masks are a Parseval frame" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose, ndfb_reconstruct
     using Random
     x = randn(Xoshiro(81), 16, 16, 16)
     for L in 0:3
@@ -46,6 +49,7 @@ end
 end
 
 @testitem "ndfb — masks are even in frequency" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_mask
     # A wedge must give the same value to ω and -ω, or the masked spectrum is
     # not Hermitian and the real subband loses information. On the DFT grid the
     # trap is that an even-length axis fixes its Nyquist bin under ω -> -ω.
@@ -68,6 +72,7 @@ end
 end
 
 @testitem "ndfb — tight PR survives a Nyquist bin that is not exactly π" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose, ndfb_reconstruct
     using Random
     # `dft_frequencies` computes `2π(k-1)/n`, which lands an ulp off `π` at the
     # Nyquist bin for about half of all even `n`. The wedge masks must still be
@@ -84,6 +89,7 @@ end
 end
 
 @testitem "ndfb — wedges of one hourglass sum to that hourglass weight" tags = [:directional] begin
+    using Surfacelets: hourglass_weight, make_ndfb, ndfb_subband_index, ndfb_weight
     fb = make_ndfb((12, 12, 12), Float64; levels = 3, order = 6)
     na, nb = 1 << fb.levels[1], 1 << fb.levels[2]
     for i in 1:3
@@ -96,6 +102,7 @@ end
 end
 
 @testitem "ndfb — perfect reconstruction" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_reconstruct
     using Random
     Random.seed!(80)
     for dims in ((16, 16, 16), (12, 20, 8))
@@ -110,6 +117,7 @@ end
 end
 
 @testitem "ndfb — plane waves land in the predicted wedge" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_decompose
     n = 32
     fb = make_ndfb((n, n, n), Float64; levels = 4, order = 12, transition = 0.5)
     la, lb = fb.levels
@@ -140,6 +148,7 @@ end
 end
 
 @testitem "ndfb — streaming callback matches the materialised subbands" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
     using Random
     Random.seed!(81)
     x = randn(16, 16, 16)
@@ -155,6 +164,8 @@ end
 end
 
 @testitem "ndfb — in-place decomposition" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_decompose!,
+        ndfb_reconstruct!
     using Random
     Random.seed!(82)
     x = randn(16, 16, 16)
@@ -168,6 +179,7 @@ end
 end
 
 @testitem "ndfb — exact circular-shift equivariance" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose
     using Random
     Random.seed!(83)
     x = randn(16, 16, 16)
@@ -181,6 +193,7 @@ end
 end
 
 @testitem "ndfb — complex equals real + i·imag bit-for-bit" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose, ndfb_reconstruct
     using Random
     Random.seed!(84)
     xr = randn(16, 16, 16); xi = randn(16, 16, 16)
@@ -195,6 +208,7 @@ end
 end
 
 @testitem "ndfb — Float32" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose, ndfb_reconstruct
     using Random
     Random.seed!(85)
     x = randn(Float32, 16, 16, 16)
@@ -206,7 +220,23 @@ end
 end
 
 @testitem "ndfb — dimension validation" tags = [:directional] begin
+    using Surfacelets: make_ndfb, ndfb_decompose
     fb = make_ndfb((8, 8, 8), Float64; levels = 1, order = 4)
     @test_throws DimensionMismatch ndfb_decompose(randn(8, 8, 4), fb)
     @test_throws DimensionMismatch ndfb_decompose((i, b) -> nothing, randn(4, 8, 8), fb)
+end
+
+@testitem "directional building blocks are public, not exported" tags = [:directional] begin
+    names_ = (
+        :HourglassFB, :make_hourglass, :hourglass_mask, :hourglass_weight,
+        :hourglass_decompose, :hourglass_decompose!, :hourglass_reconstruct, :hourglass_reconstruct!,
+        :NDFB, :make_ndfb, :ndfb_sharing, :ndfb_nsubbands, :ndfb_subband_index, :ndfb_subband_triple,
+        :ndfb_mask, :ndfb_weight, :ndfb_decompose, :ndfb_decompose!, :ndfb_reconstruct, :ndfb_reconstruct!,
+    )
+    @static if VERSION >= v"1.11"
+        @test all(n -> Base.ispublic(Surfacelets, n), names_)
+        @test !any(n -> Base.isexported(Surfacelets, n), names_)
+    end
+    # `using Surfacelets` in this test item brings none of them in.
+    @test !any(n -> isdefined(@__MODULE__, n), names_)
 end

@@ -40,6 +40,7 @@ end
 
 
 @testitem "GPU 3-D hourglass filter bank matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(200)
@@ -59,6 +60,7 @@ end
 end
 
 @testitem "GPU 3-D directional filter bank matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+    using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_reconstruct
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(201)

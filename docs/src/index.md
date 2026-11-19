@@ -62,8 +62,8 @@ vol_r  = surfacelet_inverse(sc, sp; plan = plan)
 
 Both split each scale into `3 · 2^L` directional subbands: three hourglass-shaped
 regions aligned with the frequency axes, each cut into `2^L` wedges. The
-directional stage is available on its own as [`make_hourglass`](@ref) and
-[`make_ndfb`](@ref).
+directional stage is available on its own as [`Surfacelets.make_hourglass`](@ref)
+and [`Surfacelets.make_ndfb`](@ref), public but not exported.
 
 ## Relation to the contourlet transform
 

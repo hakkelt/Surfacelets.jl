@@ -22,7 +22,7 @@ end
         root = joinpath(pkg_root, "docs"),
         source = "src",
         build = build_dir,
-        checkdocs = :exports,
+        checkdocs = :public,
         draft = true,
         # Images referenced by `![](img.png)` are only generated when @example
         # blocks run (which draft=true skips), so suppress those link warnings.
