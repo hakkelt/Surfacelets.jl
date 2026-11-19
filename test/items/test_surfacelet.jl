@@ -9,6 +9,15 @@
     q = SurfaceletParams(J = 1, L_array = [[-1 2 1; 1 -1 2; 2 1 -1]])
     @test q.levels[1] == ((0, 2, 1), (1, 0, 2), (2, 1, 0))
     @test surfacelet_nsubbands(q, 1) == 24
+    # The levels as given keep a concrete-enough element type: integers or matrices.
+    @test eltype(p.L_array) == Union{Int, Matrix{Int}}
+    @test p.L_array == [1, 2]
+    @test q.L_array[1] isa Matrix{Int}
+    @test occursin("L_array=[1, 2]", sprint(show, p))
+    mixed = SurfaceletParams(J = 2, L_array = Any[Int8(1), Int32[-1 2 1; 1 -1 2; 2 1 -1]])
+    @test mixed.L_array[1] === 1
+    @test mixed.L_array[2] isa Matrix{Int}
+    @test mixed.levels == [p.levels[1], q.levels[1]]
     @test checkerboard_orders() == collect(4:2:18)
     @test_throws ArgumentError SurfaceletParams(J = 0, L_array = Int[])
     @test_throws ArgumentError SurfaceletParams(J = 2, L_array = [1])

@@ -199,6 +199,7 @@ end
     Random.seed!(85)
     x = randn(Float32, 16, 16, 16)
     fb = make_ndfb(size(x), Float32; levels = 2, order = 6)
+    @test eltype(fb) == Float32
     s = ndfb_decompose(x, fb)
     @test all(b -> eltype(b) == Float32, s)
     @test maximum(abs, ndfb_reconstruct(s, fb) .- x) < 1.0f-4

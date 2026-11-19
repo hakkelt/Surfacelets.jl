@@ -56,7 +56,7 @@
     HourglassFB{T}
 
 Precomputed 3-D nonsubsampled hourglass filter bank for one volume size and real
-precision `T`.  Build with [`make_hourglass`](@ref).
+precision `T` (its `eltype`).  Build with [`make_hourglass`](@ref).
 
 Holds the two mapping-kernel frequency responses (`m1` on the 3-D rfft grid,
 `m2` on the 2-D `(ω₂, ω₃)` grid) rather than the three subband masks, which are
@@ -96,6 +96,8 @@ mutable struct HourglassFB{
     # above (128 MB at 256³ ComplexF32).
     cbuf::Union{Nothing, C3}
 end
+
+Base.eltype(::HourglassFB{T}) where {T} = T
 
 # FFTW thread count for the `threaded` keyword.  The default (`nothing`) uses every
 # Julia thread: an FFT here is always a big enough chunk of work to be worth

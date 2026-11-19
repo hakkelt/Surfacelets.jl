@@ -35,8 +35,9 @@
 """
     NDFB{T}
 
-3-D nonsubsampled directional filter bank: [`HourglassFB`](@ref) followed by a
-wedge refinement of each hourglass.  Build with [`make_ndfb`](@ref).
+3-D nonsubsampled directional filter bank of real precision `T` (its `eltype`):
+[`HourglassFB`](@ref) followed by a wedge refinement of each hourglass.  Build
+with [`make_ndfb`](@ref).
 """
 struct NDFB{T <: AbstractFloat, A3 <: AbstractArray{T, 3}, FB <: HourglassFB{T}}
     fb::FB
@@ -47,6 +48,8 @@ struct NDFB{T <: AbstractFloat, A3 <: AbstractArray{T, 3}, FB <: HourglassFB{T}}
     # also runs on GPU arrays.  The storage is still matrix-sized.
     wedges::NTuple{3, NTuple{2, Vector{A3}}}
 end
+
+Base.eltype(::NDFB{T}) where {T} = T
 
 """
     make_ndfb(dims::NTuple{3,Int}, ::Type{T}=Float64;

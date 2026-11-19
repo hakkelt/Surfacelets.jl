@@ -117,7 +117,7 @@ SurfaceletParams(J=2, L_array=[1, 2], pyr_mode=1.5, bo=12)
 """
 struct SurfaceletParams{T <: AbstractFloat}
     J::Int
-    L_array::Vector{Any}
+    L_array::Vector{Union{Int, Matrix{Int}}}   # as given: integer levels or 3 × 3 level matrices
     levels::Vector{NTuple{3, NTuple{3, Int}}}   # levels[j][K][m]; zero for m == K
     pyr_mode::Float64
     bo::Int
@@ -125,6 +125,9 @@ struct SurfaceletParams{T <: AbstractFloat}
     beta::T
     lambda::Int
 end
+
+_level_entry(L::Integer) = Int(L)
+_level_entry(L::AbstractMatrix{<:Integer}) = Matrix{Int}(L)
 
 function _surf_levels(L::Integer)
     la, lb = _wedge_levels(Int(L))
@@ -162,7 +165,7 @@ function SurfaceletParams(;
     beta > 0 || throw(ArgumentError("beta must be > 0"))
     iseven(lambda) && lambda > 0 || throw(ArgumentError("lambda must be a positive even integer"))
     return SurfaceletParams{T}(
-        J, collect(Any, L_array), collect(levels), Float64(pyr_mode), bo, msize, T(beta), lambda
+        J, map(_level_entry, L_array), collect(levels), Float64(pyr_mode), bo, msize, T(beta), lambda
     )
 end
 

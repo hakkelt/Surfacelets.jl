@@ -190,6 +190,8 @@ end
     n = 16
     x = randn(Float32, n, n, n)
     fb = make_hourglass((n, n, n), Float32; order = 6, poly = 1)
+    @test eltype(fb) == Float32
+    @test eltype(make_hourglass((8, 8, 8); order = 4)) == Float64
     s = hourglass_decompose(x, fb)
     @test all(b -> eltype(b) == Float32, s)
     @test maximum(abs, hourglass_reconstruct(s, fb) .- x) < 1.0f-4
