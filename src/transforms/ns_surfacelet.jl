@@ -24,12 +24,12 @@
 # multiply by two planes and one inverse FFT; the inverse mirrors it with one
 # forward FFT per subband, a per-hourglass sum, and one inverse FFT in total.
 #
-# The subbands are independent, so with threading the wedges of each hourglass
-# are split into contiguous chunks, one task per FFT buffer
-# (`MultiscaleFilterBanks.foreach_chunk`); the FFT plans are single-threaded.
-# The full-volume passes between those loops (the band and lowpass products and
-# the sum of the inverse's per-task partial sums) are split among the same tasks,
-# by slabs of the third axis or of the linear index.
+# The cascade is a mask bank: one group per (scale, hourglass) with the group
+# mask Bⱼ·Wᵢ, a bank of wedge masks per group, and the lowpass.  The threaded
+# forms run it on MultiscaleFilterBanks' `MaskBankEngine`, which splits the
+# subbands into contiguous chunks, one task per FFT buffer (the FFT plans are
+# single-threaded); a task forms a group's product when its chunk enters the
+# group.  The streaming forms run the same masks on one task.
 #
 # References: Y. M. Lu & M. N. Do, "Multidimensional Directional Filter Banks and
 # Surfacelets", IEEE TIP 16(4), 2007 (the NDFB and the surfacelet transform);
@@ -49,16 +49,16 @@ calls out of the allocator — the pattern iterative reconstruction algorithms
 need.
 
 A workspace holds scratch buffers, so it must not serve two transforms at the
-same time; it threads internally instead.  `Adapt.adapt(ArrayType, ws)` moves it
-to a device, rebuilding its buffers and FFT plans there.
+same time; it threads internally instead, one task per Julia thread.
+`Adapt.adapt(ArrayType, ws)` moves it to a device, rebuilding its buffers and FFT
+plans there.
 """
 struct NSSurfaceletWorkspace{
         Td <: Number, T <: AbstractFloat, A3 <: AbstractArray{T, 3}, C3 <: AbstractArray{Complex{T}, 3},
-        D <: AbstractArray{Td, 3}, P, Q,
+        D <: AbstractArray{Td, 3}, PM, BK, LM, E, P, Q,
     }
     dims::NTuple{3, Int}
     params::NSSurfaceletParams{T}
-    tasks::Int                                  # as requested; a device runs one
     # Tables (moved by `Adapt`).
     m1::A3                                      # hourglass f₀(M₁), rfft grid
     m2::A3                                      # hourglass f₀(M₂), (1, n₂, n₃)
@@ -66,14 +66,21 @@ struct NSSurfaceletWorkspace{
     pa::Vector{NTuple{3, A3}}                   # Π_{i<j} ℓᵢ per axis, j = 1:J+1
     pl::Vector{NTuple{3, A3}}                   # ℓⱼ per axis, j = 1:J
     band::Vector{A3}                            # [scale] Bⱼ on the rfft grid; empty when not cached
-    # Buffers.  A complex volume is two real channels, filtered alike, which
-    # keeps `T(x + i·y) == T(x) + i·T(y)` exact.
+    # The cascade as a mask bank on the tables: one group per (scale, hourglass).
+    items::Vector{MaskItem{2}}                  # index (scale, subband)
+    pyramid::PM                                 # MaskBank of `_NSBandMask`s, one per group
+    banks::BK                                   # [group] MaskBank of `_WedgeMask`s
+    lowpass::LM                                 # `_NSLowpassMask`
+    engine::E                                   # MaskBankEngine of the threaded forms
+    # Buffers of the streaming forms, which run on one task.  Channel 1's
+    # spectrum, group and FFT buffers are the engine's own, idle meanwhile.  A
+    # complex volume is two real channels, filtered alike, which keeps
+    # `T(x + i·y) == T(x) + i·T(y)` exact.
     X::Vector{C3}                               # [channel] input spectrum / synthesis sum
-    Y::Vector{C3}                               # [channel] hourglass product / its synthesis
-    work::Vector{C3}                            # [task]
-    rbuf::Vector{Vector{A3}}                    # [task][channel]
-    partial::Vector{Vector{C3}}                 # [channel][task - 1], synthesis partial sums
-    cbuf::Vector{D}                             # [task] a complex subband handed to a callback
+    Y::Vector{C3}                               # [channel] group product / its synthesis
+    work::C3                                    # FFT buffer (consumed by `pinv`)
+    rbuf::Vector{A3}                            # [channel] real volume
+    cbuf::Vector{D}                             # complex subband handed to a callback (complex only)
     coarse::D
     pfwd::P                                     # rfft, single-threaded
     pinv::Q                                     # irfft (destroys its input)
@@ -86,28 +93,26 @@ _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 
 """
     make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::NTuple{3,Int},
-                         ::Type{Td}=Float64; tasks=Threads.nthreads(), flags=FFTW.MEASURE,
-                         cache_bandpass=true)
+                         ::Type{Td}=Float64; flags=FFTW.MEASURE, cache_bandpass=true)
 
 Allocate the workspace for `params` at volume size `dims` and element type `Td`
 (real or complex).
 
 Memory: the hourglass response is one `real(Td)` array on the rfft grid,
-`(n₁÷2+1) × n₂ × n₃`; the buffers are about `4 + 2·tasks` such arrays for real
-data (twice for complex).  `tasks` bounds the threads the transform uses, and so
-the buffers.  With `cache_bandpass = true` the pyramid's bandpass of each scale
-is precomputed as well, `J` more such arrays; it saves recomputing the
-non-separable factor `√(1 - ℓⱼ²)` once per hourglass and channel in both
-directions.  Pass `false` to broadcast it from per-axis vectors instead, so that
-everything per-scale is vectors and planes.
+`(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·nthreads + 1` such arrays for
+real data and `4·nthreads + 5` for complex data, one set per Julia thread.  With
+`cache_bandpass = true` the pyramid's bandpass of each scale is precomputed as
+well, `J` more such arrays; it saves recomputing the non-separable factor
+`√(1 - ℓⱼ²)` once per hourglass and channel in both directions.  Pass `false`
+to broadcast it from per-axis vectors instead, so that everything per-scale is
+vectors and planes.
 
 Throws an `ArgumentError` when `dims` is too small for `params.J` scales: a
 scale whose bandpass would be identically zero.
 """
 function make_ns_surfacelet_workspace(
         params::NSSurfaceletParams, dims::NTuple{3, Int}, ::Type{Td} = Float64;
-        tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE,
-        cache_bandpass::Bool = true
+        flags::Integer = FFTW.MEASURE, cache_bandpass::Bool = true
     ) where {Td <: Number}
     T = filter_eltype(Td)
     p = _convert_params(T, params)
@@ -126,7 +131,7 @@ function make_ns_surfacelet_workspace(
     pa, pl = per_level(1, p.J + 1), per_level(2, p.J)
     band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:p.J] : typeof(m1)[]
     proto = Array{T, 3}(undef, 0, 0, 0)
-    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, band, proto, tasks, flags)
+    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, band, proto, flags)
 end
 
 make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
@@ -144,30 +149,61 @@ function _ns_wedge_factors(dims::NTuple{3, Int}, L::Int, p::NSSurfaceletParams{T
 end
 
 # The workspace around its tables, with buffers like `proto` (host or device).
-# Host plans use `flags` on one FFTW thread; a device gets one task.
+# Host plans use `flags` on one FFTW thread; the engine runs one task per thread
+# on the host and one on a device.
 function _ns_workspace(
         ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pl, band,
-        proto::AbstractArray, tasks::Integer, flags
+        proto::AbstractArray, flags
     ) where {Td, T}
-    tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1"))
-    nt = proto isa Array ? Int(tasks) : 1
     nch = Td <: Complex ? 2 : 1
     half = (dims[1] ÷ 2 + 1, dims[2], dims[3])
     spectrum() = fill!(similar(proto, Complex{T}, half), zero(Complex{T}))
     volume() = fill!(similar(proto, T, dims), zero(T))
-    X = [spectrum() for _ in 1:nch]
-    Y = [spectrum() for _ in 1:nch]
-    work = [spectrum() for _ in 1:nt]
-    rbuf = [[volume() for _ in 1:nch] for _ in 1:nt]
-    partial = [[spectrum() for _ in 2:nt] for _ in 1:nch]
-    coarse = similar(proto, Td, dims)
-    cbuf = Td <: Complex ? [similar(proto, Td, dims) for _ in 1:nt] : typeof(coarse)[]
+    rbuf = [volume() for _ in 1:nch]
+    X1 = spectrum()
     pfwd, pinv = _fftw_single_threaded(proto) do
-        (_fft_plan(plan_rfft, rbuf[1][1], flags), _fft_plan(plan_irfft, work[1], flags, dims[1]))
+        (_fft_plan(plan_rfft, rbuf[1], flags), _fft_plan(plan_irfft, X1, flags, dims[1]))
     end
-    return NSSurfaceletWorkspace{Td, T, typeof(m1), eltype(X), typeof(coarse), typeof(pfwd), typeof(pinv)}(
-        dims, p, Int(tasks), m1, m2, wedges, pa, pl, band, X, Y, work, rbuf, partial, cbuf, coarse, pfwd, pinv
+    items, pyramid, banks = _ns_mask_bank(p, m1, m2, wedges, pa, pl, band)
+    lowpass = _NSLowpassMask(pa[end])
+    engine = MaskBankEngine(
+        banks, items, X1, pfwd, pinv;
+        pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex
     )
+    X = pushfirst!([spectrum() for _ in 2:nch], X1)
+    Y = pushfirst!([spectrum() for _ in 2:nch], engine.groups[1])
+    coarse = similar(proto, Td, dims)
+    cbuf = Td <: Complex ? [similar(proto, Td, dims)] : typeof(coarse)[]
+    return NSSurfaceletWorkspace{
+        Td, T, typeof(m1), typeof(X1), typeof(coarse), typeof(pyramid), typeof(banks), typeof(lowpass),
+        typeof(engine), typeof(pfwd), typeof(pinv),
+    }(
+        dims, p, m1, m2, wedges, pa, pl, band, items, pyramid, banks, lowpass, engine,
+        X, Y, engine.buffers[1], rbuf, cbuf, coarse, pfwd, pinv
+    )
+end
+
+# The items, group masks and wedge banks of the cascade.  Group g = 3(j - 1) + i
+# is hourglass i of scale j; its items are the wedges (p, q), channel
+# (p - 1)·nb + q of its bank, at subband index `_ns_index(i, p, q, na, nb)`.
+function _ns_mask_bank(p::NSSurfaceletParams, m1, m2, wedges, pa, pl, band)
+    cached(j) = isempty(band) ? similar(m1, 0, 0, 0) : band[j]
+    groups = [(j, i) for j in eachindex(wedges) for i in 1:3]
+    ana = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, true, p.tight) for (j, i) in groups]
+    syn = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, p.tight, p.tight) for (j, i) in groups]
+    items = MaskItem{2}[]
+    banks = map(enumerate(groups)) do (g, (j, i))
+        wa, wb = wedges[j][i]
+        na, nb = length(wa), length(wb)
+        for a in 1:na, b in 1:nb
+            push!(items, MaskItem((j, _ns_index(i, a, b, na, nb)), g, g, (a - 1) * nb + b))
+        end
+        MaskBank(
+            [_WedgeMask(wa[a], wb[b], false) for a in 1:na for b in 1:nb],
+            [_WedgeMask(wa[a], wb[b], !p.tight) for a in 1:na for b in 1:nb]
+        )
+    end
+    return items, MaskBank(ana, syn), banks
 end
 
 # Build a workspace on demand when the caller did not supply one, or check that
@@ -196,6 +232,10 @@ end
 _ns_threaded(threaded::Union{Bool, Nothing}) = threaded !== false
 
 # ── Masks ─────────────────────────────────────────────────────────────────────
+#
+# Mask kinds of the engine (methods of `mask_apply!` and `mask_accumulate!`),
+# held as the tables they are computed from.  Each runs on one task: the engine
+# threads over the subbands.
 
 # Hourglass factor of subband `i`: √W when tight, W otherwise.
 @inline function _hg_factor(m1::T, m2::T, i::Int, tight::Bool) where {T}
@@ -207,66 +247,66 @@ end
 @inline _bandpass(a1::T, a2::T, a3::T, l1::T, l2::T, l3::T) where {T} =
     a1 * a2 * a3 * sqrt(max(1 - (l1 * l2 * l3)^2, zero(T)))
 
-# Bⱼ as `_ns_band!` reads it: the cached volume, or a lazy broadcast of the
-# per-axis factors.
-_ns_bandpass(ws::NSSurfaceletWorkspace, j::Int) =
-    isempty(ws.band) ? Broadcast.broadcasted(_bandpass, ws.pa[j]..., ws.pl[j]...) : ws.band[j]
+# The group mask of hourglass `i` at scale j: Bⱼ times the hourglass factor
+# (`hg`), or Bⱼ alone — the synthesis of a bank that is not tight, whose
+# directional inverse is a bare sum.  Bⱼ is the cached volume `band`, or when
+# that is empty a lazy broadcast of its per-axis factors `pa`, `pl`.
+struct _NSBandMask{A3 <: AbstractArray}
+    m1::A3
+    m2::A3
+    band::A3
+    pa::NTuple{3, A3}
+    pl::NTuple{3, A3}
+    i::Int
+    hg::Bool
+    tight::Bool
+end
 
-# Y = X · Bⱼ · Wᵢ, the hourglass-i part of the scale-j bandpass, or with `add` its
-# synthesis counterpart X += Y · Bⱼ · Wᵢ (Wᵢ = 1 when not tight: the directional
-# inverse is then a bare sum).  Bⱼ is the same mask both ways.
-_ns_band!(dst, src, ws::NSSurfaceletWorkspace, j::Int, i::Int, add::Bool, threaded::Bool) =
-    _ns_band_apply!(dst, src, _ns_bandpass(ws, j), ws, i, add, threaded)
+_mask_bandpass(M::_NSBandMask) = isempty(M.band) ? Broadcast.broadcasted(_bandpass, M.pa..., M.pl...) : M.band
 
-function _ns_band_apply!(dst, src, B, ws::NSSurfaceletWorkspace, i::Int, add::Bool, threaded::Bool)
-    m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    if !add
-        @. dst = src * (B * _hg_factor(m1, m2, i, tight))
-    elseif tight
-        @. dst += src * (B * _hg_factor(m1, m2, i, true))
+MultiscaleFilterBanks.mask_apply!(Z, M::_NSBandMask, X) = _ns_band!(Z, X, _mask_bandpass(M), M, false)
+MultiscaleFilterBanks.mask_accumulate!(A, M::_NSBandMask, F) = _ns_band!(A, F, _mask_bandpass(M), M, true)
+
+# dst = src · M, or dst += src · M with `add`, for the bandpass `B` of `M`.
+function _ns_band!(dst, src, B, M::_NSBandMask, add::Bool)
+    m1, m2, i, tight = M.m1, M.m2, M.i, M.tight
+    if M.hg
+        add ? (@. dst += src * (B * _hg_factor(m1, m2, i, tight))) : (@. dst = src * (B * _hg_factor(m1, m2, i, tight)))
     else
-        @. dst += src * B
+        add ? (@. dst += src * B) : (@. dst = src * B)
     end
     return dst
 end
 
 # The host method walks the columns, as `_wedge_mul!` does: everything but `m1`
-# and the cached Bⱼ (or `a1`, `l1`) is a scalar per column.  These full-volume
-# passes sit between the threaded subband loops, so with threading they split
-# the third axis among the workspace's tasks too.
-function _ns_band_apply!(dst::Array, src::Array, B, ws::NSSurfaceletWorkspace, i::Int, add::Bool, threaded::Bool)
-    m1, m2, tight = ws.m1, ws.m2, ws.params.tight
-    _foreach_slab(dst, ws, threaded) do ks
-        @inbounds for k in ks, l in axes(dst, 2)
-            μ2 = m2[1, l, k]
-            d, s, μ1 = view(dst, :, l, k), view(src, :, l, k), view(m1, :, l, k)
-            _band_col!(d, s, _band_column(B, l, k), μ1, μ2, i, add, tight)
-        end
+# and the cached Bⱼ (or `a1`, `l1`) is a scalar per column.
+function _ns_band!(dst::Array, src::Array, B, M::_NSBandMask{<:Array}, add::Bool)
+    m1, m2 = M.m1, M.m2
+    @inbounds for k in axes(dst, 3), l in axes(dst, 2)
+        μ2 = m2[1, l, k]
+        d, s, μ1 = view(dst, :, l, k), view(src, :, l, k), view(m1, :, l, k)
+        _band_col!(d, s, _band_column(B, l, k), μ1, μ2, M.i, add, M.hg, M.tight)
     end
     return dst
 end
 
-# One column of `_ns_band_apply!`.  A cached column goes through FastBroadcast's
+# One column of `_ns_band!`.  A cached column goes through FastBroadcast's
 # `@..`, about twice as fast as Base's broadcast here; the lazy column of an
 # uncached Bⱼ is a `Broadcasted`, which only Base's broadcast fuses.
-@inline function _band_col!(d, s, b::SubArray, μ1, μ2, i::Int, add::Bool, tight::Bool)
-    if !add
-        @.. d = s * (b * _hg_factor(μ1, μ2, i, tight))
-    elseif tight
-        @.. d += s * (b * _hg_factor(μ1, μ2, i, true))
+@inline function _band_col!(d, s, b::SubArray, μ1, μ2, i::Int, add::Bool, hg::Bool, tight::Bool)
+    if hg
+        add ? (@.. d += s * (b * _hg_factor(μ1, μ2, i, tight))) : (@.. d = s * (b * _hg_factor(μ1, μ2, i, tight)))
     else
-        @.. d += s * b
+        add ? (@.. d += s * b) : (@.. d = s * b)
     end
     return d
 end
 
-@inline function _band_col!(d, s, b::Broadcast.Broadcasted, μ1, μ2, i::Int, add::Bool, tight::Bool)
-    if !add
-        @. d = s * (b * _hg_factor(μ1, μ2, i, tight))
-    elseif tight
-        @. d += s * (b * _hg_factor(μ1, μ2, i, true))
+@inline function _band_col!(d, s, b::Broadcast.Broadcasted, μ1, μ2, i::Int, add::Bool, hg::Bool, tight::Bool)
+    if hg
+        add ? (@. d += s * (b * _hg_factor(μ1, μ2, i, tight))) : (@. d = s * (b * _hg_factor(μ1, μ2, i, tight)))
     else
-        @. d += s * b
+        add ? (@. d += s * b) : (@. d = s * b)
     end
     return d
 end
@@ -279,35 +319,53 @@ end
     return Broadcast.broadcasted(_bandpass, vec(a1), a2[1, l, 1], a3[1, 1, k], vec(l1), l2[1, l, 1], l3[1, 1, k])
 end
 
-# Y = X · a₁a₂a₃ (or Y += when `add`), the lowpass of the last pyramid level with
-# its per-axis factors `a`.  Same column walk as `_ns_band!`.
-_ns_lowpass!(Y, X, a, add::Bool, ws::NSSurfaceletWorkspace, threaded::Bool) =
-    add ? (Y .+= X .* a[1] .* a[2] .* a[3]) : (Y .= X .* a[1] .* a[2] .* a[3])
+# The lowpass of the last pyramid level, a₁a₂a₃ from its per-axis factors.
+struct _NSLowpassMask{A3 <: AbstractArray}
+    a::NTuple{3, A3}
+end
 
-function _ns_lowpass!(Y::Array, X::Array, a, add::Bool, ws::NSSurfaceletWorkspace, threaded::Bool)
+MultiscaleFilterBanks.mask_apply!(Z, M::_NSLowpassMask, X) = _ns_lowpass!(Z, X, M.a, false)
+MultiscaleFilterBanks.mask_accumulate!(A, M::_NSLowpassMask, F) = _ns_lowpass!(A, F, M.a, true)
+
+# Y = X · a₁a₂a₃, or Y += with `add`.  Same column walk as `_ns_band!`.
+_ns_lowpass!(Y, X, a, add::Bool) = add ? (Y .+= X .* a[1] .* a[2] .* a[3]) : (Y .= X .* a[1] .* a[2] .* a[3])
+
+function _ns_lowpass!(Y::Array, X::Array, a::NTuple{3, Array}, add::Bool)
     a1, a2, a3 = a
     a1v = vec(a1)
-    _foreach_slab(Y, ws, threaded) do ks
-        @inbounds for k in ks, l in axes(Y, 2)
-            a23 = a2[1, l, 1] * a3[1, 1, k]
-            y, x = view(Y, :, l, k), view(X, :, l, k)
-            add ? (@.. y += x * (a1v * a23)) : (@.. y = x * (a1v * a23))
-        end
+    @inbounds for k in axes(Y, 3), l in axes(Y, 2)
+        a23 = a2[1, l, 1] * a3[1, 1, k]
+        y, x = view(Y, :, l, k), view(X, :, l, k)
+        add ? (@.. y += x * (a1v * a23)) : (@.. y = x * (a1v * a23))
     end
     return Y
 end
 
-# Call `f(ks)` on slabs `ks` of the third axis of `A`, one per workspace task when
-# threaded.
-_foreach_slab(f::F, A::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F} =
-    foreach_chunk((ks, _) -> f(ks), size(A, 3), min(length(ws.work), size(A, 3)), threaded)
+# Wedge (p, q) of an hourglass: the product of its two oriented planes `wa`, `wb`
+# (singleton on one axis each), or with `unit` the constant 1 — the synthesis of a
+# bank that is not tight.
+struct _WedgeMask{A3 <: AbstractArray}
+    wa::A3
+    wb::A3
+    unit::Bool
+end
 
-# dst = Y·wa·wb, or dst += Y·wa·wb when `add`, with `wa`, `wb` the oriented wedge
-# planes (singleton on one axis each).  On the host the 3-D broadcast does not
-# vectorise across the singleton axes — it runs at a tenth of a plain copy — so
-# the host method walks the columns, each a contiguous 1-D broadcast in which a
-# plane contributes a column or a scalar, through FastBroadcast's `@..` (15–25%
-# faster than Base's broadcast on these columns).
+MultiscaleFilterBanks.mask_apply!(Z, M::_WedgeMask, Y) = M.unit ? copyto!(Z, Y) : _wedge_mul!(Z, Y, M.wa, M.wb, false)
+MultiscaleFilterBanks.mask_accumulate!(A, M::_WedgeMask, F) = M.unit ? (@.. A += F; A) : _wedge_mul!(A, F, M.wa, M.wb, true)
+
+# The engine passes a scale with the group and lowpass products; it is 1 here
+# (the inverse plan is normalised).
+function MultiscaleFilterBanks.mask_apply!(Z, M::Union{_NSBandMask, _NSLowpassMask, _WedgeMask}, X, s)
+    MultiscaleFilterBanks.mask_apply!(Z, M, X)
+    isone(s) || (Z .*= s)
+    return Z
+end
+
+# dst = Y·wa·wb, or dst += Y·wa·wb when `add`.  On the host the 3-D broadcast
+# does not vectorise across the singleton axes — it runs at a tenth of a plain
+# copy — so the host method walks the columns, each a contiguous 1-D broadcast in
+# which a plane contributes a column or a scalar, through FastBroadcast's `@..`
+# (15–25% faster than Base's broadcast on these columns).
 _wedge_mul!(dst, Y, wa, wb, add::Bool) = add ? (dst .+= Y .* wa .* wb) : (dst .= Y .* wa .* wb)
 
 function _wedge_mul!(dst::Array{T, 3}, Y::Array{T, 3}, wa::Array{R, 3}, wb::Array{R, 3}, add::Bool) where {T, R}
@@ -335,10 +393,10 @@ end
     return d
 end
 
-# Wedge counts of scale j, and the (hourglass, p, q) ↦ subband index map
-# (`ndfb_subband_index`'s order).
-_ns_wedge_counts(ws::NSSurfaceletWorkspace, j::Int) = map(length, ws.wedges[j][1])
+# The (hourglass, p, q) ↦ subband index map (`ndfb_subband_index`'s order).
 _ns_index(i::Int, p::Int, q::Int, na::Int, nb::Int) = ((i - 1) * na + (p - 1)) * nb + q
+
+MultiscaleFilterBanks.mask_bank_subband(c::NSSurfaceletCoefficients, (j, k)::NTuple{2, Int}) = c.subbands[j][k]
 
 # Real channel `c` of a volume: the volume itself, or its real or imaginary part.
 @inline _channel(x::Number, c::Int) = c == 1 ? real(x) : imag(x)
@@ -356,91 +414,85 @@ end
 
 # ── Drivers ───────────────────────────────────────────────────────────────────
 
-# Forward cascade.  For each subband, channel c is written to `target(j, k, t, c)`
-# and then `done(j, k, t)` is called, by task `t`.  Returns `ws.coarse`.
-function _ns_forward!(target::F, done::G, volume::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F, G}
-    threaded = loop_threaded(threaded)     # serial under a caller's NestedThreading budget
+# The threaded forms run on the engine.  It reads a real volume and writes and
+# reads real subbands with the FFT plans directly, so those must be arrays of
+# the plans' type; a complex volume and its subbands go through the engine's
+# channel buffers.  Coefficients of another array type take the streaming path.
+_ns_engine_arrays(ws::NSSurfaceletWorkspace, coeffs) =
+    _nchannels(ws) == 2 || (
+    coeffs.coarse isa eltype(ws.rbuf) && all(s -> all(b -> b isa eltype(ws.rbuf), s), coeffs.subbands)
+)
+
+# A real volume the plans can read: `x` itself, or a copy in `ws.rbuf[1]`
+# (which the engine does not use).
+_ns_engine_input(ws::NSSurfaceletWorkspace, x::AbstractArray) =
+    _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : (ws.rbuf[1] .= x)
+
+# Streaming forward cascade, on one task: calls `f(j, k, band)` for each subband
+# in the workspace's item order.  Returns `ws.coarse`.
+function _ns_forward!(f::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
     nch = _nchannels(ws)
+    Z = ws.work
     for c in 1:nch
-        _ns_spectrum!(ws.X[c], volume, ws.rbuf[1][c], ws, c)
+        _ns_spectrum!(ws.X[c], volume, ws.rbuf[c], ws, c)
     end
-    nt = length(ws.work)
-    for j in eachindex(ws.wedges)
-        na, nb = _ns_wedge_counts(ws, j)
-        for i in 1:3
+    g = 0
+    for it in ws.items
+        if it.pyramid != g
+            g = it.pyramid
             for c in 1:nch
-                _ns_band!(ws.Y[c], ws.X[c], ws, j, i, false, threaded)
-            end
-            planes = ws.wedges[j][i]
-            foreach_chunk(na * nb, nt, threaded) do range, t
-                for r in range
-                    p, q = divrem(r - 1, nb) .+ 1
-                    k = _ns_index(i, p, q, na, nb)
-                    for c in 1:nch
-                        _wedge_mul!(ws.work[t], ws.Y[c], planes[1][p], planes[2][q], false)
-                        mul!(target(j, k, t, c), ws.pinv, ws.work[t])
-                    end
-                    done(j, k, t)
-                end
+                mask_apply!(ws.Y[c], ws.pyramid.ana[g], ws.X[c])
             end
         end
+        H = ws.banks[it.bank].ana[it.channel]
+        for c in 1:nch
+            mask_apply!(Z, H, ws.Y[c])
+            mul!(ws.rbuf[c], ws.pinv, Z)
+        end
+        j, k = it.index
+        f(j, k, nch == 1 ? ws.rbuf[1] : _ns_combine!(ws.cbuf[1], ws.rbuf))
     end
     for c in 1:nch
-        _ns_lowpass!(ws.work[1], ws.X[c], ws.pa[end], false, ws, threaded)
-        mul!(ws.rbuf[1][c], ws.pinv, ws.work[1])
+        mask_apply!(Z, ws.lowpass, ws.X[c])
+        mul!(ws.rbuf[c], ws.pinv, Z)
     end
-    return _ns_combine!(ws.coarse, ws.rbuf[1])
+    return _ns_combine!(ws.coarse, ws.rbuf)
 end
 
-# Inverse cascade; `source(j, k)` returns subband k of scale j.
-function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool) where {F}
-    threaded = loop_threaded(threaded)     # one answer for every loop of the call
+# Streaming inverse cascade, on one task; `source(j, k)` returns subband k of
+# scale j, once.
+function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
     nch = _nchannels(ws)
-    tight = ws.params.tight
-    nt = length(ws.work)
+    Z = ws.work
     for c in 1:nch
         fill!(ws.X[c], zero(eltype(ws.X[c])))
     end
-    for j in eachindex(ws.wedges)
-        na, nb = _ns_wedge_counts(ws, j)
-        for i in 1:3
-            planes = ws.wedges[j][i]
-            foreach_chunk(na * nb, nt, threaded) do range, t
-                acc(c) = t == 1 ? ws.Y[c] : ws.partial[c][t - 1]
-                for c in 1:nch
-                    fill!(acc(c), zero(eltype(acc(c))))
-                end
-                W = ws.work[t]
-                for r in range
-                    p, q = divrem(r - 1, nb) .+ 1
-                    band = source(j, _ns_index(i, p, q, na, nb))
-                    # The threaded callers check every size up front; this is for
-                    # the streaming inverse, whose subbands arrive one at a time.
-                    size(band) == ws.dims ||
-                        throw(DimensionMismatch("subband ($(j), $(_ns_index(i, p, q, na, nb))) has the wrong size"))
-                    for c in 1:nch
-                        _ns_spectrum!(W, band, ws.rbuf[t][c], ws, c)
-                        if tight
-                            _wedge_mul!(acc(c), W, planes[1][p], planes[2][q], true)
-                        else
-                            A = acc(c)
-                            @.. A += W
-                        end
-                    end
-                end
-            end
+    g = 0
+    for it in ws.items
+        if it.pyramid != g
             for c in 1:nch
-                threaded && add_partials!(ws.Y[c], ws.partial[c], true)
-                _ns_band!(ws.X[c], ws.Y[c], ws, j, i, true, threaded)
+                g == 0 || mask_accumulate!(ws.X[c], ws.pyramid.syn[g], ws.Y[c])
+                fill!(ws.Y[c], zero(eltype(ws.Y[c])))
             end
+            g = it.pyramid
+        end
+        j, k = it.index
+        band = source(j, k)
+        # The subbands arrive one at a time, so each size is checked here.
+        size(band) == ws.dims || throw(DimensionMismatch("subband ($(j), $(k)) has the wrong size"))
+        H = ws.banks[it.bank].syn[it.channel]
+        for c in 1:nch
+            _ns_spectrum!(Z, band, ws.rbuf[c], ws, c)
+            mask_accumulate!(ws.Y[c], H, Z)
         end
     end
     for c in 1:nch
-        _ns_spectrum!(ws.work[1], coarse, ws.rbuf[1][c], ws, c)
-        _ns_lowpass!(ws.X[c], ws.work[1], ws.pa[end], true, ws, threaded)
-        mul!(ws.rbuf[1][c], ws.pinv, ws.X[c])
+        g == 0 || mask_accumulate!(ws.X[c], ws.pyramid.syn[g], ws.Y[c])
+        _ns_spectrum!(Z, coarse, ws.rbuf[c], ws, c)
+        mask_accumulate!(ws.X[c], ws.lowpass, Z)
+        mul!(ws.rbuf[c], ws.pinv, ws.X[c])
     end
-    return _ns_combine!(volume, ws.rbuf[1])
+    return _ns_combine!(volume, ws.rbuf)
 end
 
 # dst = the volume of channels `r` (one real channel, or real and imaginary).
@@ -523,16 +575,11 @@ function ns_surfacelet_forward!(
             throw(DimensionMismatch("scale $(j) has a subband of the wrong size"))
     end
     size(coeffs.coarse) == ws.dims || throw(DimensionMismatch("coarse subband has the wrong size"))
-    # Real data is transformed straight into a subband that can take the inverse
-    # FFT's output; complex data goes through the two channel buffers.
-    real_out = _nchannels(ws) == 1
-    target(j, k, t, c) = (b = coeffs.subbands[j][k]; real_out && b isa eltype(eltype(ws.rbuf)) ? b : ws.rbuf[t][c])
-    function done(j, k, t)
-        b = coeffs.subbands[j][k]
-        (real_out && b isa eltype(eltype(ws.rbuf))) || _ns_combine!(b, ws.rbuf[t])
-        return nothing
+    if _ns_engine_arrays(ws, coeffs)
+        mask_bank_forward!(coeffs, _ns_engine_input(ws, volume), ws.engine, _ns_threaded(threaded))
+    else
+        copyto!(coeffs.coarse, _ns_forward!((j, k, b) -> copyto!(coeffs.subbands[j][k], b), volume, ws))
     end
-    copyto!(coeffs.coarse, _ns_forward!(target, done, volume, ws, _ns_threaded(threaded)))
     return coeffs
 end
 
@@ -574,13 +621,7 @@ function ns_surfacelet_forward(
     )
     Td = data_eltype(volume)
     ws = _ns_surfacelet_workspace(workspace, params, size(volume), Td)
-    target(j, k, t, c) = ws.rbuf[t][c]
-    function done(j, k, t)
-        band = _nchannels(ws) == 1 ? ws.rbuf[t][1] : _ns_combine!(ws.cbuf[t], ws.rbuf[t])
-        f(j, k, band)
-        return nothing
-    end
-    return _ns_forward!(target, done, volume, ws, false)
+    return _ns_forward!(f, volume, ws)
 end
 
 """
@@ -615,7 +656,12 @@ function ns_surfacelet_inverse!(
         all(b -> size(b) == ws.dims, coeffs.subbands[j]) ||
             throw(DimensionMismatch("scale $(j) has a subband of the wrong size"))
     end
-    return _ns_inverse!((j, k) -> coeffs.subbands[j][k], volume, coeffs.coarse, ws, _ns_threaded(threaded))
+    _ns_engine_arrays(ws, coeffs) || return _ns_inverse!((j, k) -> coeffs.subbands[j][k], volume, coeffs.coarse, ws)
+    # A real output the inverse plan cannot write is filled through `ws.rbuf[1]`.
+    y = _nchannels(ws) == 2 || volume isa eltype(ws.rbuf) ? volume : ws.rbuf[1]
+    mask_bank_inverse!(y, coeffs, ws.engine, _ns_threaded(threaded))
+    y === volume || copyto!(volume, y)
+    return volume
 end
 
 """
@@ -643,7 +689,7 @@ function ns_surfacelet_inverse!(
         params::NSSurfaceletParams; workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
     )
     ws = _ns_inverse_workspace(workspace, params, volume, coarse)
-    return _ns_inverse!(f, volume, coarse, ws, false)
+    return _ns_inverse!(f, volume, coarse, ws)
 end
 
 function _ns_inverse_workspace(workspace, params::NSSurfaceletParams, volume::AbstractArray, coarse::AbstractArray)

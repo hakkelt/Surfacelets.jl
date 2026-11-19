@@ -215,10 +215,36 @@ end
     x = randn(Xoshiro(11), 16, 16, 16)
     p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
     for cache in (true, false)
-        ws = make_ns_surfacelet_workspace(p, size(x); tasks = 3, cache_bandpass = cache)
+        ws = make_ns_surfacelet_workspace(p, size(x); cache_bandpass = cache)
         wh = Adapt.adapt(Array, ws)
-        @test wh.tasks == 3 && length(wh.work) == 3
+        @test length(wh.engine.buffers) == length(ws.engine.buffers)
         @test length(wh.band) == length(ws.band)
         @test ns_surfacelet_forward(x, p; workspace = wh).subbands ≈ ns_surfacelet_forward(x, p; workspace = ws).subbands
     end
+end
+
+@testitem "ns_surfacelet — arrays the FFT plans cannot use directly" tags = [:ns_surfacelet] begin
+    using Random
+    # Real subbands and outputs that are not plain arrays of the plans' type go
+    # through the workspace's one-task path; an integer volume is copied into a
+    # real buffer first.  Both give the threaded path's result exactly.
+    x = randn(Xoshiro(13), 12, 16, 10)
+    p = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 6)
+    ws = make_ns_surfacelet_workspace(p, size(x))
+    c = ns_surfacelet_forward(x, p; workspace = ws)
+    viewed(a) = view(similar(a), :, :, :)
+    cv = NSSurfaceletCoefficients(viewed(c.coarse), [map(viewed, s) for s in c.subbands])
+    ns_surfacelet_forward!(cv, x, p; workspace = ws)
+    @test cv.coarse == c.coarse
+    @test all(cv.subbands[j][k] == c.subbands[j][k] for j in 1:2 for k in eachindex(c.subbands[j]))
+    y = ns_surfacelet_inverse(c, p; workspace = ws)
+    @test ns_surfacelet_inverse(cv, p; workspace = ws) ≈ y
+    yv = view(similar(x), :, :, :)
+    @test ns_surfacelet_inverse!(yv, c, p; workspace = ws) == y
+    @test maximum(abs, y .- x) < 1.0e-12
+    xi = rand(Xoshiro(14), -3:3, size(x)...)
+    ci = ns_surfacelet_forward(xi, p; workspace = ws)
+    cf = ns_surfacelet_forward(float.(xi), p; workspace = ws)
+    @test ci.coarse == cf.coarse
+    @test all(ci.subbands[j][k] == cf.subbands[j][k] for j in 1:2 for k in eachindex(cf.subbands[j]))
 end

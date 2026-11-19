@@ -121,13 +121,16 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   (or, with `cache_bandpass = false`, broadcast from the per-axis responses of
   `_rc_responses`), the hourglass factor applied
   once per hourglass (`Yᵢ = X·Bⱼ·√Wᵢ`), then per subband a multiply by two wedge
-  planes (stored square-rooted when tight) and one irfft. The subbands are
-  threaded over with `foreach_chunk` (Polyester's `@batch`), single-threaded
-  plans, and the full-volume passes between those loops (band, lowpass, the sum
-  of the per-task partials) are split among the same tasks; only
-  `threaded = false` and the streaming forms (whose callbacks need not be
-  thread-safe) run on one task. `ndfb_*` remain as public building blocks; the
-  transform no longer calls them.
+  planes (stored square-rooted when tight) and one irfft. The masks are mask
+  kinds of MultiscaleFilterBanks' `MaskBankEngine` (`_NSBandMask`,
+  `_WedgeMask`, `_NSLowpassMask`: one group per scale and hourglass), and the
+  threaded forms run on that engine, one task per Julia thread with
+  single-threaded plans; `threaded = false` runs it on one task, and the
+  streaming forms (whose callbacks need not be thread-safe) loop over the same
+  masks on one task. Keep the mask kinds' host kernels: MFB's `ProductMask`
+  uses Base's broadcast, about a tenth of a copy on singleton-axis planes, and
+  the hourglass factor is not a product of arrays. `ndfb_*` remain as public
+  building blocks; the transform does not call them.
 - **Host kernels avoid Base's broadcast where it is slow.** It checks every axis
   for a singleton at run time, so same-size products run ~2× slow and strided
   views (the decimated scales' blocks and Hermitian mirror) 3–5× slow. Same-size

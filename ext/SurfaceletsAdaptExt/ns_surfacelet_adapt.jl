@@ -59,7 +59,7 @@ function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, 
     proto = ad(Array{T, 3}(undef, 0, 0, 0))
     return Surfacelets._ns_workspace(
         Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
-        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, ws.tasks, FFTW.ESTIMATE
+        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, FFTW.ESTIMATE
     )
 end
 

@@ -36,8 +36,9 @@ using Strided: Strided, @strided
 using NestedThreading: NestedThreading
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
-    data_eltype, filter_eltype, foreach_chunk, add_partials!,
-    loop_threaded, with_fftw_threads, n_tasks
+    data_eltype, filter_eltype, foreach_chunk, loop_threaded, with_fftw_threads, n_tasks,
+    MaskBankEngine, MaskBank, MaskItem, mask_apply!, mask_accumulate!,
+    mask_bank_forward!, mask_bank_inverse!
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/params.jl")
