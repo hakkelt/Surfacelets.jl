@@ -10,6 +10,7 @@ GPUEnv = "78a0b619-6146-4252-b244-0f81c54be577"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+MultiscaleFilterBanks = "6efc46e8-ef8d-4233-93b5-7ad1cba20951"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Surfacelets = "95825f30-efdc-42b9-a966-c8a9be6f2254"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
@@ -17,6 +18,7 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [sources]
+MultiscaleFilterBanks = {path = "../../MultiscaleFilterBanks"}
 Surfacelets = {path = ".."}
 
 [compat]
@@ -27,6 +29,7 @@ ExplicitImports = "1.15"
 FFTW = "1"
 GPUEnv = "0.3"
 JET = "0.9, 0.10, 0.11, 0.12"
+MultiscaleFilterBanks = "0.1"
 TestItemRunner = "1"
 TestItems = "1"
 julia = "1.10"
