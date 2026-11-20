@@ -216,7 +216,7 @@ _s_threaded(threaded::Union{Bool, Nothing}) = threaded !== false
 function _with_threading(f::F, threaded::Bool) where {F}
     threaded = loop_threaded(threaded)
     threaded && return f(true)
-    return NestedThreading.with_restricted_threads(() -> f(false); only = (:strided,))
+    return NestedThreading.with_threads_disabled(() -> f(false); only = :strided)
 end
 
 # The workspace of a call: `workspace` after checking it, or a new one, planned
