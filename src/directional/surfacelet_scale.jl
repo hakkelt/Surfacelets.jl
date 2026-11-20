@@ -138,6 +138,10 @@ function _foreach_block(f::F, sc::_SurfScale, w::_ScaleWork, threaded::Bool) whe
             _one_block(f, sc, w, w.hg[K], K, i, idx, t)
         end
     end
+    # The block loop may run on Polyester's workers, which keep spinning on
+    # Julia's threads after it ends; the Strided kernels and threaded FFTs that
+    # follow run on those threads and would wait for them.
+    threaded && NestedThreading.quiesce_foreign_pools()
     return nothing
 end
 
