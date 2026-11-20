@@ -288,7 +288,7 @@ volume ─ pyramid ─┬─ coarse ─→ next scale
 Every coefficient array keeps the size of the input, so the transform is exactly
 shift-invariant — and correspondingly redundant: ``1 + \sum_j 3 \cdot 2^{L_j}``
 copies of the input.  For ``J = 3`` and ``L = [2, 2, 3]`` that is 49 volumes,
-3.1 GB at 256³ `Float32`.  The streaming form of [`ns_surfacelet_forward`](@ref) exists
+3.1 GB at 256³ `Float32`.  The streaming form of [`analyze`](@ref) exists
 for this reason: it holds one subband at a time.
 
 Because the directional bank depends only on the volume size and never on the
@@ -302,17 +302,17 @@ mask, and every mask is stored as broadcastable factors — the mapping response
 and wedge planes are 3-D arrays with singleton axes where they do not depend on
 a frequency — so applying a mask, splitting a complex volume into real and
 imaginary halves, and the pyramid's frequency-domain multiply are all plain
-broadcasts.  Moving a plan to the device is therefore just moving its arrays and
-replanning the transforms:
+broadcasts.  Moving a workspace to the device is therefore just moving its arrays
+and replanning the transforms:
 
 ```julia
 using CUDA, Adapt, Surfacelets
 using CUDA: CuArray
 import Adapt
 
-params = NSSurfaceletParams(J = 2, L_array = [2, 2])
-ws = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, (128, 128, 128), Float32))
-c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
+t  = NSSurfacelet(J = 2, L_array = [2, 2])
+ws = Adapt.adapt(CuArray, make_workspace(t, Float32, (128, 128, 128)))
+c  = analyze(t, CuArray(vol); workspace = ws)
 ```
 
 A workspace adapt moves the shared hourglass response once, not once per scale.
@@ -323,13 +323,13 @@ arrays, whose FFTs FFTW runs on the CPU (OpenCL.jl has no FFT; buffer-backed
 The decimated surfacelet transform follows the same rule: the pyramid is a
 broadcast against its separable profile plus a crop through index views, the
 hourglass stage a broadcast against precomputed masks, and each IRC stage a
-broadcast between the two halves of a reshaped view.  Its plan is built on the
-host — the checkerboard filter slices are evaluated point by point in closed
-form — and then adapted to the *bare* array type (`Adapt.adapt(CuArray, pl)`,
-never `typeof(x)`, since the plan holds real, complex and integer tables).  It
-is verified against the CPU path on CUDA, and on OpenCL in the same way as the
-nonsubsampled transform.  A device volume with no plan is an `ArgumentError`,
-not an implicit rebuild.
+broadcast between the two halves of a reshaped view.  Its workspace is built on
+the host — the checkerboard filter slices are evaluated point by point in closed
+form — and then adapted to the *bare* array type (`Adapt.adapt(CuArray, ws)`,
+never `typeof(x)`, since the workspace holds real, complex and integer tables);
+`make_workspace(t, x)` does both for a device array `x`, and so does a call on
+a device array without a workspace.  It is verified against the CPU path on
+CUDA, and on OpenCL in the same way as the nonsubsampled transform.
 
 ## Surfacelet transform (decimated)
 

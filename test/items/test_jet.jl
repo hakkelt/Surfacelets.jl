@@ -9,8 +9,8 @@
     dst = similar(x)
 
     # ── Types / constructors ─────────────────────────────────────────────────
-    @test_call target_modules = (Surfacelets,) NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
-    @test_call target_modules = (Surfacelets,) SurfaceletParams(J = 2, L_array = [1, 1])
+    @test_call target_modules = (Surfacelets,) NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    @test_call target_modules = (Surfacelets,) Surfacelet(J = 2, L_array = [1, 1])
 
     # ── Directional FB ───────────────────────────────────────────────────────
     @test_call target_modules = (Surfacelets,) make_hourglass(dims, Float64; order = 6)
@@ -27,27 +27,33 @@
     @test_call target_modules = (Surfacelets,) ndfb_reconstruct(sbs, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
-    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-    @test_call target_modules = (Surfacelets,) make_ns_surfacelet_workspace(p, dims, Float64)
-    ws = make_ns_surfacelet_workspace(p, dims, Float64)
-    @test_call target_modules = (Surfacelets,) ns_surfacelet_forward(x, p; workspace = ws)
-    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
-    @test_call target_modules = (Surfacelets,) ns_surfacelet_inverse(coeffs, p; workspace = ws)
-    @test_call target_modules = (Surfacelets,) ns_surfacelet_inverse!(dst, coeffs, p; workspace = ws)
+    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    @test_call target_modules = (Surfacelets,) make_workspace(t, Float64, dims)
+    @test_call target_modules = (Surfacelets,) make_workspace(t, x)
+    ws = make_workspace(t, Float64, dims)
+    @test_call target_modules = (Surfacelets,) analyze(t, x; workspace = ws)
+    coeffs = analyze(t, x; workspace = ws)
+    @test_call target_modules = (Surfacelets,) synthesize(t, coeffs; workspace = ws)
+    @test_call target_modules = (Surfacelets,) synthesize!(dst, t, coeffs; workspace = ws)
+    @test_call target_modules = (Surfacelets,) subband_layout(t, dims)
 
     # The decimated transform needs sizes its 3/2 pyramid can divide.
-    sp = SurfaceletParams(J = 1, L_array = [1])
+    s = Surfacelet(J = 1, L_array = [1])
     sdims = (24, 24, 24)
     xs = randn(sdims...)
-    @test_call target_modules = (Surfacelets,) make_surfacelet(sp, sdims, Float64)
-    spl = make_surfacelet(sp, sdims, Float64)
-    @test_call target_modules = (Surfacelets,) surfacelet_forward(xs, sp; plan = spl)
-    sc = surfacelet_forward(xs, sp; plan = spl)
-    @test_call target_modules = (Surfacelets,) surfacelet_inverse(sc, sp; plan = spl)
-    @test_call target_modules = (Surfacelets,) surfacelet_redundancy(spl)
+    @test_call target_modules = (Surfacelets,) make_workspace(s, Float64, sdims)
+    sws = make_workspace(s, Float64, sdims)
+    @test_call target_modules = (Surfacelets,) analyze(s, xs; workspace = sws)
+    sc = analyze(s, xs; workspace = sws)
+    @test_call target_modules = (Surfacelets,) synthesize(s, sc; workspace = sws)
+    @test_call target_modules = (Surfacelets,) surfacelet_redundancy(s, sdims)
+    @test_call target_modules = (Surfacelets,) subband_layout(s, sdims)
 
-    @test_call target_modules = (Surfacelets,) surfacelet_inverse!(similar(xs), sc, sp; plan = spl)
-    @test_call target_modules = (Surfacelets,) surfacelet_forward!(sc, xs, sp; plan = spl)
+    @test_call target_modules = (Surfacelets,) synthesize!(similar(xs), s, sc; workspace = sws)
+    @test_call target_modules = (Surfacelets,) analyze!(sc, s, xs; workspace = sws)
+    zs = complex.(xs, xs)
+    zws = make_workspace(s, zs)
+    @test_call target_modules = (Surfacelets,) analyze(s, zs; workspace = zws)
 end
 
 @testitem "@test_opt Surfacelets core functions" tags = [:jet] begin
@@ -70,11 +76,11 @@ end
     @test_opt target_modules = (Surfacelets,) ndfb_decompose(x, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
-    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-    ws = make_ns_surfacelet_workspace(p, dims, Float64)
-    @test_opt target_modules = (Surfacelets,) ns_surfacelet_forward(x, p; workspace = ws)
-    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
-    @test_opt target_modules = (Surfacelets,) ns_surfacelet_inverse!(dst, coeffs, p; workspace = ws)
+    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    ws = make_workspace(t, Float64, dims)
+    coeffs = analyze(t, x; workspace = ws)
+    @test_opt target_modules = (Surfacelets,) analyze!(coeffs, t, x; workspace = ws)
+    @test_opt target_modules = (Surfacelets,) synthesize!(dst, t, coeffs; workspace = ws)
 end
 
 @testitem "@test_call Surfacelets remaining API" tags = [:jet] begin
@@ -114,30 +120,28 @@ end
     @test_call target_modules = M ndfb_reconstruct!(similar(x), sbs, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
-    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-    @test_call target_modules = M ns_surfacelet_nsubbands(p, 1)
-    ws = make_ns_surfacelet_workspace(p, dims, Float64)
+    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    @test_call target_modules = M nsubbands(t, dims)
+    ws = make_workspace(t, Float64, dims)
     @test ws isa NSSurfaceletWorkspace
-    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
-    @test coeffs isa NSSurfaceletCoefficients
-    @test_call target_modules = M ns_surfacelet_forward!(coeffs, x, p; workspace = ws)
-    @test_call target_modules = M ns_surfacelet_forward(x, p; threaded = false)
-    @test_call target_modules = M ns_surfacelet_inverse(coeffs, p; workspace = ws, threaded = true)
+    coeffs = analyze(t, x; workspace = ws)
+    @test_call target_modules = M analyze!(coeffs, ws, x)
+    @test_call target_modules = M analyze(t, x; threaded = false)
+    @test_call target_modules = M synthesize(t, coeffs; workspace = ws, threaded = true)
+    @test_call target_modules = M synthesize(ws, coeffs)
+    @test_call target_modules = M subband(t, coeffs, 2)
 
-    sp = SurfaceletParams(J = 1, L_array = [1])
-    @test_call target_modules = M surfacelet_nsubbands(sp, 1)
-    spl = make_surfacelet(sp, (24, 24, 24), Float64)
-    @test spl isa SurfaceletPlan
-    @test surfacelet_forward(randn(24, 24, 24), sp; plan = spl) isa SurfaceletCoefficients
+    s = Surfacelet(J = 1, L_array = [1])
+    @test_call target_modules = M nsubbands(s, (24, 24, 24))
+    sws = make_workspace(s, Float64, (24, 24, 24))
+    @test sws isa SurfaceletWorkspace
+    @test_call target_modules = M analyze(sws, randn(24, 24, 24))
 
     # ── Streaming (callback) forms ───────────────────────────────────────────
     @test_call target_modules = M ndfb_decompose((k, band) -> nothing, x, fb)
     @test_call target_modules = M ndfb_reconstruct!(k -> sbs[k], similar(x), fb)
-    @test_call target_modules = M ns_surfacelet_forward((j, k, band) -> nothing, x, p; workspace = ws)
-    @test_call target_modules = M ns_surfacelet_inverse((j, k) -> coeffs.subbands[j][k], coeffs.coarse, p; workspace = ws)
-    @test_call target_modules = M ns_surfacelet_inverse!(
-        (j, k) -> coeffs.subbands[j][k], similar(x), coeffs.coarse, p; workspace = ws
-    )
+    @test_call target_modules = M analyze((i, band) -> nothing, t, x; workspace = ws)
+    @test_call target_modules = M synthesize!(i -> subband(t, coeffs, i), similar(x), t; workspace = ws)
 end
 
 @testitem "@test_opt Surfacelets remaining API" tags = [:jet] begin
@@ -153,8 +157,8 @@ end
     x = randn(dims...)
 
     # ── Types / constructors / filters ───────────────────────────────────────
-    @test_opt target_modules = M NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
-    @test_opt target_modules = M SurfaceletParams(J = 2, L_array = [1, 1])
+    @test_opt target_modules = M NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    @test_opt target_modules = M Surfacelet(J = 2, L_array = [1, 1])
     @test_opt target_modules = M checkerboard_orders()
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
@@ -181,39 +185,37 @@ end
     @test_opt target_modules = M ndfb_reconstruct!(similar(x), sbs, fb)
 
     # ── Nonsubsampled surfacelet transform ───────────────────────────────────
-    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-    @test_opt target_modules = M ns_surfacelet_nsubbands(p, 1)
-    @test_opt target_modules = M make_ns_surfacelet_workspace(p, dims, Float64)
-    ws = make_ns_surfacelet_workspace(p, dims, Float64)
-    coeffs = ns_surfacelet_forward(x, p; workspace = ws)
-    @test_opt target_modules = M ns_surfacelet_forward!(coeffs, x, p; workspace = ws)
-    @test_opt target_modules = M ns_surfacelet_inverse(coeffs, p; workspace = ws)
+    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    @test_opt target_modules = M nsubbands(t, dims)
+    @test_opt target_modules = M make_workspace(t, Float64, dims)
+    ws = make_workspace(t, Float64, dims)
+    coeffs = analyze(t, x; workspace = ws)
+    @test_opt target_modules = M analyze!(coeffs, t, x; workspace = ws)
+    @test_opt target_modules = M synthesize(t, coeffs; workspace = ws)
 
     # ── Decimated surfacelet transform ───────────────────────────────────────
-    sp = SurfaceletParams(J = 1, L_array = [1])
+    s = Surfacelet(J = 1, L_array = [1])
     sdims = (24, 24, 24)
     xs = randn(sdims...)
-    @test_opt target_modules = M surfacelet_nsubbands(sp, 1)
-    @test_opt target_modules = M make_surfacelet(sp, sdims, Float64)
-    spl = make_surfacelet(sp, sdims, Float64)
-    @test_opt target_modules = M surfacelet_redundancy(spl)
-    @test_opt target_modules = M surfacelet_forward(xs, sp; plan = spl)
-    sc = surfacelet_forward(xs, sp; plan = spl)
-    @test_opt target_modules = M surfacelet_forward!(sc, xs, sp; plan = spl)
-    @test_opt target_modules = M surfacelet_inverse(sc, sp; plan = spl)
-    @test_opt target_modules = M surfacelet_inverse!(similar(xs), sc, sp; plan = spl)
+    @test_opt target_modules = M make_workspace(s, Float64, sdims)
+    sws = make_workspace(s, Float64, sdims)
+    @test_opt target_modules = M surfacelet_redundancy(s, sdims)
+    @test_opt target_modules = M analyze(s, xs; workspace = sws)
+    sc = analyze(s, xs; workspace = sws)
+    @test_opt target_modules = M analyze!(sc, s, xs; workspace = sws)
+    @test_opt target_modules = M synthesize(s, sc; workspace = sws)
+    @test_opt target_modules = M synthesize!(similar(xs), s, sc; workspace = sws)
 
     # ── Streaming (callback) forms ───────────────────────────────────────────
     # Bind the captured variables with `let`: closures over top-level test variables return `Any`.
     by_index = let sbs = sbs
         k -> sbs[k]
     end
-    by_scale = let coeffs = coeffs
-        (j, k) -> coeffs.subbands[j][k]
+    by_subband = let coeffs = coeffs, t = t
+        i -> subband(t, coeffs, i)
     end
     @test_opt target_modules = M ndfb_decompose((k, band) -> nothing, x, fb)
     @test_opt target_modules = M ndfb_reconstruct!(by_index, similar(x), fb)
-    @test_opt target_modules = M ns_surfacelet_forward((j, k, band) -> nothing, x, p; workspace = ws)
-    @test_opt target_modules = M ns_surfacelet_inverse(by_scale, coeffs.coarse, p; workspace = ws)
-    @test_opt target_modules = M ns_surfacelet_inverse!(by_scale, similar(x), coeffs.coarse, p; workspace = ws)
+    @test_opt target_modules = M analyze((i, band) -> nothing, t, x; workspace = ws)
+    @test_opt target_modules = M synthesize!(by_subband, similar(x), t; workspace = ws)
 end

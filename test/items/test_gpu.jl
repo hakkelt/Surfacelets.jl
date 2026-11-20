@@ -86,44 +86,47 @@ end
     Random.seed!(202)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6)
-    ws_cpu = make_ns_surfacelet_workspace(p, dims, Float32)
-    ref = ns_surfacelet_forward(x, p; workspace = ws_cpu)
+    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    n = nsubbands(t, dims)
+    ws_cpu = make_workspace(t, Float32, dims)
+    ref = analyze(t, x; workspace = ws_cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
         # The workspace holds real and complex tables, so adapt to the bare
         # array type; its buffers and plans are rebuilt on the device.
         ws = Adapt.adapt(backend.array_type, ws_cpu)
-        c = ns_surfacelet_forward(xg, p; workspace = ws)
-        @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
-        for j in 1:2, k in eachindex(c.subbands[j])
-            @test maximum(abs, Array(c.subbands[j][k]) .- ref.subbands[j][k]) < 1.0f-4
+        c = analyze(t, xg; workspace = ws)
+        for i in 1:n
+            @test maximum(abs, Array(subband(t, c, i)) .- subband(t, ref, i)) < 1.0f-4
         end
-        rec = ns_surfacelet_inverse(c, p; workspace = ws)
+        rec = synthesize(t, c; workspace = ws)
         @test maximum(abs, Array(rec) .- x) < 1.0f-4
+        # A workspace made from a device array lives on the device.
+        wd = make_workspace(t, xg)
+        @test maximum(abs, Array(synthesize(t, analyze(t, xg; workspace = wd); workspace = wd)) .- x) < 1.0f-4
         # Streaming works on the device too.
         total = Ref(0.0f0)
-        ns_surfacelet_forward(xg, p; workspace = ws) do j, k, band
+        analyze(t, xg; workspace = ws) do i, band
             total[] += sum(abs2, Array(band))
         end
-        @test total[] > 0
+        @test total[] ≈ sum(abs2, x) rtol = 1.0f-3
     end
 end
 
-@testitem "GPU Adapt.adapt_structure for NSSurfacelet coefficients" tags = [:gpu] setup = [GPUBackends] begin
+@testitem "GPU nonsubsampled surfacelet: complex data" tags = [:gpu] setup = [GPUBackends] begin
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(203)
     dims = (16, 16, 16)
-    x = randn(Float32, dims...)
-    p = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-    c = ns_surfacelet_forward(x, p)
+    z = randn(ComplexF32, dims...)
+    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    ref = analyze(t, z)
     for backend in GPUBackends.fft_backends
-        xg = to_gpu(backend, x)
-        dev = Adapt.adapt(typeof(xg), c)
-        host = Adapt.adapt(Array, dev)
-        @test host.coarse == c.coarse
-        @test all(k -> host.subbands[1][k] == c.subbands[1][k], eachindex(c.subbands[1]))
+        zg = to_gpu(backend, z)
+        ws = make_workspace(t, zg)
+        c = analyze(t, zg; workspace = ws)
+        @test all(i -> maximum(abs, Array(subband(t, c, i)) .- subband(t, ref, i)) < 1.0f-4, 1:nsubbands(t, dims))
+        @test maximum(abs, Array(synthesize(t, c; workspace = ws)) .- z) < 1.0f-4
     end
 end
 
@@ -133,40 +136,40 @@ end
     Random.seed!(204)
     dims = (48, 48, 48)
     x = randn(Float32, dims...)
-    p = SurfaceletParams(J = 2, L_array = [1, 2], precision = Float32)
-    # Planning evaluates every filter slice point by point, so it happens once
-    # on the host; the device plan is an adapt of it, never a rebuild.
-    pl_cpu = make_surfacelet(p, dims, Float32)
-    ref = surfacelet_forward(x, p; plan = pl_cpu)
+    t = Surfacelet(J = 2, L_array = [1, 2])
+    n = nsubbands(t, dims)
+    # Building the workspace evaluates every filter slice point by point, so it
+    # happens once on the host; the device workspace is an adapt of it.
+    ws_cpu = make_workspace(t, Float32, dims)
+    ref = analyze(t, x; workspace = ws_cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
-        # Adapt to the bare array type, not `typeof(xg)`: the plan holds real,
-        # complex and integer tables, so an element-typed destination cannot fit.
-        pl = Adapt.adapt(backend.array_type, pl_cpu)
-        c = surfacelet_forward(xg, p; plan = pl)
-        @test size(c.coarse) == size(ref.coarse)
-        @test maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
-        for j in 1:2, k in eachindex(c.subbands[j])
-            @test size(c.subbands[j][k]) == size(ref.subbands[j][k])
-            @test maximum(abs, Array(c.subbands[j][k]) .- ref.subbands[j][k]) < 1.0f-4
+        # Adapt to the bare array type, not `typeof(xg)`: the workspace holds
+        # real, complex and integer tables, so an element-typed destination
+        # cannot fit.
+        ws = Adapt.adapt(backend.array_type, ws_cpu)
+        c = analyze(t, xg; workspace = ws)
+        for i in 1:n
+            @test size(subband(t, c, i)) == size(subband(t, ref, i))
+            @test maximum(abs, Array(subband(t, c, i)) .- subband(t, ref, i)) < 1.0f-4
         end
-        rec = surfacelet_inverse(c, p; plan = pl)
+        rec = synthesize(t, c; workspace = ws)
         @test maximum(abs, Array(rec) .- x) < 1.0f-4
-        # Coefficients adapt back and forth.
-        host = Adapt.adapt(Array, c)
-        @test host.coarse == Array(c.coarse)
-        dev = Adapt.adapt(backend.array_type, ref)
-        @test Array(dev.subbands[1][1]) == ref.subbands[1][1]
     end
 end
 
-@testitem "GPU surfacelet needs an explicit plan" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
+@testitem "GPU surfacelet without a workspace, and complex data" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
     using GPUEnv, Random
     Random.seed!(205)
     dims = (24, 24, 24)
-    p = SurfaceletParams(J = 1, L_array = [1])
+    t = Surfacelet(J = 1, L_array = [1])
+    z = randn(ComplexF32, dims...)
+    ref = analyze(t, z)
     for backend in GPUBackends.fft_backends
-        xg = to_gpu(backend, randn(Float32, dims...))
-        @test_throws ArgumentError surfacelet_forward(xg, p)
+        zg = to_gpu(backend, z)
+        # Without a workspace, one is built on the host and moved to the device.
+        c = analyze(t, zg)
+        @test all(i -> maximum(abs, Array(subband(t, c, i)) .- subband(t, ref, i)) < 1.0f-4, 1:nsubbands(t, dims))
+        @test maximum(abs, Array(synthesize(t, c)) .- z) < 1.0f-4
     end
 end

@@ -6,13 +6,13 @@
 """
     NSSurfaceletCoefficients{Td, A}
 
-Output of [`ns_surfacelet_forward`](@ref).  `coarse` is the low-pass residual after `J`
-pyramid levels and `subbands[j][k]` the `k`-th directional subband at scale `j`.
+Coefficients of an [`NSSurfacelet`](@ref) transform, from [`analyze`](@ref).
+`coarse` is the low-pass residual after `J` pyramid levels and `subbands[j][k]` the `k`-th directional subband at scale `j`.
 Every array has the spatial size of the input — the transform is nonsubsampled.
 
 Size warning: the total coefficient volume is `1 + Σ_j 3·2^L_j` copies of the
 input.  At 256³ `Float32` with `J = 3` and `L = [2, 2, 3]` that is 3.1 GB; use
-the streaming form of [`ns_surfacelet_forward`](@ref) when that does not fit.
+the streaming form of [`analyze`](@ref) when that does not fit.
 """
 struct NSSurfaceletCoefficients{Td <: Number, A <: AbstractArray{Td, 3}}
     coarse::A
@@ -32,11 +32,11 @@ end
 """
     SurfaceletCoefficients{T}
 
-Output of [`surfacelet_forward`](@ref).  `subbands[j]` lists the directional
+Coefficients of a [`Surfacelet`](@ref) transform, from [`analyze`](@ref).  `subbands[j]` lists the directional
 subbands of scale `j` — hourglass 1, 2, 3 in turn, and inside each the wedges in
 SurfBox's order — each at its own decimated size; `coarse` is the lowpass.
 """
-struct SurfaceletCoefficients{T <: AbstractFloat, A <: AbstractArray{T, 3}}
+struct SurfaceletCoefficients{T <: Number, A <: AbstractArray{T, 3}}
     dims::NTuple{3, Int}     # size of the volume this came from
     coarse::A
     subbands::Vector{Vector{A}}

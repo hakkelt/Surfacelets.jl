@@ -34,10 +34,12 @@ Pkg.add("Surfacelets")
 using Surfacelets
 
 vol    = randn(Float32, 128, 128, 128)
-params = NSSurfaceletParams(J = 3, L_array = [2, 2, 3])   # 48 directional subbands
+t      = NSSurfacelet(J = 3, L_array = [2, 2, 3])   # 48 directional subbands
 
-coeffs = ns_surfacelet_forward(vol, params)
-rec    = ns_surfacelet_inverse(coeffs, params)
+coeffs = analyze(t, vol)
+rec    = synthesize(t, coeffs)
+subband(t, coeffs, 2)          # the first directional subband; subband 1 is the lowpass
+subband_layout(t, size(vol))   # what each subband is
 ```
 
 At working sizes the materialised coefficient set does not fit — 3.1 GB at 256³
@@ -45,19 +47,19 @@ At working sizes the materialised coefficient set does not fit — 3.1 GB at 256
 streaming form that hands you one subband at a time:
 
 ```julia
-ws = make_ns_surfacelet_workspace(params, size(vol), Float32)
+ws = make_workspace(t, vol)    # FFT plans and masks, reused by every call
 
-coarse = ns_surfacelet_forward(vol, params; workspace = ws) do j, k, band
-    # `band` is valid only until this callback returns
+analyze(t, vol; workspace = ws) do i, band
+    # `band` is subband i, valid only until this callback returns
 end
 ```
 
-`surfacelet_forward` is the decimated counterpart — Lu and Do's surfacelet
+`Surfacelet` is the decimated counterpart — Lu and Do's surfacelet
 transform, reproducing their reference toolbox SurfBox to rounding error. Each
 subband sits on its own decimated grid, about 4 coefficients per voxel whatever
 the number of directions, at the cost of shift invariance.
 
-| | `ns_surfacelet_forward` | `surfacelet_forward` |
+| | `NSSurfacelet` | `Surfacelet` |
 |---|---|---|
 | Subband sizes | all equal to the input | decimated, one grid per subband |
 | Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 4 (`pyr_mode = 1.5`), flat in the direction count |
@@ -83,7 +85,9 @@ explains the constructions with figures.
 The 2-D contourlet and nonsubsampled contourlet transforms live in
 [Contourlets.jl](https://github.com/hakkelt/Contourlets.jl), and 2-D and 3-D
 shearlet transforms in [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl).
-The packages share only the threading, which lives in
+The packages share their interface, defined in
+[MultiscaleTransformsBase.jl](https://github.com/hakkelt/MultiscaleTransformsBase.jl)
+and re-exported here, and the threading and mask-bank engine of
 [MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl).
 
 ## Multithreading and GPU
@@ -104,8 +108,9 @@ devices that support it).
 ```julia
 using CUDA, Adapt, Surfacelets
 
-ws = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, size(vol), Float32))
-c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
+x  = CuArray(vol)
+ws = make_workspace(t, x)      # built on the host, moved to the device
+c  = analyze(t, x; workspace = ws)
 ```
 
 ## Development

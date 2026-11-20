@@ -10,33 +10,41 @@ CurrentModule = Surfacelets
 Surfacelets
 ```
 
+## The interface
+
+Surfacelets re-exports the interface of
+[MultiscaleTransformsBase](https://github.com/hakkelt/MultiscaleTransformsBase.jl):
+`analyze`, `analyze!`, `synthesize`, `synthesize!`, `make_workspace`,
+`transform`, `similar_coefficients`, `subband_layout`, `nsubbands`, `subband`,
+`SubbandVector`, `SubbandLayout`, `AbstractMultiscaleTransform` and
+`AbstractTransformWorkspace`.  Every verb also takes a workspace in place of the
+transform: `analyze(ws, x)`, `analyze!(c, ws, x)`, `synthesize(ws, c)`,
+`synthesize!(x, ws, c)`.  The methods specific to the two transforms are listed
+with them below.
+
 ## Nonsubsampled surfacelet transform
 
 ```@docs
-ns_surfacelet_forward
-ns_surfacelet_forward!
-ns_surfacelet_inverse
-ns_surfacelet_inverse!
-ns_surfacelet_nsubbands
-make_ns_surfacelet_workspace
-NSSurfaceletParams
-NSSurfaceletCoefficients
+NSSurfacelet
 NSSurfaceletWorkspace
+NSSurfaceletCoefficients
+make_workspace(::NSSurfacelet, ::AbstractArray)
+subband_layout(::NSSurfacelet, ::Dims)
+similar_coefficients(::NSSurfacelet, ::AbstractArray)
+analyze(::Any, ::NSSurfacelet, ::AbstractArray)
+synthesize!(::Any, ::AbstractArray, ::NSSurfacelet)
 ```
 
 ## Decimated surfacelet transform
 
 ```@docs
-surfacelet_forward
-surfacelet_forward!
-surfacelet_inverse
-surfacelet_inverse!
-surfacelet_nsubbands
-surfacelet_redundancy
-make_surfacelet
-SurfaceletParams
+Surfacelet
+SurfaceletWorkspace
 SurfaceletCoefficients
-SurfaceletPlan
+make_workspace(::Surfacelet, ::AbstractArray)
+subband_layout(::Surfacelet, ::Dims)
+similar_coefficients(::Surfacelet, ::AbstractArray)
+surfacelet_redundancy
 checkerboard_orders
 ```
 

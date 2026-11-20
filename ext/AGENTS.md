@@ -13,15 +13,15 @@
   response **once**, not once per scale. JLArrays is excluded from the GPU tests: it
   has no FFT implementation, so `plan_rfft` falls back to a scalar-indexing
   generic. CUDA and OpenCL are verified.
-  `surfacelet` follows the same rule: the pyramid is a
+  `Surfacelet` follows the same rule: the pyramid is a
   broadcast against its separable profile plus a crop through index views, the
   hourglass stage a broadcast against precomputed masks, and each IRC stage a
-  broadcast between the two halves of a reshaped view. Its plan is built on the
-  host — the checkerboard filter slices are evaluated point by point in closed
-  form — and then adapted, which moves the tables and rebuilds the buffers and FFT
-  plans on the device; a device volume with no plan is an `ArgumentError`, not
-  an implicit rebuild. Adapt the plan to the *bare* array type
-  (`Adapt.adapt(CuArray, pl)`), never `typeof(x)`: it holds real, complex and
+  broadcast between the two halves of a reshaped view. Its workspace is built on
+  the host — the checkerboard filter slices are evaluated point by point in
+  closed form — and then adapted, which moves the tables and rebuilds the
+  buffers and FFT plans on the device (`make_workspace(t, x)` does both for a
+  device array, through `adapt_workspace`). Adapt the workspace to the *bare*
+  array type (`Adapt.adapt(CuArray, ws)`), never `typeof(x)`: it holds real, complex and
   integer tables, and an element-typed destination cannot fit them all. It is
   verified on CUDA.
 - **Deliberately not CUDA-graph-captured.** The forward/inverse are streaming —

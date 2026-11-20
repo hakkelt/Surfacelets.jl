@@ -42,29 +42,29 @@ for n in (32, 64)
 
     # ── NSSurfacelet ────────────────────────────────────────────────────────────────
     SUITE["NSSurfacelet"][sz_str] = BenchmarkGroup()
-    params = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 12)
-    ws = make_ns_surfacelet_workspace(params, (n, n, n), Float32; flags = FFTW.ESTIMATE)
-    SUITE["NSSurfacelet"][sz_str]["forward"] = @benchmarkable ns_surfacelet_forward($vol, $params)
+    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 12)
+    ws = make_workspace(t, Float32, (n, n, n); flags = FFTW.ESTIMATE)
+    SUITE["NSSurfacelet"][sz_str]["forward"] = @benchmarkable analyze($t, $vol)
     SUITE["NSSurfacelet"][sz_str]["forward (workspace)"] =
-        @benchmarkable ns_surfacelet_forward($vol, $params; workspace = $ws)
+        @benchmarkable analyze($t, $vol; workspace = $ws)
     # The streaming form is the one that matters at working sizes: it holds one
     # subband instead of `1 + Σ 3·2^L` volumes.
     SUITE["NSSurfacelet"][sz_str]["forward (streaming)"] =
-        @benchmarkable ns_surfacelet_forward((j, k, b) -> nothing, $vol, $params; workspace = $ws)
-    coeffs = ns_surfacelet_forward(vol, params; workspace = ws)
+        @benchmarkable analyze((i, b) -> nothing, $t, $vol; workspace = $ws)
+    coeffs = analyze(t, vol; workspace = ws)
     out = similar(vol)
-    SUITE["NSSurfacelet"][sz_str]["inverse"] = @benchmarkable ns_surfacelet_inverse($coeffs, $params)
+    SUITE["NSSurfacelet"][sz_str]["inverse"] = @benchmarkable synthesize($t, $coeffs)
     SUITE["NSSurfacelet"][sz_str]["inverse!"] =
-        @benchmarkable ns_surfacelet_inverse!($out, $coeffs, $params; workspace = $ws)
+        @benchmarkable synthesize!($out, $t, $coeffs; workspace = $ws)
 
     # ── Decimated surfacelet (IRC) ───────────────────────────────────────────────
     # pyr_mode = 2 so the power-of-two sizes divide; mode 1.5 needs a factor 3.
     SUITE["Surfacelet"][sz_str] = BenchmarkGroup()
-    sparams = SurfaceletParams(J = 2, L_array = [1, 2], pyr_mode = 2, precision = Float32)
-    splan = make_surfacelet(sparams, (n, n, n), Float32)
-    SUITE["Surfacelet"][sz_str]["forward"] = @benchmarkable surfacelet_forward($vol, $sparams; plan = $splan)
-    scoeffs = surfacelet_forward(vol, sparams; plan = splan)
-    SUITE["Surfacelet"][sz_str]["inverse"] = @benchmarkable surfacelet_inverse($scoeffs, $sparams; plan = $splan)
+    st = Surfacelet(J = 2, L_array = [1, 2], pyr_mode = 2)
+    sws = make_workspace(st, Float32, (n, n, n))
+    SUITE["Surfacelet"][sz_str]["forward"] = @benchmarkable analyze($st, $vol; workspace = $sws)
+    scoeffs = analyze(st, vol; workspace = sws)
+    SUITE["Surfacelet"][sz_str]["inverse"] = @benchmarkable synthesize($st, $scoeffs; workspace = $sws)
 
     # ── NDFB ───────────────────────────────────────────────────────────────
     SUITE["NDFB"][sz_str] = BenchmarkGroup()

@@ -11,11 +11,16 @@ module SurfaceletsAdaptExt
 # only weak dependency, with no GPUArrays or KernelAbstractions in sight.
 
 using Surfacelets: Surfacelets, HourglassFB, NDFB, NSSurfaceletCoefficients,
-    NSSurfaceletWorkspace, SurfaceletCoefficients, SurfaceletPlan
+    NSSurfaceletWorkspace, SurfaceletCoefficients, SurfaceletWorkspace
 using Adapt: Adapt
 using FFTW: FFTW, plan_rfft, plan_irfft
 
 include("SurfaceletsAdaptExt/ns_surfacelet_adapt.jl")
 include("SurfaceletsAdaptExt/surfacelet_adapt.jl")
+
+# `make_workspace(t, x)` for a device array `x`: the host workspace `ws` moved
+# to `x`'s bare array type (`CuArray`, not an element-typed one, so the tables
+# keep their precision).
+adapt_workspace(to, ws) = Adapt.adapt(to, ws)
 
 end # module SurfaceletsAdaptExt

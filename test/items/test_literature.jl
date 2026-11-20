@@ -51,8 +51,8 @@ end
     dims = (192, 192, 192)
     for (mode, r) in ((1, 6.4), (1.5, 4.0), (2, 3.4))
         for L in ([1, 1, 1], [3, 3, 3])
-            p = SurfaceletParams(J = 3, L_array = L, pyr_mode = mode, bo = 4)
-            @test isapprox(surfacelet_redundancy(make_surfacelet(p, dims)), r; atol = 0.1)
+            t = Surfacelet(J = 3, L_array = L, pyr_mode = mode, bo = 4)
+            @test isapprox(surfacelet_redundancy(t, dims), r; atol = 0.1)
         end
     end
 end
@@ -62,14 +62,6 @@ end
     @test make_hourglass(8, 10, 12; order = 4).dims == (8, 10, 12)
     @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, order = 4)) == 6
 
-    p = SurfaceletParams(J = 1, L_array = [1])
-    @test surfacelet_redundancy(make_surfacelet(p, 24, 24, 24)) ==
-        surfacelet_redundancy(make_surfacelet(p, (24, 24, 24)))
-
-    np = NSSurfaceletParams(J = 1, L_array = [1], order = 4)
-    ws = make_ns_surfacelet_workspace(np, 16, 16, 16)
-    x = randn(16, 16, 16)
-    @test ns_surfacelet_inverse(ns_surfacelet_forward(x, np; workspace = ws), np; workspace = ws) ≈ x
 end
 
 @testitem "Bernstein helpers — default precision and the 1-D kernel" tags = [:filters] begin

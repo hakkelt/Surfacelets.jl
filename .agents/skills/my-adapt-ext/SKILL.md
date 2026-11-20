@@ -25,11 +25,13 @@ KernelAbstractions.
 ```julia
 using CUDA, Adapt, Surfacelets
 
-ws = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, dims, Float32))
-c  = ns_surfacelet_forward(CuArray(vol), params; workspace = ws)
+x  = CuArray(vol)
+ws = make_workspace(NSSurfacelet(J = 2, L_array = [1, 2]), x)   # host build + Adapt.adapt(CuArray, ⋅)
+c  = analyze(transform(ws), x; workspace = ws)
 
-pl = Adapt.adapt(CuArray, make_surfacelet(sp, dims, Float32))
-sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
+st  = Surfacelet(J = 2, L_array = [1, 2])
+sws = Adapt.adapt(CuArray, make_workspace(st, Float32, dims))
+sc  = analyze(st, x; workspace = sws)
 ```
 
 ## Invariants — never break these
@@ -44,12 +46,12 @@ sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
   about the origin, so a subband is copied as the (at most eight) blocks
   `1:reach+1` / `n-reach+1:n` per axis — never a per-voxel index map, which
   would be a gather.
-- **Plans are built on the host and adapted, never rebuilt per call.** Planning
-  scans every mask to find its support, which is pure integer bookkeeping.
-  `surfacelet_forward` on a device volume with no plan is an `ArgumentError`, by
-  design — not an implicit rebuild.
-- **Adapt a `SurfaceletPlan` to the *bare* array type** (`Adapt.adapt(CuArray, pl)`),
-  never `Adapt.adapt(typeof(x), pl)`: the plan holds both real and complex
+- **Workspaces are built on the host and adapted.** `make_workspace(t, x)` for a
+  device array `x` (and a call on one without a workspace) builds the host
+  workspace and calls the extension's `adapt_workspace`, through
+  `Base.get_extension`; pass a workspace to avoid rebuilding it per call.
+- **Adapt a `SurfaceletWorkspace` to the *bare* array type** (`Adapt.adapt(CuArray, ws)`),
+  never `Adapt.adapt(typeof(x), ws)`: the workspace holds both real and complex
   buffers, and an element-typed destination (`CuArray{Float32,3}`) cannot fit
   both. The workspace and the filter banks take either form.
 - **A workspace adapt moves the shared hourglass response once.** `_adapt_ndfb`
@@ -57,7 +59,7 @@ sc = surfacelet_forward(CuArray(vol), sp; plan = pl)
   bank*, so a `J`-scale workspace holds one copy of the (large) mapping response,
   not `J`. Do not replace it with a plain per-scale `Adapt.adapt`.
 - **Scratch buffers are allocated, not adapted.** In
-  `Adapt.adapt_structure(to, ::SurfaceletPlan)`, `spec` and `work` are created
+  `Adapt.adapt_structure(to, ::SurfaceletWorkspace)`, `spec` and `work` are created
   with `similar(mask, Complex{eltype(mask)}, dims)` — nothing needs copying, and
   adapting a complex array through an element-typed destination would try to
   narrow `Complex{T}` to `T`.
@@ -83,12 +85,12 @@ using CUDA, Adapt, Surfacelets
 
 dims = (16, 16, 16)
 x    = randn(Float32, dims...)
-p    = NSSurfaceletParams(J = 1, L_array = [1], order = 6)
-ref  = ns_surfacelet_forward(x, p)
+t    = NSSurfacelet(J = 1, L_array = [1], order = 6)
+ref  = analyze(t, x)
 
-ws  = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(p, dims, Float32))
-c   = ns_surfacelet_forward(CuArray(x), p; workspace = ws)
-@assert maximum(abs, Array(c.coarse) .- ref.coarse) < 1.0f-4
+ws  = make_workspace(t, CuArray(x))
+c   = analyze(t, CuArray(x); workspace = ws)
+@assert maximum(abs, Array(subband(t, c, 1)) .- subband(t, ref, 1)) < 1.0f-4
 ```
 
 If this errors with a scalar-indexing message, the cause is a broadcast that was

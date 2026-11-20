@@ -165,17 +165,17 @@ end
     L212 = [-1 2 1; 1 -1 2; 2 1 -1]
     for (tag, n, mode, Ls, bo) in (("m15", 48, 1.5, [L111, L111], 8), ("m2", 64, 2, [L212, L111], 4))
         x = testvol(n)
-        p = SurfaceletParams(J = 2, L_array = Ls, pyr_mode = mode, bo = bo)
-        c = surfacelet_forward(x, p)
+        t = Surfacelet(J = 2, L_array = Ls, pyr_mode = mode, bo = bo)
+        c = analyze(t, x)
         for j in 1:2
             i = 0
-            for K in 1:3, w in 1:(1 << sum(p.levels[j][K]))
+            for K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
                 i += 1
                 @test fp_match(c.subbands[j][i], golden["surf_$(tag)_$(j)_$(K)_$(w)"])
             end
         end
         @test fp_match(c.coarse, golden["surf_$(tag)_low"])
-        r = surfacelet_inverse(c, p)
+        r = synthesize(t, c)
         @test fp_match(r, golden["surfrec_$(tag)"])
         @test maximum(abs, r .- x) < 1.0e-13
     end
@@ -185,7 +185,7 @@ end
     # SurfBox at 96³, pyramid mode 1.5: 24 directions per scale over three
     # scales, and 96 over two — about 4 either way, flat in the direction count.
     for (nm, Lm, J) in (("d24", [-1 1 2; 2 -1 1; 1 2 -1], 3), ("d96", [-1 2 3; 3 -1 2; 2 3 -1], 2))
-        pl = make_surfacelet(SurfaceletParams(J = J, L_array = fill(Lm, J), bo = 4), (96, 96, 96))
-        @test surfacelet_redundancy(pl) ≈ golden["red_96_$(nm)"][1]
+        t = Surfacelet(J = J, L_array = fill(Lm, J), bo = 4)
+        @test surfacelet_redundancy(t, (96, 96, 96)) ≈ golden["red_96_$(nm)"][1]
     end
 end

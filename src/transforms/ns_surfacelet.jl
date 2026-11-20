@@ -40,25 +40,25 @@
 # (the nonsubsampled pyramid + directional bank structure).
 
 """
-    NSSurfaceletWorkspace{Td, T}
+    NSSurfaceletWorkspace
 
-Masks, buffers and FFT plans for the nonsubsampled surfacelet transform at one
-volume size and element type.  Build with [`make_ns_surfacelet_workspace`](@ref)
-and pass it to `ns_surfacelet_forward` / `ns_surfacelet_inverse` to keep repeated
-calls out of the allocator — the pattern iterative reconstruction algorithms
-need.
+Masks, buffers and FFT plans of an [`NSSurfacelet`](@ref) transform for one
+volume size, element type and array type.  Build with
+[`make_workspace`](@ref make_workspace(::NSSurfacelet, ::AbstractArray)) and pass
+it as `workspace` (or in place of the transform) to keep repeated calls out of
+the allocator — the pattern iterative reconstruction algorithms need.
 
 A workspace holds scratch buffers, so it must not serve two transforms at the
-same time; it threads internally instead, one task per Julia thread.
-`Adapt.adapt(ArrayType, ws)` moves it to a device, rebuilding its buffers and FFT
-plans there.
+same time; it threads internally instead.  `Adapt.adapt(ArrayType, ws)` moves
+it to a device, rebuilding its buffers and FFT plans there.
 """
 struct NSSurfaceletWorkspace{
         Td <: Number, T <: AbstractFloat, A3 <: AbstractArray{T, 3}, C3 <: AbstractArray{Complex{T}, 3},
         D <: AbstractArray{Td, 3}, PM, BK, LM, E, P, Q,
-    }
+    } <: AbstractTransformWorkspace
     dims::NTuple{3, Int}
-    params::NSSurfaceletParams{T}
+    transform::NSSurfacelet
+    tasks::Union{Int, Nothing}                  # as requested; `nothing` is one per thread
     # Tables (moved by `Adapt`).
     m1::A3                                      # hourglass f₀(M₁), rfft grid
     m2::A3                                      # hourglass f₀(M₂), (1, n₂, n₃)
@@ -67,7 +67,7 @@ struct NSSurfaceletWorkspace{
     pl::Vector{NTuple{3, A3}}                   # ℓⱼ per axis, j = 1:J
     band::Vector{A3}                            # [scale] Bⱼ on the rfft grid; empty when not cached
     # The cascade as a mask bank on the tables: one group per (scale, hourglass).
-    items::Vector{MaskItem{2}}                  # index (scale, subband)
+    items::Vector{MaskItem{1}}                  # index (subband,), in `subband_layout` order
     pyramid::PM                                 # MaskBank of `_NSBandMask`s, one per group
     banks::BK                                   # [group] MaskBank of `_WedgeMask`s
     lowpass::LM                                 # `_NSLowpassMask`
@@ -86,75 +86,91 @@ struct NSSurfaceletWorkspace{
     pinv::Q                                     # irfft (destroys its input)
 end
 
-Base.eltype(::NSSurfaceletWorkspace{Td}) where {Td} = Td
+MultiscaleTransformsBase.transform(ws::NSSurfaceletWorkspace) = ws.transform
+Base.eltype(::Type{<:NSSurfaceletWorkspace{Td}}) where {Td} = Td
+Base.size(ws::NSSurfaceletWorkspace) = ws.dims
 
 _nchannels(::NSSurfaceletWorkspace{<:Real}) = 1
 _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 
-"""
-    make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::NTuple{3,Int},
-                         ::Type{Td}=Float64; flags=FFTW.MEASURE, cache_bandpass=true)
-
-Allocate the workspace for `params` at volume size `dims` and element type `Td`
-(real or complex).
-
-Memory: the hourglass response is one `real(Td)` array on the rfft grid,
-`(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·nthreads + 1` such arrays for
-real data and `4·nthreads + 5` for complex data, one set per Julia thread.  With
-`cache_bandpass = true` the pyramid's bandpass of each scale is precomputed as
-well, `J` more such arrays; it saves recomputing the non-separable factor
-`√(1 - ℓⱼ²)` once per hourglass and channel in both directions.  Pass `false`
-to broadcast it from per-axis vectors instead, so that everything per-scale is
-vectors and planes.
-
-Throws an `ArgumentError` when `dims` is too small for `params.J` scales: a
-scale whose bandpass would be identically zero.
-"""
-function make_ns_surfacelet_workspace(
-        params::NSSurfaceletParams, dims::NTuple{3, Int}, ::Type{Td} = Float64;
-        flags::Integer = FFTW.MEASURE, cache_bandpass::Bool = true
-    ) where {Td <: Number}
+function MultiscaleTransformsBase.make_workspace(
+        t::NSSurfacelet, ::Type{T0}, dims::Dims{3};
+        flags::Integer = FFTW.MEASURE, cache_bandpass::Bool = true, tasks::Union{Integer, Nothing} = nothing
+    ) where {T0 <: Number}
+    tasks === nothing || tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1, got $(tasks)"))
+    all(>=(1), dims) || throw(ArgumentError("volume size must be positive, got $(dims)"))
+    Td = data_eltype(T0)
     T = filter_eltype(Td)
-    p = _convert_params(T, params)
-    m1, m2 = _hourglass_tables(T, dims, p.order, p.poly)
-    wedges = [_ns_wedge_factors(dims, l, p) for l in p.L_array]
+    m1, m2 = _hourglass_tables(T, dims, t.order, t.poly)
+    wedges = [_ns_wedge_factors(T, dims, l, t) for l in t.L_array]
     bins(d) = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d])
-    resp = ntuple(d -> _rc_responses(T, p.J, dims[d], bins(d)), 3)
+    resp = ntuple(d -> _rc_responses(T, t.J, dims[d], bins(d)), 3)
     # Bⱼ ≡ 0 exactly when ℓⱼ = 1 wherever Π_{i<j} ℓᵢ > 0, on every axis: the
     # factors are separable, ≤ 1, and 1 at DC.
-    for j in 1:p.J
+    for j in 1:t.J
         all(d -> all(((a, l),) -> a == 0 || l == 1, zip(resp[d][1][j], resp[d][2][j])), 1:3) &&
-            throw(ArgumentError("size $(dims) is too small for $(p.J) scales: scale $(j) would be empty"))
+            throw(ArgumentError("size $(dims) is too small for $(t.J) scales: scale $(j) would be empty"))
     end
     orient(v, d) = reshape(v, ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
-    pa, pl = per_level(1, p.J + 1), per_level(2, p.J)
-    band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:p.J] : typeof(m1)[]
+    pa, pl = per_level(1, t.J + 1), per_level(2, t.J)
+    band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:t.J] : typeof(m1)[]
     proto = Array{T, 3}(undef, 0, 0, 0)
-    return _ns_workspace(Td, dims, p, m1, m2, wedges, pa, pl, band, proto, flags)
+    ntasks = tasks === nothing ? nothing : Int(tasks)
+    return _ns_workspace(Td, dims, t, m1, m2, wedges, pa, pl, band, proto, flags, ntasks)
 end
 
-make_ns_surfacelet_workspace(params::NSSurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
-    make_ns_surfacelet_workspace(params, dims; kwargs...)
+MultiscaleTransformsBase.make_workspace(::NSSurfacelet, ::Type{<:Number}, dims::Dims) =
+    throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
 
-# The wedge factors of one scale with depth `L`: the analysis masks' planes,
-# square-rooted when the bank is tight (the weights are ≥ 0 up to rounding).
-function _ns_wedge_factors(dims::NTuple{3, Int}, L::Int, p::NSSurfaceletParams{T}) where {T}
+"""
+    make_workspace(t::NSSurfacelet, T::Type{<:Number}, dims;
+                   flags = FFTW.MEASURE, cache_bandpass = true, tasks = nothing) -> NSSurfaceletWorkspace
+    make_workspace(t::NSSurfacelet, x::AbstractArray; kwargs...) -> NSSurfaceletWorkspace
+
+The workspace of `t` for volumes of size `dims` (three axes) and element type
+`T` (real or complex; an integer type means `float(T)`).  The second form takes
+size, element type and array type from `x`: for a device array the workspace is
+built on the host and moved with `Adapt`.
+
+`flags` are the FFTW planner flags.  `tasks` bounds the tasks a threaded call
+uses, and with them the buffers: one set per task, one task per Julia thread
+when `nothing`.
+
+Memory: the hourglass response is one `real(T)` array on the rfft grid,
+`(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·tasks + 1` such arrays for
+real data and `4·tasks + 5` for complex data.  With `cache_bandpass = true` the
+pyramid's bandpass of each scale is precomputed as well, `J` more such arrays;
+it saves recomputing the non-separable factor `√(1 - ℓⱼ²)` once per hourglass
+and channel in both directions.  Pass `false` to broadcast it from per-axis
+vectors instead, so that everything per-scale is vectors and planes.
+
+Throws an `ArgumentError` when `dims` is too small for `t.J` scales: a scale
+whose bandpass would be identically zero.
+"""
+MultiscaleTransformsBase.make_workspace(t::NSSurfacelet, x::AbstractArray; kwargs...) =
+    _workspace_like(x, make_workspace(t, eltype(x), size(x); kwargs...))
+
+# The wedge factors of one scale with depth `L`, in precision `T`: the analysis
+# masks' planes, square-rooted when the bank is tight (the weights are ≥ 0 up to
+# rounding).
+function _ns_wedge_factors(::Type{T}, dims::NTuple{3, Int}, L::Int, t::NSSurfacelet) where {T}
     lev = _wedge_levels(L)
     return ntuple(3) do i
-        map(_wedge_masks(dims, i, lev, p.poly, p.transition)) do planes
-            p.tight ? [_tight_sqrt.(w) for w in planes] : planes
+        map(_wedge_masks(dims, i, lev, t.poly, T(t.transition))) do planes
+            t.tight ? [_tight_sqrt.(w) for w in planes] : planes
         end
     end
 end
 
 # The workspace around its tables, with buffers like `proto` (host or device).
-# Host plans use `flags` on one FFTW thread; the engine runs one task per thread
-# on the host and one on a device.
+# Host plans use `flags` on one FFTW thread; the engine runs at most `tasks`
+# tasks (one per thread when `nothing`) on the host and one on a device.
 function _ns_workspace(
-        ::Type{Td}, dims::NTuple{3, Int}, p::NSSurfaceletParams{T}, m1, m2, wedges, pa, pl, band,
-        proto::AbstractArray, flags
-    ) where {Td, T}
+        ::Type{Td}, dims::NTuple{3, Int}, t::NSSurfacelet, m1, m2, wedges, pa, pl, band,
+        proto::AbstractArray, flags, tasks::Union{Int, Nothing}
+    ) where {Td}
+    T = eltype(m1)
     nch = Td <: Complex ? 2 : 1
     half = (dims[1] ÷ 2 + 1, dims[2], dims[3])
     spectrum() = fill!(similar(proto, Complex{T}, half), zero(Complex{T}))
@@ -164,11 +180,11 @@ function _ns_workspace(
     pfwd, pinv = _fftw_single_threaded(proto) do
         (_fft_plan(plan_rfft, rbuf[1], flags), _fft_plan(plan_irfft, X1, flags, dims[1]))
     end
-    items, pyramid, banks = _ns_mask_bank(p, m1, m2, wedges, pa, pl, band)
+    items, pyramid, banks = _ns_mask_bank(t, m1, m2, wedges, pa, pl, band)
     lowpass = _NSLowpassMask(pa[end])
     engine = MaskBankEngine(
         banks, items, X1, pfwd, pinv;
-        pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex
+        pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex, tasks
     )
     X = pushfirst!([spectrum() for _ in 2:nch], X1)
     Y = pushfirst!([spectrum() for _ in 2:nch], engine.groups[1])
@@ -178,53 +194,44 @@ function _ns_workspace(
         Td, T, typeof(m1), typeof(X1), typeof(coarse), typeof(pyramid), typeof(banks), typeof(lowpass),
         typeof(engine), typeof(pfwd), typeof(pinv),
     }(
-        dims, p, m1, m2, wedges, pa, pl, band, items, pyramid, banks, lowpass, engine,
+        dims, t, tasks, m1, m2, wedges, pa, pl, band, items, pyramid, banks, lowpass, engine,
         X, Y, engine.buffers[1], rbuf, cbuf, coarse, pfwd, pinv
     )
 end
 
 # The items, group masks and wedge banks of the cascade.  Group g = 3(j - 1) + i
 # is hourglass i of scale j; its items are the wedges (p, q), channel
-# (p - 1)·nb + q of its bank, at subband index `_ns_index(i, p, q, na, nb)`.
-function _ns_mask_bank(p::NSSurfaceletParams, m1, m2, wedges, pa, pl, band)
+# (p - 1)·nb + q of its bank, at subband `1 + (subbands of scales < j) +
+# _ns_index(i, p, q, na, nb)` of `subband_layout` (the lowpass is subband 1).
+function _ns_mask_bank(t::NSSurfacelet, m1, m2, wedges, pa, pl, band)
     cached(j) = isempty(band) ? similar(m1, 0, 0, 0) : band[j]
     groups = [(j, i) for j in eachindex(wedges) for i in 1:3]
-    ana = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, true, p.tight) for (j, i) in groups]
-    syn = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, p.tight, p.tight) for (j, i) in groups]
-    items = MaskItem{2}[]
+    ana = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, true, t.tight) for (j, i) in groups]
+    syn = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, t.tight, t.tight) for (j, i) in groups]
+    offsets = cumsum([1; [_ns_nbands(t, j) for j in 1:(t.J - 1)]])
+    items = MaskItem{1}[]
     banks = map(enumerate(groups)) do (g, (j, i))
         wa, wb = wedges[j][i]
         na, nb = length(wa), length(wb)
         for a in 1:na, b in 1:nb
-            push!(items, MaskItem((j, _ns_index(i, a, b, na, nb)), g, g, (a - 1) * nb + b))
+            push!(items, MaskItem((offsets[j] + _ns_index(i, a, b, na, nb),), g, g, (a - 1) * nb + b))
         end
         MaskBank(
             [_WedgeMask(wa[a], wb[b], false) for a in 1:na for b in 1:nb],
-            [_WedgeMask(wa[a], wb[b], !p.tight) for a in 1:na for b in 1:nb]
+            [_WedgeMask(wa[a], wb[b], !t.tight) for a in 1:na for b in 1:nb]
         )
     end
     return items, MaskBank(ana, syn), banks
 end
 
-# Build a workspace on demand when the caller did not supply one, or check that
-# the one supplied was built for `params`: its masks are baked in, so a mismatch
-# would silently transform with the wrong ones.
-function _ns_surfacelet_workspace(
-        ws::Union{NSSurfaceletWorkspace, Nothing}, params::NSSurfaceletParams,
-        dims::NTuple{3, Int}, ::Type{Td}
-    ) where {Td}
-    ws === nothing && return make_ns_surfacelet_workspace(params, dims, Td)
-    ws.dims == dims || throw(DimensionMismatch("workspace size does not match the volume"))
-    eltype(ws) === Td || throw(ArgumentError("workspace element type does not match the volume"))
-    q = ws.params
-    q.J == params.J || throw(ArgumentError("workspace was built for a different number of scales"))
-    q.L_array == params.L_array ||
-        throw(ArgumentError("workspace was built for L_array = $(q.L_array), not $(params.L_array)"))
-    q.tight == params.tight ||
-        throw(ArgumentError("workspace was built with tight = $(q.tight), not $(params.tight)"))
-    (q.order, q.poly) == (params.order, params.poly) && q.transition == eltype(q)(params.transition) ||
-        throw(ArgumentError("workspace was built for a different hourglass or wedge design"))
-    return ws
+# The workspace of a call: `workspace` after checking that it was built for `t`
+# and data like `x` (its masks are baked in, so a mismatch would silently
+# transform with the wrong ones), or a new one.
+function _ns_workspace_for(workspace, t::NSSurfacelet, x::AbstractArray)
+    workspace === nothing && return make_workspace(t, x)
+    workspace isa NSSurfaceletWorkspace ||
+        throw(ArgumentError("an NSSurfacelet needs an NSSurfaceletWorkspace, got $(typeof(workspace))"))
+    return check_workspace(workspace, t, data_eltype(x), size(x))
 end
 
 # Threading the subband FFTs pays for real and complex data alike, so only
@@ -396,7 +403,7 @@ end
 # The (hourglass, p, q) ↦ subband index map (`ndfb_subband_index`'s order).
 _ns_index(i::Int, p::Int, q::Int, na::Int, nb::Int) = ((i - 1) * na + (p - 1)) * nb + q
 
-MultiscaleFilterBanks.mask_bank_subband(c::NSSurfaceletCoefficients, (j, k)::NTuple{2, Int}) = c.subbands[j][k]
+MultiscaleFilterBanks.mask_bank_subband(c::NSSurfaceletCoefficients, (i,)::Tuple{Int}) = _ns_subband(c, i)
 
 # Real channel `c` of a volume: the volume itself, or its real or imaginary part.
 @inline _channel(x::Number, c::Int) = c == 1 ? real(x) : imag(x)
@@ -428,8 +435,9 @@ _ns_engine_arrays(ws::NSSurfaceletWorkspace, coeffs) =
 _ns_engine_input(ws::NSSurfaceletWorkspace, x::AbstractArray) =
     _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : (ws.rbuf[1] .= x)
 
-# Streaming forward cascade, on one task: calls `f(j, k, band)` for each subband
-# in the workspace's item order.  Returns `ws.coarse`.
+# Streaming forward cascade, on one task: calls `f(i, band)` for each
+# directional subband in the workspace's item order (increasing `i`), then for
+# the lowpass (`i = 1`).
 function _ns_forward!(f::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
     nch = _nchannels(ws)
     Z = ws.work
@@ -449,19 +457,23 @@ function _ns_forward!(f::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) wh
             mask_apply!(Z, H, ws.Y[c])
             mul!(ws.rbuf[c], ws.pinv, Z)
         end
-        j, k = it.index
-        f(j, k, nch == 1 ? ws.rbuf[1] : _ns_combine!(ws.cbuf[1], ws.rbuf))
+        f(it.index[1], _ns_band(ws))
     end
     for c in 1:nch
         mask_apply!(Z, ws.lowpass, ws.X[c])
         mul!(ws.rbuf[c], ws.pinv, Z)
     end
-    return _ns_combine!(ws.coarse, ws.rbuf)
+    f(1, _ns_band(ws))
+    return nothing
 end
 
-# Streaming inverse cascade, on one task; `source(j, k)` returns subband k of
-# scale j, once.
-function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
+# The subband in the workspace's real buffers, as one array.
+_ns_band(ws::NSSurfaceletWorkspace) = _nchannels(ws) == 1 ? ws.rbuf[1] : _ns_combine!(ws.cbuf[1], ws.rbuf)
+
+# Streaming inverse cascade, on one task; `source(i)` returns subband `i`
+# (`subband_layout` order), once: the directional subbands in increasing `i`,
+# then the lowpass.
+function _ns_inverse!(source::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
     nch = _nchannels(ws)
     Z = ws.work
     for c in 1:nch
@@ -476,10 +488,8 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
             end
             g = it.pyramid
         end
-        j, k = it.index
-        band = source(j, k)
-        # The subbands arrive one at a time, so each size is checked here.
-        size(band) == ws.dims || throw(DimensionMismatch("subband ($(j), $(k)) has the wrong size"))
+        i = it.index[1]
+        band = _ns_checked_band(source(i), ws, i)
         H = ws.banks[it.bank].syn[it.channel]
         for c in 1:nch
             _ns_spectrum!(Z, band, ws.rbuf[c], ws, c)
@@ -488,6 +498,9 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
     end
     for c in 1:nch
         g == 0 || mask_accumulate!(ws.X[c], ws.pyramid.syn[g], ws.Y[c])
+    end
+    coarse = _ns_checked_band(source(1), ws, 1)
+    for c in 1:nch
         _ns_spectrum!(Z, coarse, ws.rbuf[c], ws, c)
         mask_accumulate!(ws.X[c], ws.lowpass, Z)
         mul!(ws.rbuf[c], ws.pinv, ws.X[c])
@@ -495,107 +508,143 @@ function _ns_inverse!(source::F, volume::AbstractArray, coarse::AbstractArray, w
     return _ns_combine!(volume, ws.rbuf)
 end
 
+# The subbands arrive one at a time, so each size is checked as it comes.
+function _ns_checked_band(band::AbstractArray, ws::NSSurfaceletWorkspace, i::Int)
+    size(band) == ws.dims || throw(DimensionMismatch("subband $(i) has size $(size(band)), expected $(ws.dims)"))
+    return band
+end
+
 # dst = the volume of channels `r` (one real channel, or real and imaginary).
 _ns_combine!(dst::AbstractArray, r::AbstractVector) = length(r) == 1 ? (dst .= r[1]) : (dst .= complex.(r[1], r[2]))
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Interface ─────────────────────────────────────────────────────────────────
+
+MultiscaleTransformsBase.supports_streaming(::NSSurfacelet) = true
+
+_check_volume(dims::Dims{3}) = dims
+_check_volume(dims::Dims) = throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
 
 """
-    ns_surfacelet_forward(volume, params::NSSurfaceletParams; workspace=nothing, threaded = nothing) -> NSSurfaceletCoefficients
+    subband_layout(t::NSSurfacelet, dims) -> Vector{@NamedTuple{scale::Int, direction::Int}}
 
-Nonsubsampled surfacelet transform.  Invariant under circular shifts of the
-input; every subband keeps the size of `volume`.  The subbands are computed in
-parallel unless `threaded = false`.
-
-See [`ns_surfacelet_forward(f, volume, params)`](@ref) for the streaming form, which
-does not hold all subbands at once.
-
-# Examples
-```jldoctest
-julia> using Surfacelets, Random
-
-julia> x = randn(Xoshiro(5), 16, 16, 16);
-
-julia> p = NSSurfaceletParams(J = 2, L_array = [1, 2], order = 6);
-
-julia> c = ns_surfacelet_forward(x, p);
-
-julia> length(c.subbands[1]), length(c.subbands[2])
-(6, 12)
-
-julia> maximum(abs, ns_surfacelet_inverse(c, p) .- x) < 1e-10
-true
-```
-
-# References
-1. Y. M. Lu and M. N. Do, "Multidimensional Directional Filter Banks and
-   Surfacelets", *IEEE Transactions on Image Processing*, 16(4):918–931, 2007.
-   [doi:10.1109/TIP.2007.891785](https://doi.org/10.1109/TIP.2007.891785)
-2. Y. M. Lu and M. N. Do, "A Mapping-Based Design for Nonsubsampled Hourglass
-   Filter Banks in Arbitrary Dimensions", *IEEE Transactions on Signal Processing*,
-   56(4):1466–1478, 2008.
-   [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
-3. A. L. da Cunha, J. Zhou, and M. N. Do, "The Nonsubsampled Contourlet Transform:
-   Theory, Design, and Applications", *IEEE Transactions on Image Processing*,
-   15(10):3089–3101, 2006.
-   [doi:10.1109/TIP.2006.877507](https://doi.org/10.1109/TIP.2006.877507)
+What each subband of `t` is: the lowpass first, as `(scale = J + 1, direction = 0)`,
+then the directional subbands of scale 1 (the finest), 2, …, `J`, each as
+`(scale = j, direction = k)` with `k` in `1:3·2^L_array[j]`: hourglass 1, 2, 3 in
+turn, and inside each the wedges in `Surfacelets.ndfb_subband_index` order.
+Every subband has size `dims`.
 """
-function ns_surfacelet_forward(
-        volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    # Pin the container element type to the *data* type the transform works in,
-    # not `eltype(volume)`: an integer volume is filtered as `float(eltype)`, and
-    # storing those coefficients back into an integer array would throw.
-    Td = data_eltype(volume)
-    subbands = [[similar(volume, Td) for _ in 1:ns_surfacelet_nsubbands(params, j)] for j in 1:params.J]
-    coeffs = NSSurfaceletCoefficients(similar(volume, Td), subbands)
-    return ns_surfacelet_forward!(coeffs, volume, params; workspace = workspace, threaded = threaded)
+function MultiscaleTransformsBase.subband_layout(t::NSSurfacelet, dims::Dims)
+    _check_volume(dims)
+    layout = [(scale = t.J + 1, direction = 0)]
+    for j in 1:t.J, k in 1:_ns_nbands(t, j)
+        push!(layout, (scale = j, direction = k))
+    end
+    return layout
 end
 
-"""
-    ns_surfacelet_forward!(coeffs, volume, params::NSSurfaceletParams; workspace=nothing, threaded = nothing) -> coeffs
+MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.J))
 
-In-place [`ns_surfacelet_forward`](@ref): writes into the preallocated `coeffs`
-(a result of an earlier call), allocating nothing but the threads' tasks when a
-`workspace` is given.
 """
-function ns_surfacelet_forward!(
-        coeffs::NSSurfaceletCoefficients, volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    Td = data_eltype(volume)
-    ws = _ns_surfacelet_workspace(workspace, params, size(volume), Td)
-    length(coeffs.subbands) == params.J ||
-        throw(ArgumentError("coefficients were produced for a different number of scales"))
-    for j in 1:params.J
-        length(coeffs.subbands[j]) == ns_surfacelet_nsubbands(params, j) ||
-            throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
-        all(b -> size(b) == ws.dims, coeffs.subbands[j]) ||
-            throw(DimensionMismatch("scale $(j) has a subband of the wrong size"))
+    similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> NSSurfaceletCoefficients
+
+Uninitialised coefficients of `t` for volumes like `x`, in the working element
+type `float(eltype(x))`.
+"""
+function MultiscaleTransformsBase.similar_coefficients(t::NSSurfacelet, x::AbstractArray)
+    _check_volume(size(x))
+    Td = data_eltype(x)
+    return NSSurfaceletCoefficients(similar(x, Td), [[similar(x, Td) for _ in 1:_ns_nbands(t, j)] for j in 1:t.J])
+end
+
+MultiscaleTransformsBase.subband(::NSSurfacelet, c::NSSurfaceletCoefficients, i::Integer) = _ns_subband(c, Int(i))
+
+function _ns_subband(c::NSSurfaceletCoefficients, i::Int)
+    i == 1 && return c.coarse
+    k = i - 1
+    for s in c.subbands
+        k <= length(s) && return s[k]
+        k -= length(s)
     end
-    size(coeffs.coarse) == ws.dims || throw(DimensionMismatch("coarse subband has the wrong size"))
-    if _ns_engine_arrays(ws, coeffs)
-        mask_bank_forward!(coeffs, _ns_engine_input(ws, volume), ws.engine, _ns_threaded(threaded))
+    throw(BoundsError(c, i))
+end
+
+function _ns_check_coefficients(c::NSSurfaceletCoefficients, t::NSSurfacelet, dims::NTuple{3, Int})
+    length(c.subbands) == t.J ||
+        throw(DimensionMismatch("coefficients with $(length(c.subbands)) scales, the transform has $(t.J)"))
+    for j in 1:t.J
+        length(c.subbands[j]) == _ns_nbands(t, j) ||
+            throw(DimensionMismatch("scale $(j) has $(length(c.subbands[j])) subbands, expected $(_ns_nbands(t, j))"))
+        all(b -> size(b) == dims, c.subbands[j]) ||
+            throw(DimensionMismatch("scale $(j) has a subband of the wrong size, expected $(dims)"))
+    end
+    size(c.coarse) == dims || throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(dims)"))
+    return c
+end
+
+function MultiscaleTransformsBase.analyze!(
+        c::NSSurfaceletCoefficients, t::NSSurfacelet, x::AbstractArray;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    ws = _ns_workspace_for(workspace, t, x)
+    _ns_check_coefficients(c, t, ws.dims)
+    return _ns_analyze!(c, x, ws, _ns_threaded(threaded))
+end
+
+function _ns_analyze!(c, x::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool)
+    if _ns_engine_arrays(ws, c)
+        mask_bank_forward!(c, _ns_engine_input(ws, x), ws.engine, threaded)
     else
-        copyto!(coeffs.coarse, _ns_forward!((j, k, b) -> copyto!(coeffs.subbands[j][k], b), volume, ws))
+        _ns_forward!((i, b) -> copyto!(_ns_subband(c, i), b), x, ws)
     end
-    return coeffs
+    return c
 end
 
-"""
-    ns_surfacelet_forward(f, volume, params::NSSurfaceletParams; workspace=nothing)
+function MultiscaleTransformsBase.synthesize!(
+        x::AbstractArray, t::NSSurfacelet, c::NSSurfaceletCoefficients;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    ws = _ns_workspace_for(workspace, t, x)
+    _ns_check_coefficients(c, t, ws.dims)
+    return _ns_synthesize!(x, c, ws, _ns_threaded(threaded))
+end
 
-Streaming nonsubsampled surfacelet transform: calls `f(j, k, subband)` for directional subband `k` of
-scale `j`, reusing one buffer between calls.  `subband` is only valid until `f`
-returns — copy or reduce it there.  The calls come one at a time, from the
-calling task, so `f` need not be thread-safe.
+function _ns_synthesize!(x::AbstractArray, c, ws::NSSurfaceletWorkspace, threaded::Bool)
+    _ns_engine_arrays(ws, c) || return _ns_inverse!(i -> _ns_subband(c, i), x, ws)
+    # A real output the inverse plan cannot write is filled through `ws.rbuf[1]`.
+    y = _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : ws.rbuf[1]
+    mask_bank_inverse!(y, c, ws.engine, threaded)
+    y === x || copyto!(x, y)
+    return x
+end
+
+function MultiscaleTransformsBase.synthesize(
+        t::NSSurfacelet, c::NSSurfaceletCoefficients;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    x = workspace === nothing ? similar(c.coarse) : similar(c.coarse, eltype(workspace), size(workspace))
+    return synthesize!(x, t, c; workspace, threaded)
+end
+
+MultiscaleTransformsBase.analyze!(c::NSSurfaceletCoefficients, ws::NSSurfaceletWorkspace, x::AbstractArray; threaded::Union{Bool, Nothing} = nothing) =
+    analyze!(c, transform(ws), x; workspace = ws, threaded)
+MultiscaleTransformsBase.synthesize(ws::NSSurfaceletWorkspace, c::NSSurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
+    synthesize(transform(ws), c; workspace = ws, threaded)
+MultiscaleTransformsBase.synthesize!(x::AbstractArray, ws::NSSurfaceletWorkspace, c::NSSurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
+    synthesize!(x, transform(ws), c; workspace = ws, threaded)
+
+"""
+    analyze(f, t::NSSurfacelet, x; workspace = nothing, threaded = nothing) -> nothing
+
+Streaming analysis: calls `f(i, band)` once for every subband `i` of
+[`subband_layout(t, size(x))`](@ref subband_layout), the directional subbands
+in increasing `i` and then the lowpass (`i = 1`), reusing one buffer between
+calls.  `band` is valid only until `f` returns — copy or reduce it there.  The
+calls come one at a time from the calling task, so `f` need not be
+thread-safe; `threaded` is accepted and ignored.
 
 This is the form to use at working sizes.  At 256³ `Float32` with `J = 3` and
 `L = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming holds a few
 volumes plus the plans.
-
-Returns the coarse residual (a workspace buffer, valid until its next use).
 
 # Examples
 ```jldoctest
@@ -603,96 +652,33 @@ julia> using Surfacelets, Random
 
 julia> x = randn(Xoshiro(6), 16, 16, 16);
 
-julia> p = NSSurfaceletParams(J = 2, L_array = [1, 1], order = 6);
+julia> t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6);
 
-julia> total = 0.0;
+julia> energy = zeros(nsubbands(t, size(x)));
 
-julia> coarse = ns_surfacelet_forward(x, p) do j, k, band
-           global total += sum(abs2, band)
-       end;
+julia> analyze(t, x) do i, band
+           energy[i] = sum(abs2, band)
+       end
 
-julia> total > 0 && size(coarse) == size(x)
+julia> sum(energy) ≈ sum(abs2, x)
 true
 ```
 """
-function ns_surfacelet_forward(
-        f, volume::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
-    )
-    Td = data_eltype(volume)
-    ws = _ns_surfacelet_workspace(workspace, params, size(volume), Td)
-    return _ns_forward!(f, volume, ws)
+function MultiscaleTransformsBase.analyze(f, t::NSSurfacelet, x::AbstractArray; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+    ws = _ns_workspace_for(workspace, t, x)
+    return _ns_forward!(f, x, ws)
 end
 
 """
-    ns_surfacelet_inverse(coeffs::NSSurfaceletCoefficients, params::NSSurfaceletParams; workspace=nothing, threaded = nothing) -> volume
+    synthesize!(f, x, t::NSSurfacelet; workspace = nothing, threaded = nothing) -> x
 
-Invert [`ns_surfacelet_forward`](@ref).
+Streaming synthesis into `x`: `f(i)` must return subband `i` of
+[`subband_layout(t, size(x))`](@ref subband_layout).  It is called once per
+subband, from the calling task, the directional subbands in increasing `i` and
+then the lowpass, so a caller holding the subbands on disk or regenerating
+them never materialises the full set.  `threaded` is accepted and ignored.
 """
-function ns_surfacelet_inverse(
-        coeffs::NSSurfaceletCoefficients, params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    out = similar(coeffs.coarse)
-    return ns_surfacelet_inverse!(out, coeffs, params; workspace = workspace, threaded = threaded)
-end
-
-"""
-    ns_surfacelet_inverse!(volume, coeffs, params::NSSurfaceletParams; workspace=nothing, threaded = nothing) -> volume
-
-In-place [`ns_surfacelet_inverse`](@ref).
-"""
-function ns_surfacelet_inverse!(
-        volume::AbstractArray{<:Number, 3}, coeffs::NSSurfaceletCoefficients,
-        params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    ws = _ns_inverse_workspace(workspace, params, volume, coeffs.coarse)
-    length(coeffs.subbands) == params.J ||
-        throw(ArgumentError("coefficients were produced for a different number of scales"))
-    for j in 1:params.J
-        length(coeffs.subbands[j]) == ns_surfacelet_nsubbands(params, j) ||
-            throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
-        all(b -> size(b) == ws.dims, coeffs.subbands[j]) ||
-            throw(DimensionMismatch("scale $(j) has a subband of the wrong size"))
-    end
-    _ns_engine_arrays(ws, coeffs) || return _ns_inverse!((j, k) -> coeffs.subbands[j][k], volume, coeffs.coarse, ws)
-    # A real output the inverse plan cannot write is filled through `ws.rbuf[1]`.
-    y = _nchannels(ws) == 2 || volume isa eltype(ws.rbuf) ? volume : ws.rbuf[1]
-    mask_bank_inverse!(y, coeffs, ws.engine, _ns_threaded(threaded))
-    y === volume || copyto!(volume, y)
-    return volume
-end
-
-"""
-    ns_surfacelet_inverse(f, coarse, params::NSSurfaceletParams; workspace=nothing) -> volume
-
-Streaming inverse: `f(j, k)` must return directional subband `k` of scale `j`.
-The subbands are consumed one at a time, from the calling task, so a caller
-holding them on disk or regenerating them never materialises the full set.
-"""
-function ns_surfacelet_inverse(
-        f, coarse::AbstractArray{<:Number, 3}, params::NSSurfaceletParams;
-        workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
-    )
-    out = similar(coarse)
-    return ns_surfacelet_inverse!(f, out, coarse, params; workspace = workspace)
-end
-
-"""
-    ns_surfacelet_inverse!(f, volume, coarse, params::NSSurfaceletParams; workspace=nothing) -> volume
-
-In-place streaming inverse; see [`ns_surfacelet_inverse(f, coarse, params)`](@ref).
-"""
-function ns_surfacelet_inverse!(
-        f, volume::AbstractArray{<:Number, 3}, coarse::AbstractArray{<:Number, 3},
-        params::NSSurfaceletParams; workspace::Union{NSSurfaceletWorkspace, Nothing} = nothing
-    )
-    ws = _ns_inverse_workspace(workspace, params, volume, coarse)
-    return _ns_inverse!(f, volume, coarse, ws)
-end
-
-function _ns_inverse_workspace(workspace, params::NSSurfaceletParams, volume::AbstractArray, coarse::AbstractArray)
-    size(coarse) == size(volume) || throw(DimensionMismatch("coarse size does not match the output"))
-    return _ns_surfacelet_workspace(workspace, params, size(volume), data_eltype(volume))
+function MultiscaleTransformsBase.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+    ws = _ns_workspace_for(workspace, t, x)
+    return _ns_inverse!(f, x, ws)
 end

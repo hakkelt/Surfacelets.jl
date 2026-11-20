@@ -7,13 +7,19 @@ is `my-adapt-ext` (anything under `ext/`).
 
 ## API notes
 
-The nonsubsampled transform is also **streaming**: `ns_surfacelet_forward(vol, params; workspace = ws) do j, k, band ... end`
+The transforms are `NSSurfacelet` and `Surfacelet`, transform objects of
+MultiscaleTransformsBase (`analyze` / `synthesize`, `make_workspace`,
+`subband_layout` / `subband`; re-exported).  Each transform type runs its
+conformance tests (`MultiscaleTransformsBase.Testing.test_transform`).
+
+The nonsubsampled transform is also **streaming**: `analyze(t, vol; workspace = ws) do i, band ... end`
 hands each subband to a callback (`band` is valid only until it returns), because the
 materialised coefficient set does not fit at working sizes (3.1 GB at 256³ `Float32`).
 
-`surfacelet_forward` / `surfacelet_inverse` (and `!` variants) are the decimated
-counterpart: same frequency partition, each subband at its own reduced
-resolution, built through `make_surfacelet`.
+`Surfacelet` is the decimated counterpart: same frequency partition, each
+subband at its own reduced resolution.  It accepts complex volumes as two real
+channels (a real coefficient scratch in the workspace), exactly real-linear like
+the nonsubsampled transform.
 
 The nonsubsampled transform's pyramid is the raised-cosine one
 (the nonsubsampled variant in `pyramid/fourier_pyramid.jl`), so with `tight = true` the transform is a
@@ -22,10 +28,10 @@ Parseval frame and its inverse is its adjoint; keep it that way. An à trous
 a denoising comparison: the former is not tight and lost at equal redundancy,
 the latter was weakest on short-axis (x, y, t) data.
 
-The decimated transform runs on a `SurfaceletPlan` and one driver
-(`transforms/surfacelet.jl`). The plan owns its spectra, IRC scratch, block
-buffers and FFT plans, so the `!` paths allocate only array headers — and a plan
-must not serve two tasks at once.
+The decimated transform runs on a `SurfaceletWorkspace` and one driver
+(`transforms/surfacelet.jl`). The workspace owns its spectra, IRC scratch, block
+buffers and FFT plans, so the `!` paths allocate only array headers — and a
+workspace must not serve two tasks at once.
 A wedge block becomes its real subband through one `brfft` over `(K, others…)`,
 the hourglass axis halved; the `1/N` rides on the hourglass mask.
 
@@ -153,7 +159,7 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
 - **The directional bank is a Parseval frame by default.** The three hourglass
   weights are a partition of unity for any `order`/`poly`, and so are the wedge
   weights, so the products are too. `tight = true` (the default on
-  `make_hourglass` / `make_ndfb` / `NSSurfaceletParams`) takes the masks to be `√W`,
+  `make_hourglass` / `make_ndfb` / `NSSurfacelet`) takes the masks to be `√W`,
   which makes `Σ V² = 1` identically — the pointwise normalisation SurfBox uses,
   scaled to bound 1 instead of `N`. Analysis then preserves energy, which is what
   thresholding and iterative reconstruction want. The price is synthesis: the masks

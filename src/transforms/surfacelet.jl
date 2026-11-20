@@ -22,26 +22,28 @@
 # with it.
 #
 # The checkerboard filters are biorthogonal, so the transform is a frame with
-# perfect reconstruction but not a tight one: `surfacelet_inverse` is the
-# inverse, not the adjoint, of `surfacelet_forward`.
+# perfect reconstruction but not a tight one: `synthesize` is the inverse,
+# not the adjoint, of `analyze`.
 
 """
-    SurfaceletPlan
+    SurfaceletWorkspace
 
-Everything the decimated surfacelet transform needs
-for one volume size: the pyramid profiles, hourglass masks and checkerboard
+Everything a [`Surfacelet`](@ref) transform needs for one volume size, element
+type and array type: the pyramid profiles, hourglass masks and checkerboard
 filter slices, and the spectra, block buffers and FFT plans the transform runs
-in, so that the `!` transforms allocate nothing.  Build with
-[`make_surfacelet`](@ref) and pass as `plan =`.
+in, so that `analyze!` and `synthesize!` allocate nothing.  Build with
+[`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray)) and pass it
+as `workspace` (or in place of the transform).
 
-A plan holds its own scratch buffers, so one plan must not run two transforms at
-the same time; give each task its own.  A transform with the plan spreads its
-work over at most the `tasks` it was built for.  `Adapt.adapt(ArrayType, plan)` moves it
-to a device, rebuilding the buffers and FFT plans there.
+A workspace holds its own scratch buffers, so one workspace must not run two
+transforms at the same time; give each task its own.  A transform with the
+workspace spreads its work over at most the `tasks` it was built for.
+`Adapt.adapt(ArrayType, ws)` moves it to a device, rebuilding the buffers and
+FFT plans there.
 """
-struct SurfaceletPlan{T, P <: SurfaceletParams{T}, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G}
+struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G, R} <: AbstractTransformWorkspace
     dims::NTuple{3, Int}
-    params::P
+    transform::Surfacelet
     tasks::Int              # as requested; a device runs one
     pyramid::Vector{L}
     scales::Vector{C}
@@ -51,18 +53,21 @@ struct SurfaceletPlan{T, P <: SurfaceletParams{T}, L <: FourierPyramidLevel{T}, 
     pbwd::G
     cfwd::F                 # … and on the coarse spectrum; each a pair (threaded, serial)
     cbwd::G
+    rcoef::R                # complex data: real coefficients of one channel; `nothing` otherwise
 end
 
-Base.eltype(::SurfaceletPlan{T}) where {T} = T
+MultiscaleTransformsBase.transform(ws::SurfaceletWorkspace) = ws.transform
+Base.eltype(::Type{<:SurfaceletWorkspace{Td}}) where {Td} = Td
+Base.size(ws::SurfaceletWorkspace) = ws.dims
 
-# The plan around `pyramid` and `scales`, with buffers like `proto` (host or
+# The workspace around `pyramid` and `scales`, with buffers like `proto` (host or
 # device) for `tasks` tasks.  Host FFT plans use `flags`; the block plans run on
 # one FFTW thread each, the full-volume plans on `tasks` or, in a serial call, one.
-function _surfacelet_plan(
-        dims::NTuple{3, Int}, params, pyramid::AbstractVector, scales::AbstractVector{<:_SurfScale{T}},
+function _surfacelet_workspace(
+        ::Type{Td}, dims::NTuple{3, Int}, t::Surfacelet, pyramid::AbstractVector, scales::AbstractVector{<:_SurfScale{T}},
         proto::AbstractArray, flags, tasks::Integer
-    ) where {T}
-    tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1"))
+    ) where {Td, T}
+    tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1, got $(tasks)"))
     work = _fftw_single_threaded(proto) do
         build(sc) = _scale_work(sc, proto, flags, tasks)
         first_work = build(first(scales))
@@ -75,7 +80,10 @@ function _surfacelet_plan(
     spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in sizes]
     pfwd, pbwd = _inplace_plans(spectra[1], flags, tasks)
     cfwd, cbwd = _inplace_plans(spectra[end], flags, tasks)
-    return SurfaceletPlan(dims, params, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd)
+    rcoef = Td <: Complex ? _surfacelet_coefficients(T, dims, spectra, scales) : nothing
+    return SurfaceletWorkspace{
+        Td, T, eltype(pyramid), eltype(scales), eltype(work), eltype(spectra), typeof(pfwd), typeof(pbwd), typeof(rcoef),
+    }(dims, t, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd, rcoef)
 end
 
 # In-place FFT and unnormalised inverse of `A`, each as a pair: on `tasks` FFTW
@@ -100,130 +108,95 @@ _pick_plan(p::Tuple, threaded::Bool) = threaded ? p[1] : p[2]
 # themselves are split among tasks (`_foreach_block`).
 _fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? with_fftw_threads(f, 1) : f()
 
-"""
-    make_surfacelet(params::SurfaceletParams, dims, T=Float64;
-                    tasks=Threads.nthreads(), flags=FFTW.MEASURE) -> SurfaceletPlan
-
-Precompute everything the transform needs for a `dims` volume.  The pyramid
-must be able to resample every scale exactly, so with `pyr_mode = 1.5` each
-dimension must be divisible by `3 · 2^J`, with `2` by `2^(J+1)`, and with `1` by
-`2^J`; each scale must also allow its directional levels (axis length divisible
-by `2^level`).  `tasks` bounds the threads a transform with the plan uses: the
-blocks of a scale are split among that many tasks, each with a buffer of one
-block, and the full-volume FFTs run on that many FFTW threads (on one in a
-serial call).  `flags` are the
-FFTW planner flags; pass `FFTW.ESTIMATE` for a plan used once.
-"""
-function make_surfacelet(
-        params::SurfaceletParams, dims::NTuple{3, Int}, ::Type{T} = Float64;
+function MultiscaleTransformsBase.make_workspace(
+        t::Surfacelet, ::Type{T0}, dims::Dims{3};
         tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE
-    ) where {T <: AbstractFloat}
-    p = _convert_sparams(T, params)
-    pyramid = _fourier_pyramid(T, dims, p.J, p.pyr_mode)
-    scales = map(1:p.J) do j
+    ) where {T0 <: Number}
+    Td = data_eltype(T0)
+    T = filter_eltype(Td)
+    pyramid = _fourier_pyramid(T, dims, t.J, t.pyr_mode)
+    scales = map(1:t.J) do j
         n = pyramid[j].n
-        masks = _ritf_masks(T, n; msize = p.msize, beta = p.beta, lambda = p.lambda)
-        _SurfScale(n, p.levels[j], masks, _surf_stages(T, n, p.levels[j], p.bo))
+        masks = _ritf_masks(T, n; msize = t.msize, beta = T(t.beta), lambda = t.lambda)
+        _SurfScale(n, t.levels[j], masks, _surf_stages(T, n, t.levels[j], t.bo))
     end
-    return _surfacelet_plan(dims, p, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
+    return _surfacelet_workspace(Td, dims, t, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
 
-make_surfacelet(params::SurfaceletParams, dims::Vararg{Int, 3}; kwargs...) =
-    make_surfacelet(params, dims; kwargs...)
+MultiscaleTransformsBase.make_workspace(::Surfacelet, ::Type{<:Number}, dims::Dims) =
+    throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
 
 """
-    surfacelet_redundancy(plan::SurfaceletPlan) -> Float64
+    make_workspace(t::Surfacelet, T::Type{<:Number}, dims;
+                   tasks = Threads.nthreads(), flags = FFTW.MEASURE) -> SurfaceletWorkspace
+    make_workspace(t::Surfacelet, x::AbstractArray; kwargs...) -> SurfaceletWorkspace
 
-Total stored coefficients divided by the number of input voxels.
+Precompute everything `t` needs for volumes of size `dims` (three axes) and
+element type `T` (real or complex; an integer type means `float(T)`).  The
+second form takes size, element type and array type from `x`: for a device
+array the tables are built on the host (the filter slices are evaluated point by
+point in closed form) and the workspace is moved with `Adapt`.
+
+The pyramid must be able to resample every scale exactly, so with
+`pyr_mode = 1.5` each dimension must be divisible by `3 · 2^J`, with `2` by
+`2^(J+1)`, and with `1` by `2^J`; each scale must also allow its directional
+levels (axis length divisible by `2^level`).  `tasks` bounds the threads a
+transform with the workspace uses: the blocks of a scale are split among that
+many tasks, each with a buffer of one block, and the full-volume FFTs run on
+that many FFTW threads (on one in a serial call).  `flags` are the FFTW planner
+flags; pass `FFTW.ESTIMATE` for a workspace used once.
 """
-function surfacelet_redundancy(plan::SurfaceletPlan)
-    total = length(plan.spectra[end]) + _directional_count(plan.scales)
-    return total / prod(plan.dims)
+MultiscaleTransformsBase.make_workspace(t::Surfacelet, x::AbstractArray; kwargs...) =
+    _workspace_like(x, make_workspace(t, eltype(x), size(x); kwargs...))
+
+"""
+    surfacelet_redundancy(t::Surfacelet, dims) -> Float64
+
+Coefficients of `t` on a volume of size `dims`, divided by the number of voxels.
+"""
+function surfacelet_redundancy(t::Surfacelet, dims::Dims)
+    return sum(prod, _surf_layout_sizes(t, _check_volume(dims))) / prod(dims)
 end
 
-"""
-    surfacelet_forward(volume, params::SurfaceletParams; plan=nothing, threaded=nothing) -> SurfaceletCoefficients
-
-Decimated 3-D surfacelet transform.  Each subband is returned at its own reduced
-resolution; the total coefficient count is about 4 times the input with the
-default `pyr_mode = 1.5`, whatever the number of directions — see
-[`surfacelet_redundancy`](@ref).
-
-Not shift-invariant: that is what the decimation costs, and it is why
-[`ns_surfacelet_forward`](@ref) still exists.
-
-On the host the transform runs over Julia's threads, up to the plan's `tasks`;
-`threaded = false` keeps it on one, except for the full-volume FFTs, whose
-FFTW threads are fixed when the plan is made.
-
-# Examples
-```jldoctest
-julia> using Surfacelets, Random
-
-julia> x = randn(Xoshiro(7), 48, 48, 48);
-
-julia> p = SurfaceletParams(J = 2, L_array = [1, 2]);
-
-julia> c = surfacelet_forward(x, p);
-
-julia> maximum(abs, surfacelet_inverse(c, p) .- x) < 1e-10
-true
-```
-
-# References
-1. Y. M. Lu and M. N. Do, "Multidimensional Directional Filter Banks and
-   Surfacelets", *IEEE Transactions on Image Processing*, 16(4):918–931, 2007.
-   [doi:10.1109/TIP.2007.891785](https://doi.org/10.1109/TIP.2007.891785)
-"""
-function surfacelet_forward(
-        volume::AbstractArray{<:Real, 3}, params::SurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    pl = _resolve_plan(plan, params, volume)
-    return _surfacelet_forward!(_surfacelet_coefficients(pl), volume, pl, _s_threaded(threaded))
-end
-
-"""
-    surfacelet_forward!(coeffs, volume, params::SurfaceletParams; plan=nothing, threaded=nothing) -> coeffs
-
-[`surfacelet_forward`](@ref) into the preallocated `coeffs` (a result of an
-earlier call with the same plan); with `plan` given it allocates no arrays.
-"""
-function surfacelet_forward!(
-        coeffs::SurfaceletCoefficients, volume::AbstractArray{<:Real, 3}, params::SurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    pl = _resolve_plan(plan, params, volume)
-    return _surfacelet_forward!(_check_coefficients(coeffs, pl), volume, pl, _s_threaded(threaded))
+# The sizes of the subbands of `t` on a `dims` volume, in `subband_layout`
+# order: the lowpass, then for every scale the wedges of hourglass 1, 2, 3, each
+# in SurfBox's block order.  Throws as `make_workspace` does for sizes the
+# pyramid or the directional levels cannot divide.
+function _surf_layout_sizes(t::Surfacelet, dims::NTuple{3, Int})
+    pyramid = _fourier_pyramid(Float64, dims, t.J, t.pyr_mode)
+    sizes = [last(pyramid).nlow]
+    for j in 1:t.J
+        n = pyramid[j].n
+        for K in 1:3
+            counts = ntuple(d -> 1 << t.levels[j][K][d], 3)
+            all(d -> n[d] % counts[d] == 0, 1:3) ||
+                throw(ArgumentError("scale $(j) of size $(n) cannot be split into $(counts) wedge blocks in hourglass $(K)"))
+            sb = ntuple(d -> d == K ? n[K] : n[d] ÷ counts[d], 3)
+            append!(sizes, Iterators.repeated(sb, prod(counts)))
+        end
+    end
+    return sizes
 end
 
 """
-    surfacelet_inverse(coeffs::SurfaceletCoefficients, params::SurfaceletParams; plan=nothing, threaded=nothing) -> volume
+    subband_layout(t::Surfacelet, dims) -> Vector{@NamedTuple{scale::Int, hourglass::Int, wedge::Int}}
 
-Invert [`surfacelet_forward`](@ref) exactly (to rounding error).
+What each subband of `t` is: the lowpass first, as
+`(scale = J + 1, hourglass = 0, wedge = 0)`, then for scale 1 (the finest), 2, …,
+`J` the wedges of hourglass 1, 2, 3 in turn, `(scale = j, hourglass = K, wedge = w)`
+with the wedges in SurfBox's order.  Hourglass `K` keeps axis `K` at the scale's
+full length and decimates the other two.
 """
-function surfacelet_inverse(
-        coeffs::SurfaceletCoefficients, params::SurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    pl = _resolve_plan(plan, params, coeffs)
-    return _surfacelet_inverse!(similar(coeffs.coarse, pl.dims), coeffs, pl, _s_threaded(threaded))
+function MultiscaleTransformsBase.subband_layout(t::Surfacelet, dims::Dims)
+    _surf_layout_sizes(t, _check_volume(dims))
+    layout = [(scale = t.J + 1, hourglass = 0, wedge = 0)]
+    for j in 1:t.J, K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
+        push!(layout, (scale = j, hourglass = K, wedge = w))
+    end
+    return layout
 end
 
-"""
-    surfacelet_inverse!(volume, coeffs, params::SurfaceletParams; plan=nothing, threaded=nothing) -> volume
-
-[`surfacelet_inverse`](@ref) into the preallocated `volume`; with `plan` given it
-allocates no arrays.
-"""
-function surfacelet_inverse!(
-        volume::AbstractArray{<:Real, 3}, coeffs::SurfaceletCoefficients, params::SurfaceletParams;
-        plan::Union{SurfaceletPlan, Nothing} = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    pl = _resolve_plan(plan, params, coeffs)
-    size(volume) == pl.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(pl.dims)"))
-    return _surfacelet_inverse!(volume, coeffs, pl, _s_threaded(threaded))
-end
+MultiscaleTransformsBase.nsubbands(t::Surfacelet, dims::Dims) = (_surf_layout_sizes(t, _check_volume(dims)); 1 + sum(j -> _nsubbands(t.levels[j]), 1:t.J))
 
 # ── Driver ────────────────────────────────────────────────────────────────────
 
@@ -238,83 +211,193 @@ function _with_threading(f::F, threaded::Bool) where {F}
     return NestedThreading.with_restricted_threads(() -> f(false); only = (:strided,))
 end
 
-_surfacelet_forward!(c::SurfaceletCoefficients, volume::AbstractArray{<:Real, 3}, pl::SurfaceletPlan, threaded::Bool) =
-    _with_threading(t -> _surfacelet_forward_body!(c, volume, pl, t), threaded)
-
-_surfacelet_inverse!(volume::AbstractArray{<:Real, 3}, c::SurfaceletCoefficients, pl::SurfaceletPlan, threaded::Bool) =
-    _with_threading(t -> _surfacelet_inverse_body!(volume, c, pl, t), threaded)
-
-function _surfacelet_forward_body!(c::SurfaceletCoefficients, volume::AbstractArray{<:Real, 3}, pl::SurfaceletPlan, threaded::Bool)
-    size(volume) == pl.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(pl.dims)"))
-    X = pl.spectra[1]
-    X .= volume
-    _pick_plan(pl.pfwd, threaded) * X
-    for j in eachindex(pl.scales)
-        band = _pyramid_split!(pl.spectra[j + 1], pl.spectra[j], pl.pyramid[j])
-        _surf_scale_forward!(c.subbands[j], band, pl.scales[j], pl.work[j], threaded)
+# The workspace of a call: `workspace` after checking it, or a new one, planned
+# with `FFTW.ESTIMATE` (used once) for data like `proto`.
+function _s_workspace_for(workspace, t::Surfacelet, ::Type{Td}, dims::Dims, proto::AbstractArray) where {Td}
+    if workspace === nothing
+        return _workspace_like(proto, make_workspace(t, Td, dims; flags = FFTW.ESTIMATE))
     end
-    C = pl.spectra[end]
-    _pick_plan(pl.cbwd, threaded) * C
-    c.coarse .= real.(C) .* inv(real(eltype(C))(length(C)))
+    workspace isa SurfaceletWorkspace ||
+        throw(ArgumentError("a Surfacelet needs a SurfaceletWorkspace, got $(typeof(workspace))"))
+    return check_workspace(workspace, t, Td, dims)
+end
+
+# Real data: one pass.  Complex data: its real and imaginary parts through the
+# identical real pass, one after the other, which keeps the transform exactly
+# real-linear.
+function _surfacelet_forward!(c, volume::AbstractArray, ws::SurfaceletWorkspace{<:Real}, threaded::Bool)
+    size(volume) == ws.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(ws.dims)"))
+    return _with_threading(t -> _surfacelet_forward_body!(c, volume, ws, t), threaded)
+end
+
+function _surfacelet_forward!(c, volume::AbstractArray, ws::SurfaceletWorkspace{<:Complex}, threaded::Bool)
+    size(volume) == ws.dims || throw(DimensionMismatch("volume has size $(size(volume)), expected $(ws.dims)"))
+    r = ws.rcoef
+    _with_threading(t -> _surfacelet_forward_body!(r, Broadcast.broadcasted(real, volume), ws, t), threaded)
+    _s_set_channel!(c, r, 1)
+    _with_threading(t -> _surfacelet_forward_body!(r, Broadcast.broadcasted(imag, volume), ws, t), threaded)
+    _s_set_channel!(c, r, 2)
     return c
 end
 
-function _surfacelet_inverse_body!(volume::AbstractArray{<:Real, 3}, c::SurfaceletCoefficients, pl::SurfaceletPlan, threaded::Bool)
-    _check_coefficients(c, pl)
-    C = pl.spectra[end]
-    C .= c.coarse
-    _pick_plan(pl.cfwd, threaded) * C
-    for j in reverse(eachindex(pl.scales))
-        _surf_scale_inverse!(pl.spectra[j], c.subbands[j], pl.scales[j], pl.work[j], threaded)
-        _pyramid_merge!(pl.spectra[j], pl.spectra[j + 1], pl.pyramid[j])
-    end
-    X = pl.spectra[1]
-    _pick_plan(pl.pbwd, threaded) * X
-    volume .= real.(X) .* inv(real(eltype(X))(length(X)))
+function _surfacelet_inverse!(volume::AbstractArray, c, ws::SurfaceletWorkspace{<:Real}, threaded::Bool)
+    _with_threading(t -> _surfacelet_inverse_body!((X, s) -> (volume .= real.(X) .* s), c, ws, t), threaded)
     return volume
 end
 
-# Coefficients for `pl`, allocated like its buffers.
-function _surfacelet_coefficients(pl::SurfaceletPlan{T}) where {T}
-    proto = pl.spectra[1]
-    coarse = similar(proto, T, size(pl.spectra[end]))
-    subbands = map(pl.scales) do sc
-        [similar(proto, T, _surf_subband_size(sc, K)) for K in 1:3 for _ in 1:prod(first(_surf_blocks(sc, K)))]
-    end
-    return SurfaceletCoefficients(pl.dims, coarse, subbands)
+function _surfacelet_inverse!(volume::AbstractArray, c, ws::SurfaceletWorkspace{<:Complex}, threaded::Bool)
+    r = ws.rcoef
+    _s_get_channel!(r, c, 1)
+    _with_threading(t -> _surfacelet_inverse_body!((X, s) -> (volume .= complex.(real.(X) .* s, zero(s))), r, ws, t), threaded)
+    _s_get_channel!(r, c, 2)
+    _with_threading(t -> _surfacelet_inverse_body!((X, s) -> (volume .= complex.(real.(volume), real.(X) .* s)), r, ws, t), threaded)
+    return volume
 end
 
-function _check_coefficients(c::SurfaceletCoefficients, pl::SurfaceletPlan)
-    c.dims == pl.dims || throw(DimensionMismatch("coefficients are for $(c.dims), the plan for $(pl.dims)"))
-    length(c.subbands) == length(pl.scales) ||
-        throw(ArgumentError("coefficients were produced for a different number of scales"))
-    expect = size(pl.spectra[end])
-    size(c.coarse) == expect ||
-        throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(expect)"))
-    for (j, sc) in enumerate(pl.scales)
-        length(c.subbands[j]) == _nsubbands(sc.levels) ||
-            throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
+# `src` is the volume, or a lazy broadcast of one of its real channels.
+function _surfacelet_forward_body!(c, src, ws::SurfaceletWorkspace, threaded::Bool)
+    X = ws.spectra[1]
+    X .= src
+    _pick_plan(ws.pfwd, threaded) * X
+    for j in eachindex(ws.scales)
+        band = _pyramid_split!(ws.spectra[j + 1], ws.spectra[j], ws.pyramid[j])
+        _surf_scale_forward!(_surf_bands(c, j), band, ws.scales[j], ws.work[j], threaded)
+    end
+    C = ws.spectra[end]
+    _pick_plan(ws.cbwd, threaded) * C
+    _surf_coarse(c) .= real.(C) .* inv(real(eltype(C))(length(C)))
+    return c
+end
+
+# `store!(X, s)` writes the volume from its unnormalised spectrum `X` and `s = 1/N`.
+function _surfacelet_inverse_body!(store!::S, c, ws::SurfaceletWorkspace, threaded::Bool) where {S}
+    C = ws.spectra[end]
+    C .= _surf_coarse(c)
+    _pick_plan(ws.cfwd, threaded) * C
+    for j in reverse(eachindex(ws.scales))
+        _surf_scale_inverse!(ws.spectra[j], _surf_bands(c, j), ws.scales[j], ws.work[j], threaded)
+        _pyramid_merge!(ws.spectra[j], ws.spectra[j + 1], ws.pyramid[j])
+    end
+    X = ws.spectra[1]
+    _pick_plan(ws.pbwd, threaded) * X
+    store!(X, inv(real(eltype(X))(length(X))))
+    return nothing
+end
+
+# Coefficients of element type `T` for a workspace with `spectra` and `scales`,
+# allocated like its buffers.
+function _surfacelet_coefficients(::Type{T}, dims::NTuple{3, Int}, spectra::AbstractVector, scales::AbstractVector) where {T}
+    proto = spectra[1]
+    coarse = similar(proto, T, size(spectra[end]))
+    subbands = map(scales) do sc
+        [similar(proto, T, _surf_subband_size(sc, K)) for K in 1:3 for _ in 1:prod(first(_surf_blocks(sc, K)))]
+    end
+    return SurfaceletCoefficients(dims, coarse, subbands)
+end
+
+_surf_bands(c::SurfaceletCoefficients, j::Int) = c.subbands[j]
+_surf_coarse(c::SurfaceletCoefficients) = c.coarse
+
+# Channel `ch` (1 real, 2 imaginary) of the complex coefficients `c` = the real
+# coefficients `r`; channel 1 also clears channel 2.
+function _s_set_channel!(c::SurfaceletCoefficients, r::SurfaceletCoefficients, ch::Int)
+    set!(a, b) = ch == 1 ? (a .= complex.(b, zero(eltype(b)))) : (a .= complex.(real.(a), b))
+    set!(c.coarse, r.coarse)
+    for (sc, sr) in zip(c.subbands, r.subbands), (a, b) in zip(sc, sr)
+        set!(a, b)
     end
     return c
 end
 
-# The plan to use: `plan` after checking it, or a fresh host plan when none was
-# given.
-function _resolve_plan(plan, params::SurfaceletParams, x::Union{AbstractArray, SurfaceletCoefficients})
-    dims = x isa SurfaceletCoefficients ? x.dims : size(x)
-    proto = x isa SurfaceletCoefficients ? x.coarse : x
-    if plan === nothing
-        # The plan is built on the host; a device plan is an `Adapt.adapt` of
-        # it, built once rather than implicitly on every call.
-        proto isa Array || throw(
-            ArgumentError(
-                "a device array needs an explicit plan: `plan = Adapt.adapt(ArrayType, make_surfacelet(params, dims, T))`"
-            )
-        )
-        T = filter_eltype(data_eltype(proto))
-        return make_surfacelet(params, dims, T; flags = FFTW.ESTIMATE)
+# r = channel `ch` of the complex coefficients `c`.
+function _s_get_channel!(r::SurfaceletCoefficients, c::SurfaceletCoefficients, ch::Int)
+    get!(b, a) = ch == 1 ? (b .= real.(a)) : (b .= imag.(a))
+    get!(r.coarse, c.coarse)
+    for (sc, sr) in zip(c.subbands, r.subbands), (a, b) in zip(sc, sr)
+        size(a) == size(b) || throw(DimensionMismatch("a subband has size $(size(a)), expected $(size(b))"))
+        get!(b, a)
     end
-    plan.dims == dims ||
-        throw(DimensionMismatch("plan was built for $(plan.dims), got $(dims)"))
-    return plan
+    return r
 end
+
+function _check_coefficients(c::SurfaceletCoefficients, ws::SurfaceletWorkspace)
+    c.dims == ws.dims || throw(DimensionMismatch("coefficients are for $(c.dims), the workspace for $(ws.dims)"))
+    length(c.subbands) == length(ws.scales) ||
+        throw(DimensionMismatch("coefficients with $(length(c.subbands)) scales, the transform has $(length(ws.scales))"))
+    expect = size(ws.spectra[end])
+    size(c.coarse) == expect ||
+        throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(expect)"))
+    for (j, sc) in enumerate(ws.scales)
+        length(c.subbands[j]) == _nsubbands(sc.levels) ||
+            throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
+        for (n, (K, _)) in enumerate(ws.work[j].items)
+            expect = _surf_subband_size(sc, K)
+            size(c.subbands[j][n]) == expect ||
+                throw(DimensionMismatch("subband $(n) of scale $(j) has size $(size(c.subbands[j][n])), expected $(expect)"))
+        end
+    end
+    return c
+end
+
+# ── Interface ─────────────────────────────────────────────────────────────────
+
+"""
+    similar_coefficients(t::Surfacelet, x::AbstractArray) -> SurfaceletCoefficients
+
+Uninitialised coefficients of `t` for volumes like `x`, in the working element
+type `float(eltype(x))`.
+"""
+function MultiscaleTransformsBase.similar_coefficients(t::Surfacelet, x::AbstractArray)
+    dims = _check_volume(size(x))
+    Td = data_eltype(x)
+    sizes = _surf_layout_sizes(t, dims)
+    coarse = similar(x, Td, sizes[1])
+    last = cumsum([1; [_nsubbands(t.levels[j]) for j in 1:t.J]])
+    subbands = [[similar(x, Td, sizes[m]) for m in (last[j] + 1):last[j + 1]] for j in 1:t.J]
+    return SurfaceletCoefficients(dims, coarse, subbands)
+end
+
+MultiscaleTransformsBase.subband(::Surfacelet, c::SurfaceletCoefficients, i::Integer) = _s_subband(c, Int(i))
+
+function _s_subband(c::SurfaceletCoefficients, i::Int)
+    i == 1 && return c.coarse
+    k = i - 1
+    for s in c.subbands
+        k <= length(s) && return s[k]
+        k -= length(s)
+    end
+    throw(BoundsError(c, i))
+end
+
+function MultiscaleTransformsBase.analyze!(
+        c::SurfaceletCoefficients, t::Surfacelet, x::AbstractArray;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
+    _check_coefficients(c, ws)
+    return _surfacelet_forward!(c, x, ws, _s_threaded(threaded))
+end
+
+function MultiscaleTransformsBase.synthesize!(
+        x::AbstractArray, t::Surfacelet, c::SurfaceletCoefficients;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
+    _check_coefficients(c, ws)
+    return _surfacelet_inverse!(x, c, ws, _s_threaded(threaded))
+end
+
+function MultiscaleTransformsBase.synthesize(
+        t::Surfacelet, c::SurfaceletCoefficients;
+        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
+    )
+    Td = workspace === nothing ? eltype(c.coarse) : eltype(workspace)
+    return synthesize!(similar(c.coarse, Td, c.dims), t, c; workspace, threaded)
+end
+
+MultiscaleTransformsBase.analyze!(c::SurfaceletCoefficients, ws::SurfaceletWorkspace, x::AbstractArray; threaded::Union{Bool, Nothing} = nothing) =
+    analyze!(c, transform(ws), x; workspace = ws, threaded)
+MultiscaleTransformsBase.synthesize(ws::SurfaceletWorkspace, c::SurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
+    synthesize(transform(ws), c; workspace = ws, threaded)
+MultiscaleTransformsBase.synthesize!(x::AbstractArray, ws::SurfaceletWorkspace, c::SurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
+    synthesize!(x, transform(ws), c; workspace = ws, threaded)

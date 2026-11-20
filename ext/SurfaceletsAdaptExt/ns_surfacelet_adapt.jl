@@ -10,7 +10,7 @@
 # `Adapt.adapt_structure` methods do:
 #
 #     fb  = Adapt.adapt(CuArray, make_hourglass(dims, Float32))
-#     ws  = Adapt.adapt(CuArray, make_ns_surfacelet_workspace(params, dims, Float32))
+#     ws  = Adapt.adapt(CuArray, make_workspace(NSSurfacelet(...), Float32, dims))
 #
 # FFTW plans cannot be moved, so each is replanned against the adapted buffer;
 # `plan_rfft` is the AbstractFFTs generic, so it dispatches to the backend's FFT
@@ -58,8 +58,8 @@ function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, 
     resp(v) = [map(ad, axes3) for axes3 in v]
     proto = ad(Array{T, 3}(undef, 0, 0, 0))
     return Surfacelets._ns_workspace(
-        Td, ws.dims, ws.params, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
-        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, FFTW.ESTIMATE
+        Td, ws.dims, ws.transform, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
+        typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, FFTW.ESTIMATE, ws.tasks
     )
 end
 

@@ -1,15 +1,19 @@
 """
     Surfacelets
 
-Three-dimensional nonsubsampled and decimated surfacelet transforms.
+Three-dimensional nonsubsampled and decimated surfacelet transforms, as
+transform objects of [MultiscaleTransformsBase](https://github.com/hakkelt/MultiscaleTransformsBase.jl),
+whose interface this package re-exports.
 
 ## Quick reference
 
-| Function | Description |
-|----------|-------------|
-| `ns_surfacelet_forward` / `ns_surfacelet_inverse` | Nonsubsampled surfacelet transform on volumes, with a streaming form |
-| `surfacelet_forward` / `surfacelet_inverse` | Decimated counterpart, subbands at reduced resolution |
-| `make_ns_surfacelet_workspace` | Allocate a reusable workspace for volumes |
+| Name | Description |
+|------|-------------|
+| [`NSSurfacelet`](@ref) | Nonsubsampled surfacelet transform: every subband has the size of the volume; streams |
+| [`Surfacelet`](@ref) | Decimated counterpart, subbands at reduced resolution |
+| `analyze` / `synthesize` (and `!` forms) | Run a transform |
+| `make_workspace` | Masks, buffers and FFT plans for repeated calls on one size |
+| `subband_layout` / `nsubbands` / `subband` | What each subband is, and where it is in the coefficients |
 | `Surfacelets.make_hourglass` / `Surfacelets.make_ndfb` | The directional stage on its own (public, not exported) |
 
 The surfacelet transform is a construction in its own right, not a
@@ -19,12 +23,12 @@ with no quincunx-lattice description that Lu & Do prove cannot be critically
 sampled.  The nonsubsampled transform builds it from Bernstein mapping kernels
 and cuts each hourglass into `2^L` wedges with directly placed boundaries.
 
-`surfacelet_forward` is Lu & Do's decimated surfacelet transform, reproducing
+[`Surfacelet`](@ref) is Lu & Do's decimated surfacelet transform, reproducing
 their reference toolbox SurfBox to rounding error: a 3/2-resampling Fourier
 pyramid, SurfBox's hourglass bank, and iterated resampled checkerboard filter
-banks that refine each hourglass into wedges while decimating critically
-(`make_surfacelet`, `surfacelet_redundancy`).  About 4 coefficients per voxel,
-whatever the number of directions; not shift-invariant.  See the "Theory" page.
+banks that refine each hourglass into wedges while decimating critically.
+About 4 coefficients per voxel, whatever the number of directions
+([`surfacelet_redundancy`](@ref)); not shift-invariant.  See the "Theory" page.
 """
 module Surfacelets
 
@@ -40,9 +44,14 @@ using MultiscaleFilterBanks: MultiscaleFilterBanks,
     MaskBankEngine, MaskBank, MaskItem, mask_apply!, mask_accumulate!,
     mask_bank_forward!, mask_bank_inverse!
 
+using MultiscaleTransformsBase: MultiscaleTransformsBase, AbstractMultiscaleTransform, AbstractTransformWorkspace,
+    analyze, analyze!, synthesize, synthesize!, make_workspace, transform, similar_coefficients,
+    subband_layout, nsubbands, subband, SubbandVector, SubbandLayout, check_workspace
+
 # ── Types ─────────────────────────────────────────────────────────────────────
-include("types/params.jl")
+include("types/transforms.jl")
 include("types/coefficients.jl")
+include("types/device.jl")
 
 # ── Filter coefficients ───────────────────────────────────────────────────────
 include("filters/bernstein.jl")
@@ -68,16 +77,15 @@ include("precompile.jl")
 
 # ── Exports ───────────────────────────────────────────────────────────────────
 export
-    # Types
-    NSSurfaceletParams, NSSurfaceletCoefficients, NSSurfaceletWorkspace,
-    SurfaceletParams, SurfaceletCoefficients, SurfaceletPlan,
+    # Transforms, workspaces and coefficients
+    NSSurfacelet, NSSurfaceletWorkspace, NSSurfaceletCoefficients,
+    Surfacelet, SurfaceletWorkspace, SurfaceletCoefficients,
+    surfacelet_redundancy, checkerboard_orders,
 
-    # Top-level transforms
-    ns_surfacelet_forward, ns_surfacelet_forward!, ns_surfacelet_inverse, ns_surfacelet_inverse!,
-    ns_surfacelet_nsubbands,
-    make_ns_surfacelet_workspace,
-    surfacelet_forward, surfacelet_forward!, surfacelet_inverse, surfacelet_inverse!,
-    surfacelet_nsubbands, surfacelet_redundancy, make_surfacelet, checkerboard_orders
+    # The interface (MultiscaleTransformsBase)
+    AbstractMultiscaleTransform, AbstractTransformWorkspace,
+    analyze, analyze!, synthesize, synthesize!, make_workspace, transform, similar_coefficients,
+    subband_layout, nsubbands, subband, SubbandVector, SubbandLayout
 
 # Not exported, but public: the directional stage on its own, and the pieces
 # the hourglass bank is built from.
