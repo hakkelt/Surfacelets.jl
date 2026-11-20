@@ -117,7 +117,10 @@ end
     end
     out = view(zeros(18, 16, 16), 2:17, :, :)
     synthesize!(i -> view(subband(t, ref, i), :, :, :), out, t)
-    @test out == synthesize(t, ref)
+    # Streaming adds the subbands on one task, as the unthreaded synthesis does;
+    # the threaded synthesis adds per-task partial sums and rounds differently.
+    @test out == synthesize(t, ref; threaded = false)
+    @test out ≈ synthesize(t, ref) rtol = 1.0e-14
 end
 
 @testitem "ns_surfacelet — complex equals real + i·imag bit-for-bit" tags = [:ns_surfacelet] begin
