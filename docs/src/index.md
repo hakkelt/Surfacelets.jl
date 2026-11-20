@@ -92,7 +92,9 @@ and re-exported here, and the threading and mask-bank engine of
 
 The transforms run in parallel over Julia's threads unless `threaded = false`:
 the nonsubsampled transform computes its subbands in parallel, the decimated
-transform splits each scale's blocks among the threads.
+transform splits each scale's blocks among the threads.  The streaming forms
+are the exception: they run serially, calling the callback from the calling
+task one subband at a time, in order, and ignore `threaded`.
 
 The transforms run on GPU backends with an FFT library: CUDA.jl (NVIDIA),
 AMDGPU.jl (AMD) and Metal.jl (Apple silicon, `Float32` only); the test suite

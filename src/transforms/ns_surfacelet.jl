@@ -620,8 +620,9 @@ Streaming analysis: calls `f(i, band)` once for every subband `i` of
 [`subband_layout(t, size(x))`](@ref subband_layout), the directional subbands
 in increasing `i` and then the lowpass (`i = 1`), reusing one buffer between
 calls.  `band` is valid only until `f` returns — copy or reduce it there.  The
-calls come one at a time from the calling task, so `f` need not be
-thread-safe; `threaded` is accepted and ignored.
+analysis runs serially: `f` is called from the calling task, one subband at a
+time and in that order, so it need not be thread-safe.  `threaded` does not
+apply and is ignored.
 
 This is the form to use at working sizes.  At 256³ `Float32` with `J = 3` and
 `L = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming holds a few
@@ -655,9 +656,11 @@ end
 
 Streaming synthesis into `x`: `f(i)` must return subband `i` of
 [`subband_layout(t, size(x))`](@ref subband_layout).  It is called once per
-subband, from the calling task, the directional subbands in increasing `i` and
-then the lowpass, so a caller holding the subbands on disk or regenerating
-them never materialises the full set.  `threaded` is accepted and ignored.
+subband, the directional subbands in increasing `i` and then the lowpass, so a
+caller holding the subbands on disk or regenerating them never materialises the
+full set.  The synthesis runs serially: `f` is called from the calling task,
+one subband at a time and in that order.  `threaded` does not apply and is
+ignored.
 """
 function MultiscaleTransformsBase.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
     ws = _ns_workspace_for(workspace, t, x)
