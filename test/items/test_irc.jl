@@ -167,14 +167,11 @@ end
         x = testvol(n)
         t = Surfacelet(J = 2, L_array = Ls, pyr_mode = mode, bo = bo)
         c = analyze(t, x)
-        for j in 1:2
-            i = 0
-            for K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
-                i += 1
-                @test fp_match(c.subbands[j][i], golden["surf_$(tag)_$(j)_$(K)_$(w)"])
-            end
+        for (i, d) in enumerate(subband_layout(t, size(x)))
+            i == 1 && continue
+            @test fp_match(subband(t, c, i), golden["surf_$(tag)_$(d.scale)_$(d.hourglass)_$(d.wedge)"])
         end
-        @test fp_match(c.coarse, golden["surf_$(tag)_low"])
+        @test fp_match(subband(t, c, 1), golden["surf_$(tag)_low"])
         r = synthesize(t, c)
         @test fp_match(r, golden["surfrec_$(tag)"])
         @test maximum(abs, r .- x) < 1.0e-13

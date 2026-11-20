@@ -28,6 +28,14 @@ Parseval frame and its inverse is its adjoint; keep it that way. An à trous
 a denoising comparison: the former is not tight and lost at equal redundancy,
 the latter was weakest on short-axis (x, y, t) data.
 
+Coefficients are arrays: the nonsubsampled transform stacks its subbands as
+`(dims..., n)` and the engine writes the slices in place (`_NSStack`); the
+decimated transform's are a `SubbandVector` whose subbands the block FFTs write
+in place.  Slices and subbands can start at addresses that break FFTW's
+alignment, so the plans that touch them get `FFTW.UNALIGNED` exactly when the
+size makes some offset misaligned (`_slices_aligned`, the layout check in
+`_surfacelet_workspace`); a size test for each case is in `test_interface.jl`.
+
 The decimated transform runs on a `SurfaceletWorkspace` and one driver
 (`transforms/surfacelet.jl`). The workspace owns its spectra, IRC scratch, block
 buffers and FFT plans, so the `!` paths allocate only array headers — and a

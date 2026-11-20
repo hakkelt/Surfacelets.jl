@@ -50,7 +50,6 @@ using MultiscaleTransformsBase: MultiscaleTransformsBase, AbstractMultiscaleTran
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 include("types/transforms.jl")
-include("types/coefficients.jl")
 include("types/device.jl")
 
 # ── Filter coefficients ───────────────────────────────────────────────────────
@@ -77,9 +76,9 @@ include("precompile.jl")
 
 # ── Exports ───────────────────────────────────────────────────────────────────
 export
-    # Transforms, workspaces and coefficients
-    NSSurfacelet, NSSurfaceletWorkspace, NSSurfaceletCoefficients,
-    Surfacelet, SurfaceletWorkspace, SurfaceletCoefficients,
+    # Transforms and workspaces
+    NSSurfacelet, NSSurfaceletWorkspace,
+    Surfacelet, SurfaceletWorkspace,
     surfacelet_redundancy, checkerboard_orders,
 
     # The interface (MultiscaleTransformsBase)

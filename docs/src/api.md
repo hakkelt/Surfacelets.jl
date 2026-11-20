@@ -27,7 +27,6 @@ with them below.
 ```@docs
 NSSurfacelet
 NSSurfaceletWorkspace
-NSSurfaceletCoefficients
 make_workspace(::NSSurfacelet, ::AbstractArray)
 subband_layout(::NSSurfacelet, ::Dims)
 similar_coefficients(::NSSurfacelet, ::AbstractArray)
@@ -40,7 +39,6 @@ synthesize!(::Any, ::AbstractArray, ::NSSurfacelet)
 ```@docs
 Surfacelet
 SurfaceletWorkspace
-SurfaceletCoefficients
 make_workspace(::Surfacelet, ::AbstractArray)
 subband_layout(::Surfacelet, ::Dims)
 similar_coefficients(::Surfacelet, ::AbstractArray)

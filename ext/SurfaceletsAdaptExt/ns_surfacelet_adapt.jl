@@ -16,7 +16,7 @@
 # `plan_rfft` is the AbstractFFTs generic, so it dispatches to the backend's FFT
 # implementation.  Planning happens once per adapt, not per call.
 
-using Surfacelets: HourglassFB, NDFB, NSSurfaceletWorkspace, NSSurfaceletCoefficients
+using Surfacelets: HourglassFB, NDFB, NSSurfaceletWorkspace
 
 function Adapt.adapt_structure(to, fb::HourglassFB)
     m1 = Adapt.adapt(to, fb.m1)
@@ -60,12 +60,5 @@ function Adapt.adapt_structure(to, ws::NSSurfaceletWorkspace{Td, T}) where {Td, 
     return Surfacelets._ns_workspace(
         Td, ws.dims, ws.transform, ad(ws.m1), ad(ws.m2), wedges, resp(ws.pa), resp(ws.pl),
         typeof(ad(ws.m1))[ad(b) for b in ws.band], proto, FFTW.ESTIMATE, ws.tasks
-    )
-end
-
-function Adapt.adapt_structure(to, c::NSSurfaceletCoefficients)
-    return NSSurfaceletCoefficients(
-        Adapt.adapt(to, c.coarse),
-        [[Adapt.adapt(to, s) for s in lvl] for lvl in c.subbands],
     )
 end

@@ -194,7 +194,7 @@ Directional analysis of one bandpass scale into the preallocated real subbands
 `out`; `X` is the full spectrum of size `sc.dims` and is left untouched.
 """
 function _surf_scale_forward!(
-        out::AbstractVector, X::AbstractArray{Complex{T}, 3}, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
+        out, X::AbstractArray{Complex{T}, 3}, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
     ) where {T}
     for K in 1:3
         hw = w.hg[K]
@@ -214,7 +214,7 @@ end
 Directional synthesis of one bandpass scale: its full spectrum, written to `X`.
 """
 function _surf_scale_inverse!(
-        X::AbstractArray{Complex{T}, 3}, subbands::AbstractVector, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
+        X::AbstractArray{Complex{T}, 3}, subbands, sc::_SurfScale{T}, w::_ScaleWork, threaded::Bool
     ) where {T}
     for (n, (K, _)) in enumerate(w.items)
         expect = _surf_subband_size(sc, K)

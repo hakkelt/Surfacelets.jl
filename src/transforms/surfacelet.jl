@@ -53,6 +53,8 @@ struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _S
     pbwd::G
     cfwd::F                 # … and on the coarse spectrum; each a pair (threaded, serial)
     cbwd::G
+    layout::SubbandLayout{3}    # of the coefficients
+    offsets::Vector{Int}    # [j] subbands before scale j's first
     rcoef::R                # complex data: real coefficients of one channel; `nothing` otherwise
 end
 
@@ -68,8 +70,14 @@ function _surfacelet_workspace(
         proto::AbstractArray, flags, tasks::Integer
     ) where {Td, T}
     tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1, got $(tasks)"))
+    layout = SubbandLayout(_surf_layout_sizes(t, dims), dims)
+    offsets = cumsum([1; [_nsubbands(sc.levels) for sc in scales[1:(end - 1)]]])
+    # The block FFTs read and write the subbands in place, at offsets in the
+    # coefficients' one vector that need not keep its memory alignment.
+    aligned = all(r -> ((first(r) - 1) * sizeof(T)) % 64 == 0, layout.ranges)
+    bflags = aligned ? flags : flags | FFTW.UNALIGNED
     work = _fftw_single_threaded(proto) do
-        build(sc) = _scale_work(sc, proto, flags, tasks)
+        build(sc) = _scale_work(sc, proto, bflags, tasks)
         first_work = build(first(scales))
         works = IdDict{Any, typeof(first_work)}(first(scales).stages => first_work)
         [get!(() -> build(sc), works, sc.stages) for sc in scales]
@@ -80,10 +88,10 @@ function _surfacelet_workspace(
     spectra = [fill!(similar(proto, Tc, n), zero(Tc)) for n in sizes]
     pfwd, pbwd = _inplace_plans(spectra[1], flags, tasks)
     cfwd, cbwd = _inplace_plans(spectra[end], flags, tasks)
-    rcoef = Td <: Complex ? _surfacelet_coefficients(T, dims, spectra, scales) : nothing
+    rcoef = Td <: Complex ? SubbandVector{T}(undef, layout, proto) : nothing
     return SurfaceletWorkspace{
         Td, T, eltype(pyramid), eltype(scales), eltype(work), eltype(spectra), typeof(pfwd), typeof(pbwd), typeof(rcoef),
-    }(dims, t, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd, rcoef)
+    }(dims, t, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd, layout, offsets, rcoef)
 end
 
 # In-place FFT and unnormalised inverse of `A`, each as a pair: on `tasks` FFTW
@@ -261,21 +269,21 @@ function _surfacelet_forward_body!(c, src, ws::SurfaceletWorkspace, threaded::Bo
     _pick_plan(ws.pfwd, threaded) * X
     for j in eachindex(ws.scales)
         band = _pyramid_split!(ws.spectra[j + 1], ws.spectra[j], ws.pyramid[j])
-        _surf_scale_forward!(_surf_bands(c, j), band, ws.scales[j], ws.work[j], threaded)
+        _surf_scale_forward!(_ScaleBands(c, ws.offsets[j]), band, ws.scales[j], ws.work[j], threaded)
     end
     C = ws.spectra[end]
     _pick_plan(ws.cbwd, threaded) * C
-    _surf_coarse(c) .= real.(C) .* inv(real(eltype(C))(length(C)))
+    subband(c, 1) .= real.(C) .* inv(real(eltype(C))(length(C)))
     return c
 end
 
 # `store!(X, s)` writes the volume from its unnormalised spectrum `X` and `s = 1/N`.
 function _surfacelet_inverse_body!(store!::S, c, ws::SurfaceletWorkspace, threaded::Bool) where {S}
     C = ws.spectra[end]
-    C .= _surf_coarse(c)
+    C .= subband(c, 1)
     _pick_plan(ws.cfwd, threaded) * C
     for j in reverse(eachindex(ws.scales))
-        _surf_scale_inverse!(ws.spectra[j], _surf_bands(c, j), ws.scales[j], ws.work[j], threaded)
+        _surf_scale_inverse!(ws.spectra[j], _ScaleBands(c, ws.offsets[j]), ws.scales[j], ws.work[j], threaded)
         _pyramid_merge!(ws.spectra[j], ws.spectra[j + 1], ws.pyramid[j])
     end
     X = ws.spectra[1]
@@ -284,93 +292,56 @@ function _surfacelet_inverse_body!(store!::S, c, ws::SurfaceletWorkspace, thread
     return nothing
 end
 
-# Coefficients of element type `T` for a workspace with `spectra` and `scales`,
-# allocated like its buffers.
-function _surfacelet_coefficients(::Type{T}, dims::NTuple{3, Int}, spectra::AbstractVector, scales::AbstractVector) where {T}
-    proto = spectra[1]
-    coarse = similar(proto, T, size(spectra[end]))
-    subbands = map(scales) do sc
-        [similar(proto, T, _surf_subband_size(sc, K)) for K in 1:3 for _ in 1:prod(first(_surf_blocks(sc, K)))]
-    end
-    return SurfaceletCoefficients(dims, coarse, subbands)
+# The subbands of one scale, indexed from 1: subband `offset + n` of `c`.
+struct _ScaleBands{C <: SubbandVector}
+    c::C
+    offset::Int
 end
 
-_surf_bands(c::SurfaceletCoefficients, j::Int) = c.subbands[j]
-_surf_coarse(c::SurfaceletCoefficients) = c.coarse
+Base.getindex(b::_ScaleBands, n::Int) = subband(b.c, b.offset + n)
 
 # Channel `ch` (1 real, 2 imaginary) of the complex coefficients `c` = the real
 # coefficients `r`; channel 1 also clears channel 2.
-function _s_set_channel!(c::SurfaceletCoefficients, r::SurfaceletCoefficients, ch::Int)
-    set!(a, b) = ch == 1 ? (a .= complex.(b, zero(eltype(b)))) : (a .= complex.(real.(a), b))
-    set!(c.coarse, r.coarse)
-    for (sc, sr) in zip(c.subbands, r.subbands), (a, b) in zip(sc, sr)
-        set!(a, b)
-    end
+function _s_set_channel!(c::SubbandVector, r::SubbandVector, ch::Int)
+    a, b = parent(c), parent(r)
+    ch == 1 ? (a .= complex.(b, zero(eltype(b)))) : (a .= complex.(real.(a), b))
     return c
 end
 
 # r = channel `ch` of the complex coefficients `c`.
-function _s_get_channel!(r::SurfaceletCoefficients, c::SurfaceletCoefficients, ch::Int)
-    get!(b, a) = ch == 1 ? (b .= real.(a)) : (b .= imag.(a))
-    get!(r.coarse, c.coarse)
-    for (sc, sr) in zip(c.subbands, r.subbands), (a, b) in zip(sc, sr)
-        size(a) == size(b) || throw(DimensionMismatch("a subband has size $(size(a)), expected $(size(b))"))
-        get!(b, a)
-    end
+function _s_get_channel!(r::SubbandVector, c::SubbandVector, ch::Int)
+    a, b = parent(c), parent(r)
+    ch == 1 ? (b .= real.(a)) : (b .= imag.(a))
     return r
 end
 
-function _check_coefficients(c::SurfaceletCoefficients, ws::SurfaceletWorkspace)
-    c.dims == ws.dims || throw(DimensionMismatch("coefficients are for $(c.dims), the workspace for $(ws.dims)"))
-    length(c.subbands) == length(ws.scales) ||
-        throw(DimensionMismatch("coefficients with $(length(c.subbands)) scales, the transform has $(length(ws.scales))"))
-    expect = size(ws.spectra[end])
-    size(c.coarse) == expect ||
-        throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(expect)"))
-    for (j, sc) in enumerate(ws.scales)
-        length(c.subbands[j]) == _nsubbands(sc.levels) ||
-            throw(DimensionMismatch("scale $(j) has the wrong number of subbands"))
-        for (n, (K, _)) in enumerate(ws.work[j].items)
-            expect = _surf_subband_size(sc, K)
-            size(c.subbands[j][n]) == expect ||
-                throw(DimensionMismatch("subband $(n) of scale $(j) has size $(size(c.subbands[j][n])), expected $(expect)"))
-        end
-    end
+function _check_coefficients(c::SubbandVector, ws::SurfaceletWorkspace)
+    c.layout == ws.layout ||
+        throw(DimensionMismatch("the coefficients' subband layout is not that of $(ws.transform) on size $(ws.dims)"))
+    eltype(c) === eltype(ws) ||
+        throw(ArgumentError("coefficients of element type $(eltype(c)), the workspace is for $(eltype(ws))"))
     return c
 end
 
 # ── Interface ─────────────────────────────────────────────────────────────────
 
 """
-    similar_coefficients(t::Surfacelet, x::AbstractArray) -> SurfaceletCoefficients
+    similar_coefficients(t::Surfacelet, x::AbstractArray) -> SubbandVector
 
-Uninitialised coefficients of `t` for volumes like `x`, in the working element
-type `float(eltype(x))`.
+Uninitialised coefficients of `t` for volumes like `x`: a `SubbandVector`
+(MultiscaleTransformsBase) of element type `float(eltype(x))` stored in an array like `x` (host or device),
+with the subbands of [`subband_layout`](@ref subband_layout(::Surfacelet, ::Dims)),
+the lowpass first.
 """
 function MultiscaleTransformsBase.similar_coefficients(t::Surfacelet, x::AbstractArray)
     dims = _check_volume(size(x))
-    Td = data_eltype(x)
-    sizes = _surf_layout_sizes(t, dims)
-    coarse = similar(x, Td, sizes[1])
-    last = cumsum([1; [_nsubbands(t.levels[j]) for j in 1:t.J]])
-    subbands = [[similar(x, Td, sizes[m]) for m in (last[j] + 1):last[j + 1]] for j in 1:t.J]
-    return SurfaceletCoefficients(dims, coarse, subbands)
+    return SubbandVector{data_eltype(x)}(undef, SubbandLayout(_surf_layout_sizes(t, dims), dims), x)
 end
 
-MultiscaleTransformsBase.subband(::Surfacelet, c::SurfaceletCoefficients, i::Integer) = _s_subband(c, Int(i))
-
-function _s_subband(c::SurfaceletCoefficients, i::Int)
-    i == 1 && return c.coarse
-    k = i - 1
-    for s in c.subbands
-        k <= length(s) && return s[k]
-        k -= length(s)
-    end
-    throw(BoundsError(c, i))
-end
+MultiscaleTransformsBase.subband(::Surfacelet, c::SubbandVector, i::Integer) = subband(c, i)
 
 function MultiscaleTransformsBase.analyze!(
-        c::SurfaceletCoefficients, t::Surfacelet, x::AbstractArray;
+        c::SubbandVector, t::Surfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
@@ -379,25 +350,10 @@ function MultiscaleTransformsBase.analyze!(
 end
 
 function MultiscaleTransformsBase.synthesize!(
-        x::AbstractArray, t::Surfacelet, c::SurfaceletCoefficients;
+        x::AbstractArray, t::Surfacelet, c::SubbandVector;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
     _check_coefficients(c, ws)
     return _surfacelet_inverse!(x, c, ws, _s_threaded(threaded))
 end
-
-function MultiscaleTransformsBase.synthesize(
-        t::Surfacelet, c::SurfaceletCoefficients;
-        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    Td = workspace === nothing ? eltype(c.coarse) : eltype(workspace)
-    return synthesize!(similar(c.coarse, Td, c.dims), t, c; workspace, threaded)
-end
-
-MultiscaleTransformsBase.analyze!(c::SurfaceletCoefficients, ws::SurfaceletWorkspace, x::AbstractArray; threaded::Union{Bool, Nothing} = nothing) =
-    analyze!(c, transform(ws), x; workspace = ws, threaded)
-MultiscaleTransformsBase.synthesize(ws::SurfaceletWorkspace, c::SurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
-    synthesize(transform(ws), c; workspace = ws, threaded)
-MultiscaleTransformsBase.synthesize!(x::AbstractArray, ws::SurfaceletWorkspace, c::SurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
-    synthesize!(x, transform(ws), c; workspace = ws, threaded)

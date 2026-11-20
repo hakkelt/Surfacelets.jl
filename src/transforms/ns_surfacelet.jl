@@ -177,8 +177,11 @@ function _ns_workspace(
     volume() = fill!(similar(proto, T, dims), zero(T))
     rbuf = [volume() for _ in 1:nch]
     X1 = spectrum()
+    # The host plans also read and write the subbands of stacked coefficients,
+    # slices whose memory alignment follows from the volume's byte size.
+    pflags = _slices_aligned(dims, T) ? flags : flags | FFTW.UNALIGNED
     pfwd, pinv = _fftw_single_threaded(proto) do
-        (_fft_plan(plan_rfft, rbuf[1], flags), _fft_plan(plan_irfft, X1, flags, dims[1]))
+        (_fft_plan(plan_rfft, rbuf[1], pflags), _fft_plan(plan_irfft, X1, pflags, dims[1]))
     end
     items, pyramid, banks = _ns_mask_bank(t, m1, m2, wedges, pa, pl, band)
     lowpass = _NSLowpassMask(pa[end])
@@ -403,7 +406,19 @@ end
 # The (hourglass, p, q) ↦ subband index map (`ndfb_subband_index`'s order).
 _ns_index(i::Int, p::Int, q::Int, na::Int, nb::Int) = ((i - 1) * na + (p - 1)) * nb + q
 
-MultiscaleFilterBanks.mask_bank_subband(c::NSSurfaceletCoefficients, (i,)::Tuple{Int}) = _ns_subband(c, i)
+# Stacked coefficients as the engine's container: subband i is the slice
+# c[:, :, :, i], the lowpass the first.
+struct _NSStack{A <: AbstractArray}
+    c::A
+end
+
+MultiscaleFilterBanks.mask_bank_subband(s::_NSStack, (i,)::Tuple{Int}) = view(s.c, :, :, :, i)
+MultiscaleFilterBanks.mask_bank_coarse(s::_NSStack) = view(s.c, :, :, :, 1)
+
+# Whether the slices along a trailing axis of an array of volumes of size `dims`
+# and element type `T` keep the array's 64-byte alignment, so that FFT plans
+# made on aligned buffers apply to them.
+_slices_aligned(dims::Dims, ::Type{T}) where {T} = (prod(dims) * sizeof(T)) % 64 == 0
 
 # Real channel `c` of a volume: the volume itself, or its real or imaginary part.
 @inline _channel(x::Number, c::Int) = c == 1 ? real(x) : imag(x)
@@ -425,10 +440,14 @@ end
 # reads real subbands with the FFT plans directly, so those must be arrays of
 # the plans' type; a complex volume and its subbands go through the engine's
 # channel buffers.  Coefficients of another array type take the streaming path.
-_ns_engine_arrays(ws::NSSurfaceletWorkspace, coeffs) =
-    _nchannels(ws) == 2 || (
-    coeffs.coarse isa eltype(ws.rbuf) && all(s -> all(b -> b isa eltype(ws.rbuf), s), coeffs.subbands)
-)
+_ns_engine_arrays(ws::NSSurfaceletWorkspace, c::AbstractArray) = _nchannels(ws) == 2 || _is_stack_of(c, ws.rbuf[1])
+
+# Whether the slices c[:, :, :, i] are arrays the FFT plans of `r` apply to: the
+# strided views of a host stack, or device arrays (a contiguous view of a device
+# array is one).
+_is_stack_of(::Array{T, 4}, ::Array{T, 3}) where {T} = true
+_is_stack_of(c::AbstractArray{<:Any, 4}, r::AbstractArray{<:Any, 3}) = !(r isa Array) && typeof(view(c, :, :, :, 1)) === typeof(r)
+_is_stack_of(c, r) = false
 
 # A real volume the plans can read: `x` itself, or a copy in `ws.rbuf[1]`
 # (which the engine does not use).
@@ -545,92 +564,54 @@ end
 MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.J))
 
 """
-    similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> NSSurfaceletCoefficients
+    similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> AbstractArray
 
-Uninitialised coefficients of `t` for volumes like `x`, in the working element
-type `float(eltype(x))`.
+Uninitialised coefficients of `t` for volumes like `x`: an array like `x` of
+size `(size(x)..., nsubbands(t, size(x)))` and element type `float(eltype(x))`,
+whose slice `[:, :, :, i]` is subband `i` of
+[`subband_layout`](@ref subband_layout(::NSSurfacelet, ::Dims)), the lowpass first.
 """
 function MultiscaleTransformsBase.similar_coefficients(t::NSSurfacelet, x::AbstractArray)
-    _check_volume(size(x))
-    Td = data_eltype(x)
-    return NSSurfaceletCoefficients(similar(x, Td), [[similar(x, Td) for _ in 1:_ns_nbands(t, j)] for j in 1:t.J])
+    dims = _check_volume(size(x))
+    return similar(x, data_eltype(x), (dims..., nsubbands(t, dims)))
 end
 
-MultiscaleTransformsBase.subband(::NSSurfacelet, c::NSSurfaceletCoefficients, i::Integer) = _ns_subband(c, Int(i))
+MultiscaleTransformsBase.subband(::NSSurfacelet, c::AbstractArray{<:Any, 4}, i::Integer) = view(c, :, :, :, i)
+MultiscaleTransformsBase.signal_size(::NSSurfacelet, c::AbstractArray{<:Any, 4}) = size(c)[1:3]
 
-function _ns_subband(c::NSSurfaceletCoefficients, i::Int)
-    i == 1 && return c.coarse
-    k = i - 1
-    for s in c.subbands
-        k <= length(s) && return s[k]
-        k -= length(s)
-    end
-    throw(BoundsError(c, i))
-end
-
-function _ns_check_coefficients(c::NSSurfaceletCoefficients, t::NSSurfacelet, dims::NTuple{3, Int})
-    length(c.subbands) == t.J ||
-        throw(DimensionMismatch("coefficients with $(length(c.subbands)) scales, the transform has $(t.J)"))
-    for j in 1:t.J
-        length(c.subbands[j]) == _ns_nbands(t, j) ||
-            throw(DimensionMismatch("scale $(j) has $(length(c.subbands[j])) subbands, expected $(_ns_nbands(t, j))"))
-        all(b -> size(b) == dims, c.subbands[j]) ||
-            throw(DimensionMismatch("scale $(j) has a subband of the wrong size, expected $(dims)"))
-    end
-    size(c.coarse) == dims || throw(DimensionMismatch("coarse subband has size $(size(c.coarse)), expected $(dims)"))
+function _ns_check_coefficients(c::AbstractArray, t::NSSurfacelet, dims::NTuple{3, Int})
+    expect = (dims..., nsubbands(t, dims))
+    size(c) == expect || throw(DimensionMismatch("coefficients of size $(size(c)), expected $(expect)"))
     return c
 end
 
 function MultiscaleTransformsBase.analyze!(
-        c::NSSurfaceletCoefficients, t::NSSurfacelet, x::AbstractArray;
+        c::AbstractArray, t::NSSurfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
-    return _ns_analyze!(c, x, ws, _ns_threaded(threaded))
-end
-
-function _ns_analyze!(c, x::AbstractArray, ws::NSSurfaceletWorkspace, threaded::Bool)
     if _ns_engine_arrays(ws, c)
-        mask_bank_forward!(c, _ns_engine_input(ws, x), ws.engine, threaded)
+        mask_bank_forward!(_NSStack(c), _ns_engine_input(ws, x), ws.engine, _ns_threaded(threaded))
     else
-        _ns_forward!((i, b) -> copyto!(_ns_subband(c, i), b), x, ws)
+        _ns_forward!((i, b) -> copyto!(view(c, :, :, :, i), b), x, ws)
     end
     return c
 end
 
 function MultiscaleTransformsBase.synthesize!(
-        x::AbstractArray, t::NSSurfacelet, c::NSSurfaceletCoefficients;
+        x::AbstractArray, t::NSSurfacelet, c::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
-    return _ns_synthesize!(x, c, ws, _ns_threaded(threaded))
-end
-
-function _ns_synthesize!(x::AbstractArray, c, ws::NSSurfaceletWorkspace, threaded::Bool)
-    _ns_engine_arrays(ws, c) || return _ns_inverse!(i -> _ns_subband(c, i), x, ws)
+    _ns_engine_arrays(ws, c) || return _ns_inverse!(i -> view(c, :, :, :, i), x, ws)
     # A real output the inverse plan cannot write is filled through `ws.rbuf[1]`.
     y = _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : ws.rbuf[1]
-    mask_bank_inverse!(y, c, ws.engine, threaded)
+    mask_bank_inverse!(y, _NSStack(c), ws.engine, _ns_threaded(threaded))
     y === x || copyto!(x, y)
     return x
 end
-
-function MultiscaleTransformsBase.synthesize(
-        t::NSSurfacelet, c::NSSurfaceletCoefficients;
-        workspace = nothing, threaded::Union{Bool, Nothing} = nothing
-    )
-    x = workspace === nothing ? similar(c.coarse) : similar(c.coarse, eltype(workspace), size(workspace))
-    return synthesize!(x, t, c; workspace, threaded)
-end
-
-MultiscaleTransformsBase.analyze!(c::NSSurfaceletCoefficients, ws::NSSurfaceletWorkspace, x::AbstractArray; threaded::Union{Bool, Nothing} = nothing) =
-    analyze!(c, transform(ws), x; workspace = ws, threaded)
-MultiscaleTransformsBase.synthesize(ws::NSSurfaceletWorkspace, c::NSSurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
-    synthesize(transform(ws), c; workspace = ws, threaded)
-MultiscaleTransformsBase.synthesize!(x::AbstractArray, ws::NSSurfaceletWorkspace, c::NSSurfaceletCoefficients; threaded::Union{Bool, Nothing} = nothing) =
-    synthesize!(x, transform(ws), c; workspace = ws, threaded)
 
 """
     analyze(f, t::NSSurfacelet, x; workspace = nothing, threaded = nothing) -> nothing

@@ -16,6 +16,6 @@ end
     test_explicit_imports(
         Surfacelets;
         all_explicit_imports_are_public = public_checks ? (; ignore = internal) : false,
-        all_qualified_accesses_are_public = public_checks ? (; ignore = (:ESTIMATE, :MEASURE, :ReshapedArray, :broadcasted, :Broadcasted, internal...)) : false,
+        all_qualified_accesses_are_public = public_checks ? (; ignore = (:ESTIMATE, :MEASURE, :UNALIGNED, :ReshapedArray, :broadcasted, :Broadcasted, internal...)) : false,
     )
 end

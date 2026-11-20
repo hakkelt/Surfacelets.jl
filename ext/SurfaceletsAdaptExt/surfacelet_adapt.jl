@@ -48,12 +48,3 @@ function Adapt.adapt_structure(to, ws::SurfaceletWorkspace{Td, T}) where {Td, T}
     # The flags and task count matter only when `to` is the host after all.
     return _surfacelet_workspace(Td, ws.dims, ws.transform, pyramid, scales, proto, FFTW.ESTIMATE, ws.tasks)
 end
-
-function Adapt.adapt_structure(to, c::SurfaceletCoefficients)
-    coarse = Adapt.adapt(to, c.coarse)
-    A = typeof(coarse)
-    return SurfaceletCoefficients(
-        c.dims, coarse,
-        [A[Adapt.adapt(to, s) for s in lvl] for lvl in c.subbands],
-    )
-end

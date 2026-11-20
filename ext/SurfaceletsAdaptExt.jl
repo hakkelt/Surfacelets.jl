@@ -8,10 +8,11 @@ module SurfaceletsAdaptExt
 # frequency-domain multiply are already plain broadcasts that run on a device
 # array unchanged.  What the device needs is the data moved across and the FFT
 # plans rebuilt, which is exactly what these methods do — hence `Adapt` is the
-# only weak dependency, with no GPUArrays or KernelAbstractions in sight.
+# only weak dependency, with no GPUArrays or KernelAbstractions in sight.  The
+# coefficients are plain arrays (nonsubsampled) or MultiscaleTransformsBase's
+# `SubbandVector`s (decimated), which adapt without methods here.
 
-using Surfacelets: Surfacelets, HourglassFB, NDFB, NSSurfaceletCoefficients,
-    NSSurfaceletWorkspace, SurfaceletCoefficients, SurfaceletWorkspace
+using Surfacelets: Surfacelets, HourglassFB, NDFB, NSSurfaceletWorkspace, SurfaceletWorkspace
 using Adapt: Adapt
 using FFTW: FFTW, plan_rfft, plan_irfft
 

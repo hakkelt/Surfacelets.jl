@@ -36,6 +36,14 @@ to the coarsest, each hourglass-major — the first `2^L` subbands of a scale
 belong to the first hourglass (``|\omega_1|`` dominant), the next `2^L` to the
 second, the last `2^L` to the third.
 
+The coefficients are arrays.  The nonsubsampled transform stacks its subbands
+into one array of size `(size(x)..., n)`, subband `i` being `c[:, :, :, i]`; the
+decimated transform's subbands differ in size, so its coefficients are a
+`SubbandVector`: one vector of all coefficients, each subband a reshaped view
+into it.  Either way broadcasting, `similar`, `copyto!`, `norm` and `dot` act on
+all coefficients at once, which is what an iterative algorithm needs, and
+`Adapt` moves them to a device.
+
 ```@setup guide
 using Surfacelets, Plots, Random, Statistics
 Plots.default(show = false)

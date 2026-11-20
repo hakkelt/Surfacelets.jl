@@ -71,7 +71,7 @@ end
     # which may round differently.
     for (q, threaded) in ((ws, false), (make_workspace(t, x; tasks = 1), nothing))
         d = analyze(t, x; workspace = q, threaded)
-        @test all(i -> subband(t, d, i) ≈ subband(t, c, i), 1:n)
+        @test d ≈ c
         @test synthesize(t, d; workspace = q, threaded) ≈ synthesize(t, c; workspace = ws)
     end
     @test_throws "tasks must be ≥ 1" make_workspace(Surfacelet(J = 1, L_array = [1]), Float64, (24, 24, 24); tasks = 0)
@@ -82,7 +82,7 @@ end
     x = randn(Xoshiro(101), 24, 24, 24)
     t = Surfacelet(J = 1, L_array = [1])
     c = analyze(t, x)
-    @test c.dims == size(x)
+    @test c.layout.signal_size == size(x)
     @test maximum(abs, synthesize(t, c) .- x) < 1.0e-11
 end
 
@@ -184,14 +184,9 @@ end
     @test_throws DimensionMismatch analyze(t, randn(48, 48, 48); workspace = ws)
     @test_throws "the workspace was built for Surfacelet(J = 1" analyze(Surfacelet(J = 1, L_array = [2]), randn(dims...); workspace = ws)
     c = analyze(t, randn(Xoshiro(104), dims...); workspace = ws)
-    @test occursin("SurfaceletCoefficients", sprint(show, c))
-    bad = SurfaceletCoefficients(c.dims, c.coarse, [c.subbands[1][1:2]])
-    @test_throws DimensionMismatch synthesize(t, bad; workspace = ws)
-    # Subbands of hourglass 2 in hourglass 1's slots have the wrong shape.
-    swapped = SurfaceletCoefficients(c.dims, c.coarse, [[c.subbands[1][3:4]; c.subbands[1][1:2]; c.subbands[1][5:6]]])
-    @test_throws DimensionMismatch synthesize(t, swapped; workspace = ws)
-    @test_throws DimensionMismatch synthesize(t, SurfaceletCoefficients(c.dims, zeros(4, 4, 4), c.subbands); workspace = ws)
-    @test_throws DimensionMismatch synthesize(Surfacelet(J = 2, L_array = [1, 1]), c)
+    @test_throws "subband layout" synthesize(t, similar_coefficients(Surfacelet(J = 1, L_array = [2]), zeros(dims)); workspace = ws)
+    @test_throws "subband layout" synthesize(t, similar_coefficients(t, zeros(48, 48, 48)); workspace = ws)
+    @test_throws DimensionMismatch synthesize(Surfacelet(J = 1, L_array = [2]), c)
 end
 
 @testitem "surfacelet — serial calls use single-threaded FFT plans" tags = [:surfacelet] begin
@@ -206,7 +201,7 @@ end
     @test one.pfwd[1] === one.pfwd[2]
     c = analyze(t, x; workspace = ws)
     d = analyze(t, x; workspace = ws, threaded = false)
-    @test d.coarse ≈ c.coarse
+    @test d ≈ c
     @test synthesize(t, d; workspace = ws, threaded = false) ≈ x
     # Adapting to the host keeps the task count and the transform.
     wh = Adapt.adapt(Array, ws)

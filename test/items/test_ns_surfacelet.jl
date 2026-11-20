@@ -169,17 +169,6 @@ end
     end
 end
 
-@testitem "ns_surfacelet — show and coefficient container" tags = [:ns_surfacelet] begin
-    using Random
-    Random.seed!(97)
-    x = randn(8, 8, 8)
-    t = NSSurfacelet(J = 1, L_array = [1], order = 4)
-    c = analyze(t, x)
-    s = sprint(show, c)
-    @test occursin("NSSurfaceletCoefficients", s)
-    @test occursin("J=1", s)
-end
-
 @testitem "ns_surfacelet — a Parseval frame: the inverse is the adjoint" tags = [:ns_surfacelet] begin
     using Random, LinearAlgebra
     Random.seed!(98)
@@ -264,8 +253,7 @@ end
     n = nsubbands(t, size(x))
     ws = make_workspace(t, x)
     c = analyze(t, x; workspace = ws)
-    viewed(a) = view(similar(a), :, :, :)
-    cv = NSSurfaceletCoefficients(viewed(c.coarse), [map(viewed, s) for s in c.subbands])
+    cv = view(similar(c), :, :, :, :)
     analyze!(cv, t, x; workspace = ws)
     @test all(i -> subband(t, cv, i) == subband(t, c, i), 1:n)
     y = synthesize(t, c; workspace = ws)
