@@ -127,6 +127,13 @@ end
         c = analyze(t, zg; workspace = ws)
         @test all(i -> maximum(abs, Array(subband(t, c, i)) .- subband(t, ref, i)) < 1.0f-4, 1:nsubbands(t, dims))
         @test maximum(abs, Array(synthesize(t, c; workspace = ws)) .- z) < 1.0f-4
+        # Streaming runs both channels of a subband together on the device.
+        analyze(t, zg; workspace = ws) do i, band
+            @test maximum(abs, Array(band) .- subband(t, ref, i)) < 1.0f-4
+        end
+        y = similar(zg)
+        synthesize!(i -> subband(t, c, i), y, t; workspace = ws)
+        @test maximum(abs, Array(y) .- z) < 1.0f-4
     end
 end
 

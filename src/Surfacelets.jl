@@ -41,8 +41,8 @@ using NestedThreading: NestedThreading
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     data_eltype, filter_eltype, foreach_chunk, loop_threaded, with_fftw_threads, n_tasks,
-    MaskBankEngine, MaskBank, MaskItem, mask_apply!, mask_accumulate!,
-    mask_bank_forward!, mask_bank_inverse!
+    MaskBankEngine, MaskBank, MaskItem,
+    mask_bank_forward!, mask_bank_inverse!, mask_bank_stream_forward!, mask_bank_stream_inverse!
 
 using MultiscaleTransformsBase: MultiscaleTransformsBase, AbstractMultiscaleTransform, AbstractTransformWorkspace,
     analyze, analyze!, synthesize, synthesize!, make_workspace, transform, similar_coefficients,

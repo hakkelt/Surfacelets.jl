@@ -91,6 +91,35 @@ end
     @test_throws DimensionMismatch synthesize!(i -> zeros(4, 4, 4), similar(x), t)
 end
 
+@testitem "ns_surfacelet — streaming complex and wrapped volumes" tags = [:ns_surfacelet] begin
+    using Random
+    rng = Xoshiro(96)
+    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    z = complex.(randn(rng, 16, 16, 16), randn(rng, 16, 16, 16))
+    for tasks in (1, 2)
+        ws = make_workspace(t, z; tasks)
+        c = analyze(t, z; workspace = ws, threaded = false)
+        streamed = similar(c)
+        analyze((i, b) -> copyto!(subband(t, streamed, i), b), t, z; workspace = ws)
+        @test streamed == c
+        u, v = similar(z), similar(z)
+        synthesize!(u, t, c; workspace = ws, threaded = false)
+        @test synthesize!(i -> subband(t, c, i), v, t; workspace = ws) == u
+        # The threaded forms still run after streaming.
+        @test analyze(t, z; workspace = ws) == analyze(t, z; workspace = ws, threaded = false)
+    end
+    # A real volume and subbands the FFT plans cannot take directly.
+    x = randn(rng, 18, 16, 16)
+    xv = view(x, 2:17, :, :)
+    ref = analyze(t, copy(xv))
+    analyze(t, xv) do i, b
+        @test b == subband(t, ref, i)
+    end
+    out = view(zeros(18, 16, 16), 2:17, :, :)
+    synthesize!(i -> view(subband(t, ref, i), :, :, :), out, t)
+    @test out == synthesize(t, ref)
+end
+
 @testitem "ns_surfacelet — complex equals real + i·imag bit-for-bit" tags = [:ns_surfacelet] begin
     using Random
     Random.seed!(94)

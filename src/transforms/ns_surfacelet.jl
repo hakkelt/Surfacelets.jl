@@ -29,7 +29,7 @@
 # forms run it on MultiscaleFilterBanks' `MaskBankEngine`, which splits the
 # subbands into contiguous chunks, one task per FFT buffer (the FFT plans are
 # single-threaded); a task forms a group's product when its chunk enters the
-# group.  The streaming forms run the same masks on one task.
+# group.  The streaming forms run the engine on one task.
 #
 # References: Y. M. Lu & M. N. Do, "Multidimensional Directional Filter Banks and
 # Surfacelets", IEEE TIP 16(4), 2007 (the NDFB and the surfacelet transform);
@@ -53,8 +53,7 @@ same time; it threads internally instead.  `Adapt.adapt(ArrayType, ws)` moves
 it to a device, rebuilding its buffers and FFT plans there.
 """
 struct NSSurfaceletWorkspace{
-        Td <: Number, T <: AbstractFloat, A3 <: AbstractArray{T, 3}, C3 <: AbstractArray{Complex{T}, 3},
-        D <: AbstractArray{Td, 3}, PM, BK, LM, E, P, Q,
+        Td <: Number, T <: AbstractFloat, A3 <: AbstractArray{T, 3}, D <: AbstractArray{Td, 3}, PM, BK, LM, E,
     } <: AbstractTransformWorkspace
     dims::NTuple{3, Int}
     transform::NSSurfacelet
@@ -71,19 +70,9 @@ struct NSSurfaceletWorkspace{
     pyramid::PM                                 # MaskBank of `_NSBandMask`s, one per group
     banks::BK                                   # [group] MaskBank of `_WedgeMask`s
     lowpass::LM                                 # `_NSLowpassMask`
-    engine::E                                   # MaskBankEngine of the threaded forms
-    # Buffers of the streaming forms, which run on one task.  Channel 1's
-    # spectrum, group and FFT buffers are the engine's own, idle meanwhile.  A
-    # complex volume is two real channels, filtered alike, which keeps
-    # `T(x + i·y) == T(x) + i·T(y)` exact.
-    X::Vector{C3}                               # [channel] input spectrum / synthesis sum
-    Y::Vector{C3}                               # [channel] group product / its synthesis
-    work::C3                                    # FFT buffer (consumed by `pinv`)
-    rbuf::Vector{A3}                            # [channel] real volume
-    cbuf::Vector{D}                             # complex subband handed to a callback (complex only)
-    coarse::D
-    pfwd::P                                     # rfft, single-threaded
-    pinv::Q                                     # irfft (destroys its input)
+    engine::E                                   # MaskBankEngine; a complex volume runs as two real channels
+    rbuf::Vector{A3}                            # real data: a volume the FFT plans read and write; else empty
+    cbuf::Vector{D}                             # complex data: the subband a streaming callback gets; else empty
 end
 
 MultiscaleTransformsBase.transform(ws::NSSurfaceletWorkspace) = ws.transform
@@ -139,7 +128,7 @@ when `nothing`.
 
 Memory: the hourglass response is one `real(T)` array on the rfft grid,
 `(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·tasks + 1` such arrays for
-real data and `4·tasks + 5` for complex data.  With `cache_bandpass = true` the
+real data and `4·tasks + 2` for complex data (`9` with one task).  With `cache_bandpass = true` the
 pyramid's bandpass of each scale is precomputed as well, `J` more such arrays;
 it saves recomputing the non-separable factor `√(1 - ℓⱼ²)` once per hourglass
 and channel in both directions.  Pass `false` to broadcast it from per-axis
@@ -171,17 +160,14 @@ function _ns_workspace(
         proto::AbstractArray, flags, tasks::Union{Int, Nothing}
     ) where {Td}
     T = eltype(m1)
-    nch = Td <: Complex ? 2 : 1
     half = (dims[1] ÷ 2 + 1, dims[2], dims[3])
-    spectrum() = fill!(similar(proto, Complex{T}, half), zero(Complex{T}))
-    volume() = fill!(similar(proto, T, dims), zero(T))
-    rbuf = [volume() for _ in 1:nch]
-    X1 = spectrum()
+    X1 = fill!(similar(proto, Complex{T}, half), zero(Complex{T}))
+    r = fill!(similar(proto, T, dims), zero(T))
     # The host plans also read and write the subbands of stacked coefficients,
     # slices whose memory alignment follows from the volume's byte size.
     pflags = _slices_aligned(dims, T) ? flags : flags | FFTW.UNALIGNED
     pfwd, pinv = _fftw_single_threaded(proto) do
-        (_fft_plan(plan_rfft, rbuf[1], pflags), _fft_plan(plan_irfft, X1, pflags, dims[1]))
+        (_fft_plan(plan_rfft, r, pflags), _fft_plan(plan_irfft, X1, pflags, dims[1]))
     end
     items, pyramid, banks = _ns_mask_bank(t, m1, m2, wedges, pa, pl, band)
     lowpass = _NSLowpassMask(pa[end])
@@ -189,17 +175,11 @@ function _ns_workspace(
         banks, items, X1, pfwd, pinv;
         pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex, tasks
     )
-    X = pushfirst!([spectrum() for _ in 2:nch], X1)
-    Y = pushfirst!([spectrum() for _ in 2:nch], engine.groups[1])
-    coarse = similar(proto, Td, dims)
-    cbuf = Td <: Complex ? [similar(proto, Td, dims)] : typeof(coarse)[]
+    rbuf = Td <: Complex ? typeof(r)[] : [r]
+    cbuf = [similar(proto, Td, dims) for _ in 1:(Td <: Complex ? 1 : 0)]
     return NSSurfaceletWorkspace{
-        Td, T, typeof(m1), typeof(X1), typeof(coarse), typeof(pyramid), typeof(banks), typeof(lowpass),
-        typeof(engine), typeof(pfwd), typeof(pinv),
-    }(
-        dims, t, tasks, m1, m2, wedges, pa, pl, band, items, pyramid, banks, lowpass, engine,
-        X, Y, engine.buffers[1], rbuf, cbuf, coarse, pfwd, pinv
-    )
+        Td, T, typeof(m1), eltype(cbuf), typeof(pyramid), typeof(banks), typeof(lowpass), typeof(engine),
+    }(dims, t, tasks, m1, m2, wedges, pa, pl, band, items, pyramid, banks, lowpass, engine, rbuf, cbuf)
 end
 
 # The items, group masks and wedge banks of the cascade.  Group g = 3(j - 1) + i
@@ -420,20 +400,6 @@ MultiscaleFilterBanks.mask_bank_coarse(s::_NSStack) = view(s.c, :, :, :, 1)
 # made on aligned buffers apply to them.
 _slices_aligned(dims::Dims, ::Type{T}) where {T} = (prod(dims) * sizeof(T)) % 64 == 0
 
-# Real channel `c` of a volume: the volume itself, or its real or imaginary part.
-@inline _channel(x::Number, c::Int) = c == 1 ? real(x) : imag(x)
-
-# `spec = rfft(channel c of x)`, through `rbuf` unless `x` can feed the plan directly.
-function _ns_spectrum!(spec, x::AbstractArray, rbuf::AbstractArray, ws::NSSurfaceletWorkspace, c::Int)
-    if eltype(x) <: Real && x isa typeof(rbuf)
-        mul!(spec, ws.pfwd, x)
-    else
-        rbuf .= _channel.(x, c)
-        mul!(spec, ws.pfwd, rbuf)
-    end
-    return spec
-end
-
 # ── Drivers ───────────────────────────────────────────────────────────────────
 
 # The threaded forms run on the engine.  It reads a real volume and writes and
@@ -454,77 +420,33 @@ _is_stack_of(c, r) = false
 _ns_engine_input(ws::NSSurfaceletWorkspace, x::AbstractArray) =
     _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : (ws.rbuf[1] .= x)
 
-# Streaming forward cascade, on one task: calls `f(i, band)` for each
-# directional subband in the workspace's item order (increasing `i`), then for
-# the lowpass (`i = 1`).
+# The streaming forms run the engine on one task.  A real volume, input or
+# output, and real subbands go through `ws.rbuf[1]` unless the plans can read
+# or write them directly; the engine reads its input into a spectrum before
+# writing a subband, and every subband before writing the output, so one buffer
+# serves for all.
+
+# Streaming forward cascade: calls `f(i, band)` for each directional subband in
+# the workspace's item order (increasing `i`), then for the lowpass (`i = 1`).
 function _ns_forward!(f::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
-    nch = _nchannels(ws)
-    Z = ws.work
-    for c in 1:nch
-        _ns_spectrum!(ws.X[c], volume, ws.rbuf[c], ws, c)
-    end
-    g = 0
-    for it in ws.items
-        if it.pyramid != g
-            g = it.pyramid
-            for c in 1:nch
-                mask_apply!(ws.Y[c], ws.pyramid.ana[g], ws.X[c])
-            end
-        end
-        H = ws.banks[it.bank].ana[it.channel]
-        for c in 1:nch
-            mask_apply!(Z, H, ws.Y[c])
-            mul!(ws.rbuf[c], ws.pinv, Z)
-        end
-        f(it.index[1], _ns_band(ws))
-    end
-    for c in 1:nch
-        mask_apply!(Z, ws.lowpass, ws.X[c])
-        mul!(ws.rbuf[c], ws.pinv, Z)
-    end
-    f(1, _ns_band(ws))
+    out = _nchannels(ws) == 1 ? ws.rbuf[1] : ws.cbuf[1]
+    sink(index, band) = f(index === nothing ? 1 : index[1], band)
+    mask_bank_stream_forward!(sink, out, _ns_engine_input(ws, volume), ws.engine)
     return nothing
 end
 
-# The subband in the workspace's real buffers, as one array.
-_ns_band(ws::NSSurfaceletWorkspace) = _nchannels(ws) == 1 ? ws.rbuf[1] : _ns_combine!(ws.cbuf[1], ws.rbuf)
-
-# Streaming inverse cascade, on one task; `source(i)` returns subband `i`
-# (`subband_layout` order), once: the directional subbands in increasing `i`,
-# then the lowpass.
+# Streaming inverse cascade; `source(i)` returns subband `i` (`subband_layout`
+# order), once: the directional subbands in increasing `i`, then the lowpass.
 function _ns_inverse!(source::F, volume::AbstractArray, ws::NSSurfaceletWorkspace) where {F}
-    nch = _nchannels(ws)
-    Z = ws.work
-    for c in 1:nch
-        fill!(ws.X[c], zero(eltype(ws.X[c])))
+    function band(index)
+        i = index === nothing ? 1 : index[1]
+        b = _ns_checked_band(source(i), ws, i)
+        return _nchannels(ws) == 2 || b isa eltype(ws.rbuf) ? b : (ws.rbuf[1] .= b)
     end
-    g = 0
-    for it in ws.items
-        if it.pyramid != g
-            for c in 1:nch
-                g == 0 || mask_accumulate!(ws.X[c], ws.pyramid.syn[g], ws.Y[c])
-                fill!(ws.Y[c], zero(eltype(ws.Y[c])))
-            end
-            g = it.pyramid
-        end
-        i = it.index[1]
-        band = _ns_checked_band(source(i), ws, i)
-        H = ws.banks[it.bank].syn[it.channel]
-        for c in 1:nch
-            _ns_spectrum!(Z, band, ws.rbuf[c], ws, c)
-            mask_accumulate!(ws.Y[c], H, Z)
-        end
-    end
-    for c in 1:nch
-        g == 0 || mask_accumulate!(ws.X[c], ws.pyramid.syn[g], ws.Y[c])
-    end
-    coarse = _ns_checked_band(source(1), ws, 1)
-    for c in 1:nch
-        _ns_spectrum!(Z, coarse, ws.rbuf[c], ws, c)
-        mask_accumulate!(ws.X[c], ws.lowpass, Z)
-        mul!(ws.rbuf[c], ws.pinv, ws.X[c])
-    end
-    return _ns_combine!(volume, ws.rbuf)
+    y = _nchannels(ws) == 2 || volume isa eltype(ws.rbuf) ? volume : ws.rbuf[1]
+    mask_bank_stream_inverse!(band, y, ws.engine)
+    y === volume || copyto!(volume, y)
+    return volume
 end
 
 # The subbands arrive one at a time, so each size is checked as it comes.
@@ -532,9 +454,6 @@ function _ns_checked_band(band::AbstractArray, ws::NSSurfaceletWorkspace, i::Int
     size(band) == ws.dims || throw(DimensionMismatch("subband $(i) has size $(size(band)), expected $(ws.dims)"))
     return band
 end
-
-# dst = the volume of channels `r` (one real channel, or real and imaginary).
-_ns_combine!(dst::AbstractArray, r::AbstractVector) = length(r) == 1 ? (dst .= r[1]) : (dst .= complex.(r[1], r[2]))
 
 # ── Interface ─────────────────────────────────────────────────────────────────
 
