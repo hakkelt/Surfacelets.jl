@@ -172,8 +172,8 @@ function _ns_workspace(
     items, pyramid, banks = _ns_mask_bank(t, m1, m2, wedges, pa, pl, band)
     lowpass = _NSLowpassMask(pa[end])
     engine = MaskBankEngine(
-        banks, items, X1, pfwd, pinv;
-        pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex, tasks
+        banks, items, X1;
+        pfwd, pinv, pyramid, lowpass = (lowpass, lowpass), split_complex = Td <: Complex, tasks
     )
     rbuf = Td <: Complex ? typeof(r)[] : [r]
     cbuf = [similar(proto, Td, dims) for _ in 1:(Td <: Complex ? 1 : 0)]
