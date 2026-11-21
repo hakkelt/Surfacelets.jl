@@ -132,7 +132,7 @@ _task_block(::AbstractVector, hw::_HourglassWork, ::Int, ::NTuple{3, Int}) = hw.
 function _foreach_block(f::F, sc::_SurfScale, w::_ScaleWork, threaded::Bool) where {F}
     n = length(w.items)
     nt = isempty(w.bufs) ? 1 : min(length(w.bufs), n)
-    foreach_chunk(n, nt, threaded) do range, t
+    foreach_chunk(n, nt; threaded) do range, t
         for idx in range
             K, i = w.items[idx]
             _one_block(f, sc, w, w.hg[K], K, i, idx, t)

@@ -511,7 +511,7 @@ function MultiscaleTransformsBase.analyze!(
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
     if _ns_engine_arrays(ws, c)
-        mask_bank_forward!(_NSStack(c), _ns_engine_input(ws, x), ws.engine, _ns_threaded(threaded))
+        mask_bank_forward!(_NSStack(c), _ns_engine_input(ws, x), ws.engine; threaded = _ns_threaded(threaded))
     else
         _ns_forward!((i, b) -> copyto!(view(c, :, :, :, i), b), x, ws)
     end
@@ -527,7 +527,7 @@ function MultiscaleTransformsBase.synthesize!(
     _ns_engine_arrays(ws, c) || return _ns_inverse!(i -> view(c, :, :, :, i), x, ws)
     # A real output the inverse plan cannot write is filled through `ws.rbuf[1]`.
     y = _nchannels(ws) == 2 || x isa eltype(ws.rbuf) ? x : ws.rbuf[1]
-    mask_bank_inverse!(y, _NSStack(c), ws.engine, _ns_threaded(threaded))
+    mask_bank_inverse!(y, _NSStack(c), ws.engine; threaded = _ns_threaded(threaded))
     y === x || copyto!(x, y)
     return x
 end
