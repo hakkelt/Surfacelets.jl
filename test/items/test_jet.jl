@@ -13,14 +13,14 @@
     @test_call target_modules = (Surfacelets,) Surfacelet(scales = 2, direction_levels = [1, 1])
 
     # ── Directional FB ───────────────────────────────────────────────────────
-    @test_call target_modules = (Surfacelets,) make_hourglass(dims, Float64; bernstein_order = 6)
-    hg = make_hourglass(dims, Float64; bernstein_order = 6)
+    @test_call target_modules = (Surfacelets,) make_hourglass(Float64, dims; bernstein_order = 6)
+    hg = make_hourglass(Float64, dims; bernstein_order = 6)
     @test_call target_modules = (Surfacelets,) hourglass_decompose(x, hg)
     hs = hourglass_decompose(x, hg)
     @test_call target_modules = (Surfacelets,) hourglass_reconstruct(hs, hg)
 
-    @test_call target_modules = (Surfacelets,) make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
-    fb = make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
+    @test_call target_modules = (Surfacelets,) make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
+    fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     @test_call target_modules = (Surfacelets,) ndfb_nsubbands(fb)
     @test_call target_modules = (Surfacelets,) ndfb_decompose(x, fb)
     sbs = ndfb_decompose(x, fb)
@@ -67,12 +67,12 @@ end
     dst = similar(x)
 
     # ── Directional FB ───────────────────────────────────────────────────────
-    hg = make_hourglass(dims, Float64; bernstein_order = 6)
+    hg = make_hourglass(Float64, dims; bernstein_order = 6)
     @test_opt target_modules = (Surfacelets,) hourglass_decompose(x, hg)
     hs = hourglass_decompose(x, hg)
     @test_opt target_modules = (Surfacelets,) hourglass_reconstruct(hs, hg)
 
-    fb = make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
+    fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     @test_opt target_modules = (Surfacelets,) ndfb_decompose(x, fb)
 
     # ── Transforms ───────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ end
     @test_call target_modules = M checkerboard_orders()
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
-    hg = make_hourglass(dims, Float64; bernstein_order = 6)
+    hg = make_hourglass(Float64, dims; bernstein_order = 6)
     @test hg isa HourglassFB
     @test_call target_modules = M hourglass_mask(hg, 1)
     @test_call target_modules = M hourglass_weight(hg, 2)
@@ -108,7 +108,7 @@ end
     @test_call target_modules = M hourglass_reconstruct!(similar(x), hs, hg)
 
     # ── Nonsubsampled directional bank ───────────────────────────────────────
-    fb = make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
+    fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     @test fb isa NDFB
     @test_call target_modules = M ndfb_sharing(hg, 1)
     @test_call target_modules = M ndfb_subband_index(fb, 1, 1, 1)
@@ -162,8 +162,8 @@ end
     @test_opt target_modules = M checkerboard_orders()
 
     # ── Hourglass bank ───────────────────────────────────────────────────────
-    @test_opt target_modules = M make_hourglass(dims, Float64; bernstein_order = 6)
-    hg = make_hourglass(dims, Float64; bernstein_order = 6)
+    @test_opt target_modules = M make_hourglass(Float64, dims; bernstein_order = 6)
+    hg = make_hourglass(Float64, dims; bernstein_order = 6)
     @test_opt target_modules = M hourglass_mask(hg, 1)
     @test_opt target_modules = M hourglass_weight(hg, 2)
     hs = hourglass_decompose(x, hg)
@@ -171,8 +171,8 @@ end
     @test_opt target_modules = M hourglass_reconstruct!(similar(x), hs, hg)
 
     # ── Nonsubsampled directional bank ───────────────────────────────────────
-    @test_opt target_modules = M make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
-    fb = make_ndfb(dims, Float64; levels = 1, bernstein_order = 6)
+    @test_opt target_modules = M make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
+    fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     @test_opt target_modules = M ndfb_sharing(hg, 1)
     @test_opt target_modules = M ndfb_nsubbands(fb)
     @test_opt target_modules = M ndfb_subband_index(fb, 1, 1, 1)

@@ -16,7 +16,7 @@
             for I in CartesianIndices((n, n, n))
     ]
     function share(transition)
-        fb = make_ndfb((n, n, n), Float64; levels = 2, transition = transition)
+        fb = make_ndfb(Float64, (n, n, n); levels = 2, transition = transition)
         e = zeros(ndfb_nsubbands(fb))
         ndfb_decompose(v, fb) do idx, band
             e[idx] = sum(abs2, band)
@@ -37,7 +37,7 @@ end
     # Lu & Do (2007), Theorem 1: an L-level NDFB in 3-D has 3·2^L subbands,
     # split between the two transverse planes of each hourglass.
     for L in 0:5
-        fb = make_ndfb((8, 8, 8), Float64; levels = L, bernstein_order = 4)
+        fb = make_ndfb(Float64, (8, 8, 8); levels = L, bernstein_order = 4)
         @test ndfb_nsubbands(fb) == 3 * 2^L
         @test sum(fb.levels) == L
         @test fb.levels[1] - fb.levels[2] in (0, 1)
@@ -61,6 +61,10 @@ end
     using Surfacelets: make_hourglass, make_ndfb, ndfb_nsubbands
     @test make_hourglass(8, 10, 12; bernstein_order = 4).dims == (8, 10, 12)
     @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, bernstein_order = 4)) == 6
+    hg32 = make_hourglass(Float32, 8, 10, 12; bernstein_order = 4)
+    @test eltype(hg32) == Float32 && hg32.dims == (8, 10, 12)
+    @test eltype(make_ndfb(ComplexF32, 8, 10, 12; levels = 1, bernstein_order = 4)) == Float32
+    @test eltype(make_ndfb((8, 8, 8); levels = 1, bernstein_order = 4)) == Float64
 
 end
 
@@ -76,7 +80,7 @@ end
 
 @testitem "ndfb_decompose! — wrong number of destination subbands" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_decompose!
-    fb = make_ndfb((8, 8, 8), Float64; levels = 1, bernstein_order = 4)
+    fb = make_ndfb(Float64, (8, 8, 8); levels = 1, bernstein_order = 4)
     x = randn(8, 8, 8)
     @test_throws DimensionMismatch ndfb_decompose!([similar(x)], x, fb)
 end

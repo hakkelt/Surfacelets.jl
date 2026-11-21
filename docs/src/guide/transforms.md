@@ -345,7 +345,7 @@ wave = [
 ]
 
 using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_subband_triple
-fb = make_ndfb((n, n, n), Float64; levels = 4, transition = 0.5)
+fb = make_ndfb(Float64, (n, n, n); levels = 4, transition = 0.5)
 e  = zeros(ndfb_nsubbands(fb))
 ndfb_decompose(wave, fb) do idx, band
     e[idx] = sum(abs2, band)

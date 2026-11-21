@@ -39,7 +39,7 @@
     # Restrict to the rfft grid this package works on, and convert to weights.
     w_ref = ntuple(k -> (v[k][1:17, :, :] .^ 2) ./ 3, 3)
 
-    fb = make_hourglass((32, 32, 32), Float64)
+    fb = make_hourglass(Float64, (32, 32, 32))
     w_mine = ntuple(k -> hourglass_weight(fb, k), 3)
 
     @test all(size(w_mine[k]) == size(w_ref[k]) for k in 1:3)
@@ -80,7 +80,7 @@
 
     # Without the normalization the masks are the weights themselves, and the
     # frame-bound ratio is 3 rather than 1.
-    loose = make_hourglass((32, 32, 32), Float64; tight = false)
+    loose = make_hourglass(Float64, (32, 32, 32); tight = false)
     energy = sum(hourglass_mask(loose, k) .^ 2 for k in 1:3)
     @test isapprox(minimum(energy), 1 / 3; atol = 1.0e-3)
     @test isapprox(maximum(energy), 1.0; atol = 1.0e-12)
@@ -106,7 +106,7 @@ end
     @test length(ref_label) == ndirs
     @test length(unique(ref_label)) == 12
 
-    fb = make_ndfb((32, 32, 32), Float64; levels = 2)
+    fb = make_ndfb(Float64, (32, 32, 32); levels = 2)
     @test ndfb_nsubbands(fb) == 12
 
     energies = zeros(ndirs, 12)

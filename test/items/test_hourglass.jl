@@ -49,7 +49,7 @@ end
 
 @testitem "hourglass — weights are a partition of unity in [0,1]" tags = [:directional] begin
     using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight
-    fb = make_hourglass((12, 14, 10), Float64; bernstein_order = 6, halfband_order = 1)
+    fb = make_hourglass(Float64, (12, 14, 10); bernstein_order = 6, halfband_order = 1)
     w = ntuple(i -> hourglass_weight(fb, i), 3)
     @test maximum(abs, w[1] .+ w[2] .+ w[3] .- 1) < 1.0e-14
     for wi in w
@@ -64,7 +64,7 @@ end
     using Surfacelets: make_hourglass, hourglass_mask, hourglass_decompose,
         hourglass_reconstruct
     using Random
-    fb = make_hourglass((12, 14, 10), Float64; bernstein_order = 6, halfband_order = 1)
+    fb = make_hourglass(Float64, (12, 14, 10); bernstein_order = 6, halfband_order = 1)
     @test fb.tight
     m = ntuple(i -> hourglass_mask(fb, i), 3)
     # sum of squares, not sum, is what is 1 for the tight normalization
@@ -75,7 +75,7 @@ end
     @test abs(sum(sum(abs2, b) for b in s) / sum(abs2, x) - 1) < 1.0e-12
 
     # The untight bank is the partition of unity, and is not energy preserving.
-    loose = make_hourglass((12, 14, 10), Float64; bernstein_order = 6, halfband_order = 1, tight = false)
+    loose = make_hourglass(Float64, (12, 14, 10); bernstein_order = 6, halfband_order = 1, tight = false)
     @test !loose.tight
     ml = ntuple(i -> hourglass_mask(loose, i), 3)
     @test maximum(abs, ml[1] .+ ml[2] .+ ml[3] .- 1) < 1.0e-14
@@ -93,7 +93,7 @@ end
     for dims in ((16, 16, 16), (12, 20, 8))
         x = randn(dims...)
         for (order, poly) in ((4, 0), (8, 1), (12, 2))
-            fb = make_hourglass(dims, Float64; bernstein_order = order, halfband_order = poly)
+            fb = make_hourglass(Float64, dims; bernstein_order = order, halfband_order = poly)
             s = hourglass_decompose(x, fb)
             @test all(b -> size(b) == dims, s)
             @test maximum(abs, hourglass_reconstruct(s, fb) .- x) < 1.0e-12
@@ -104,7 +104,7 @@ end
 @testitem "hourglass — axis-aligned plane waves land in the matching subband" tags = [:directional] begin
     using Surfacelets: make_hourglass, hourglass_decompose
     n = 16
-    fb = make_hourglass((n, n, n), Float64; bernstein_order = 8, halfband_order = 1)
+    fb = make_hourglass(Float64, (n, n, n); bernstein_order = 8, halfband_order = 1)
     for ax in 1:3
         v = Array{Float64, 3}(undef, n, n, n)
         for I in CartesianIndices(v)
@@ -123,7 +123,7 @@ end
     # Equal frequency along axes 1 and 2 sits exactly on the P₁/P₂ boundary, so
     # it must divide evenly between those subbands and leave P₃ empty.
     n = 16
-    fb = make_hourglass((n, n, n), Float64; bernstein_order = 8, halfband_order = 1)
+    fb = make_hourglass(Float64, (n, n, n); bernstein_order = 8, halfband_order = 1)
     v = Array{Float64, 3}(undef, n, n, n)
     for I in CartesianIndices(v)
         i, j, _ = Tuple(I) .- 1
@@ -141,7 +141,7 @@ end
     # Bernstein order grows (Lu & Do 2008, Fig. 10).
     n = 24
     function mae(order)
-        fb = make_hourglass((n, n, n), Float64; bernstein_order = order, halfband_order = 1)
+        fb = make_hourglass(Float64, (n, n, n); bernstein_order = order, halfband_order = 1)
         m = hourglass_mask(fb, 1)
         fold(k) = let w = (k - 1) * 2π / n
             min(w, 2π - w)
@@ -168,7 +168,7 @@ end
     Random.seed!(71)
     n = 16
     x = randn(n, n, n)
-    fb = make_hourglass((n, n, n), Float64; bernstein_order = 6, halfband_order = 1)
+    fb = make_hourglass(Float64, (n, n, n); bernstein_order = 6, halfband_order = 1)
     s = (3, -5, 2)
     a = hourglass_decompose(x, fb)
     b = hourglass_decompose(circshift(x, s), fb)
@@ -183,7 +183,7 @@ end
     Random.seed!(72)
     n = 16
     xr = randn(n, n, n); xi = randn(n, n, n)
-    fb = make_hourglass((n, n, n), ComplexF64; bernstein_order = 6, halfband_order = 1)
+    fb = make_hourglass(ComplexF64, (n, n, n); bernstein_order = 6, halfband_order = 1)
     sc = hourglass_decompose(complex.(xr, xi), fb)
     sr = hourglass_decompose(xr, fb)
     si = hourglass_decompose(xi, fb)
@@ -199,7 +199,7 @@ end
     Random.seed!(73)
     n = 16
     x = randn(Float32, n, n, n)
-    fb = make_hourglass((n, n, n), Float32; bernstein_order = 6, halfband_order = 1)
+    fb = make_hourglass(Float32, (n, n, n); bernstein_order = 6, halfband_order = 1)
     @test eltype(fb) == Float32
     @test eltype(make_hourglass((8, 8, 8); bernstein_order = 4)) == Float64
     s = hourglass_decompose(x, fb)
@@ -209,9 +209,9 @@ end
 
 @testitem "hourglass — argument validation" tags = [:directional] begin
     using Surfacelets: make_hourglass, hourglass_decompose
-    @test_throws ArgumentError make_hourglass((0, 4, 4), Float64)
-    @test_throws ArgumentError make_hourglass((8, 8, 8), Float64; bernstein_order = 0)
-    fb = make_hourglass((8, 8, 8), Float64; bernstein_order = 4)
+    @test_throws ArgumentError make_hourglass(Float64, (0, 4, 4))
+    @test_throws ArgumentError make_hourglass(Float64, (8, 8, 8); bernstein_order = 0)
+    fb = make_hourglass(Float64, (8, 8, 8); bernstein_order = 4)
     @test_throws DimensionMismatch hourglass_decompose(randn(8, 8, 4), fb)
 end
 

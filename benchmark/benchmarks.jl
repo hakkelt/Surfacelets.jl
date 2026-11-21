@@ -69,11 +69,11 @@ for n in (32, 64)
     # ── NDFB ───────────────────────────────────────────────────────────────
     SUITE["NDFB"][sz_str] = BenchmarkGroup()
     for L in (1, 3)
-        fb = make_ndfb((n, n, n), Float32; levels = L, bernstein_order = 12, flags = FFTW.ESTIMATE)
+        fb = make_ndfb(Float32, (n, n, n); levels = L, bernstein_order = 12, flags = FFTW.ESTIMATE)
         SUITE["NDFB"][sz_str]["L=$(L) forward (streaming)"] =
             @benchmarkable ndfb_decompose((k, b) -> nothing, $vol, $fb)
     end
-    hg = make_hourglass((n, n, n), Float32; bernstein_order = 12, flags = FFTW.ESTIMATE)
+    hg = make_hourglass(Float32, (n, n, n); bernstein_order = 12, flags = FFTW.ESTIMATE)
     dsts = ntuple(_ -> similar(vol), 3)
     SUITE["NDFB"][sz_str]["hourglass forward"] =
         @benchmarkable hourglass_decompose!($dsts, $vol, $hg)

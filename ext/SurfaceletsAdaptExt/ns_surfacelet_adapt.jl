@@ -9,7 +9,7 @@
 # across and the FFT plans rebuilt for device arrays, which is what these
 # `Adapt.adapt_structure` methods do:
 #
-#     fb  = Adapt.adapt(CuArray, make_hourglass(dims, Float32))
+#     fb  = Adapt.adapt(CuArray, make_hourglass(Float32, dims))
 #     ws  = Adapt.adapt(CuArray, make_workspace(NSSurfacelet(...), Float32, dims))
 #
 # FFTW plans cannot be moved, so each is replanned against the adapted buffer;

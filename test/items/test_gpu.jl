@@ -46,7 +46,7 @@ end
     Random.seed!(200)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    cpu = make_hourglass(dims, Float32; bernstein_order = 6)
+    cpu = make_hourglass(Float32, dims; bernstein_order = 6)
     ref = hourglass_decompose(x, cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
@@ -66,7 +66,7 @@ end
     Random.seed!(201)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    cpu = make_ndfb(dims, Float32; levels = 2, bernstein_order = 6)
+    cpu = make_ndfb(Float32, dims; levels = 2, bernstein_order = 6)
     ref = ndfb_decompose(x, cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)

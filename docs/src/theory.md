@@ -119,7 +119,7 @@ dominant(planes) = map(I -> argmax([P[I] for P in planes]), CartesianIndices(fir
 ```@example theory
 using Surfacelets: make_hourglass, hourglass_weight
 n  = 64
-hg = make_hourglass((n, n, n), Float64; bernstein_order = 12)
+hg = make_hourglass(Float64, (n, n, n); bernstein_order = 12)
 w  = [hourglass_weight(hg, i) for i in 1:3]
 f  = ((-n ÷ 2):(n ÷ 2 - 1)) ./ (n ÷ 2)          # frequency in units of π
 
@@ -242,7 +242,7 @@ transverse ratio:
 
 ```@example theory
 using Surfacelets: make_ndfb, ndfb_weight, ndfb_nsubbands
-fb = make_ndfb((n, n, n), Float64; levels = 4, bernstein_order = 12)
+fb = make_ndfb(Float64, (n, n, n); levels = 4, bernstein_order = 12)
 wk = [fullplane(ndfb_weight(fb, k), 0) for k in 1:ndfb_nsubbands(fb)]
 heatmap(f, f, permutedims(dominant(wk)); color = :turbo, aspect_ratio = :equal,
     xlabel = "ω₁/π", ylabel = "ω₂/π", title = "dominant NDFB subband, ω₃ = 0",
@@ -259,7 +259,7 @@ a ``L = 2`` bank carries more than half the weight:
 
 ```@example theory
 m   = 32
-fb2 = make_ndfb((m, m, m), Float64; levels = 2, bernstein_order = 12)
+fb2 = make_ndfb(Float64, (m, m, m); levels = 2, bernstein_order = 12)
 W   = ndfb_weight(fb2, 1)                     # hourglass 1, wedge (1, 1)
 fold(k, len) = (k - 1 <= len ÷ 2 ? k - 1 : k - 1 - len) / (len ÷ 2)
 pts = [

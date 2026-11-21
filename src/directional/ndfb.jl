@@ -52,9 +52,9 @@ end
 Base.eltype(::NDFB{T}) where {T} = T
 
 """
-    make_ndfb(dims::NTuple{3,Integer}, ::Type{T}=Float64;
-                levels::Integer=2, bernstein_order::Integer=12, halfband_order::Integer=1, tight::Bool=true,
-                transition::Real=1.0, threaded = nothing, flags=FFTW.MEASURE)
+    make_ndfb([T = Float64,] dims; levels = 2, bernstein_order = 12, halfband_order = 1, tight = true,
+              transition = 1.0, threaded = nothing, flags = FFTW.MEASURE) -> NDFB
+    make_ndfb([T = Float64,] n1, n2, n3; kwargs...) -> NDFB
 
 Build a 3-D NDFB producing `3 * 2^levels` directional subbands, each the full
 size of the input.
@@ -84,7 +84,7 @@ of a wedge keeps about 71 % of its energy there at `levels = 2`.
    [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_ndfb(
-        dims::NTuple{3, Integer}, ::Type{T} = Float64;
+        ::Type{T}, dims::NTuple{3, Integer};
         levels::Integer = 2, bernstein_order::Integer = 12, halfband_order::Integer = 1, tight::Bool = true,
         transition::Real = 1.0,
         threaded::Union{Bool, Nothing} = nothing,
@@ -93,7 +93,7 @@ function make_ndfb(
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     0 <= transition || throw(ArgumentError("transition must be ≥ 0"))
     fb = make_hourglass(
-        dims, T; bernstein_order, halfband_order, tight, threaded, flags
+        T, dims; bernstein_order, halfband_order, tight, threaded, flags
     )
     return ndfb_sharing(fb, levels; halfband_order, transition)
 end
@@ -117,12 +117,14 @@ function ndfb_sharing(
     return NDFB{T, typeof(wedges[1][1][1]), typeof(fb)}(fb, lev, wedges)
 end
 
-function make_ndfb(dims::NTuple{3, Integer}, ::Type{Complex{T}}; kwargs...) where {T <: AbstractFloat}
-    return make_ndfb(dims, T; kwargs...)
+function make_ndfb(::Type{Complex{T}}, dims::NTuple{3, Integer}; kwargs...) where {T <: AbstractFloat}
+    return make_ndfb(T, dims; kwargs...)
 end
 
-make_ndfb(n1::Integer, n2::Integer, n3::Integer, ::Type{Td} = Float64; kwargs...) where {Td} =
-    make_ndfb((n1, n2, n3), Td; kwargs...)
+make_ndfb(dims::NTuple{3, Integer}; kwargs...) = make_ndfb(Float64, dims; kwargs...)
+make_ndfb(::Type{T}, n1::Integer, n2::Integer, n3::Integer; kwargs...) where {T} =
+    make_ndfb(T, (n1, n2, n3); kwargs...)
+make_ndfb(n1::Integer, n2::Integer, n3::Integer; kwargs...) = make_ndfb(Float64, (n1, n2, n3); kwargs...)
 
 # How many wedges the bank's refinement gives on each transverse plane; the
 # split itself is `_wedge_levels` (`ndfb_wedges.jl`).
@@ -270,7 +272,7 @@ julia> using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
 
 julia> x = randn(Xoshiro(4), 16, 16, 16);
 
-julia> fb = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6);
+julia> fb = make_ndfb(Float64, size(x); levels = 2, bernstein_order = 6);
 
 julia> energy = zeros(ndfb_nsubbands(fb));
 

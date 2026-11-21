@@ -106,11 +106,12 @@ Base.eltype(::HourglassFB{T}) where {T} = T
 _fftw_threads(threaded::Union{Bool, Nothing}) = threaded === false ? 1 : Threads.nthreads()
 
 """
-    make_hourglass(dims::NTuple{3,Integer}, ::Type{T}=Float64;
-                    bernstein_order::Integer=12, halfband_order::Integer=1, tight::Bool=true,
-                    threaded = nothing, flags=FFTW.MEASURE) -> HourglassFB
+    make_hourglass([T = Float64,] dims; bernstein_order = 12, halfband_order = 1, tight = true,
+                   threaded = nothing, flags = FFTW.MEASURE) -> HourglassFB
+    make_hourglass([T = Float64,] n1, n2, n3; kwargs...) -> HourglassFB
 
-Build the 3-D hourglass filter bank for `dims`-sized volumes.
+Build the 3-D hourglass filter bank for volumes of size `dims` (or
+`(n1, n2, n3)`) and precision `T`.
 
 `bernstein_order` is the Bernstein order `N` of the mapping kernels: larger `N` sharpens
 the transition between hourglass subbands (Lu & Do use `N = 12`, which in their
@@ -138,7 +139,7 @@ precision; complex volumes are filtered as two real passes, keeping
    [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_hourglass(
-        dims::NTuple{3, Integer}, ::Type{T} = Float64;
+        ::Type{T}, dims::NTuple{3, Integer};
         bernstein_order::Integer = 12, halfband_order::Integer = 1, tight::Bool = true,
         threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
@@ -180,9 +181,9 @@ function _hourglass_tables(::Type{T}, dims::NTuple{3, Int}, order::Int, poly::In
 end
 
 function make_hourglass(
-        dims::NTuple{3, Integer}, ::Type{Complex{T}}; kwargs...
+        ::Type{Complex{T}}, dims::NTuple{3, Integer}; kwargs...
     ) where {T <: AbstractFloat}
-    fb = make_hourglass(dims, T; kwargs...)
+    fb = make_hourglass(T, dims; kwargs...)
     _complex_scratch!(fb)
     return fb
 end
@@ -233,8 +234,10 @@ function _load_complex_spectra!(fb::HourglassFB{T}, volume::AbstractArray{Comple
     return fb
 end
 
-make_hourglass(n1::Integer, n2::Integer, n3::Integer, ::Type{Td} = Float64; kwargs...) where {Td} =
-    make_hourglass((n1, n2, n3), Td; kwargs...)
+make_hourglass(dims::NTuple{3, Integer}; kwargs...) = make_hourglass(Float64, dims; kwargs...)
+make_hourglass(::Type{T}, n1::Integer, n2::Integer, n3::Integer; kwargs...) where {T} =
+    make_hourglass(T, (n1, n2, n3); kwargs...)
+make_hourglass(n1::Integer, n2::Integer, n3::Integer; kwargs...) = make_hourglass(Float64, (n1, n2, n3); kwargs...)
 
 """
     hourglass_mask(fb::HourglassFB, i::Integer) -> Array{T,3}
@@ -305,7 +308,7 @@ julia> using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconst
 
 julia> x = randn(Xoshiro(2), 16, 16, 16);
 
-julia> fb = make_hourglass(size(x), Float64; bernstein_order = 6);
+julia> fb = make_hourglass(Float64, size(x); bernstein_order = 6);
 
 julia> s = hourglass_decompose(x, fb);
 
