@@ -31,8 +31,8 @@ Both are transform objects: [`analyze`](@ref) computes the coefficients and
 directional subbands: three hourglasses aligned with the frequency axes, each
 cut into `2^L` wedges.  `subband(t, c, i)` is subband `i` of the
 coefficients `c`, and [`subband_layout(t, size(x))`](@ref subband_layout) says
-what each one is: the lowpass is subband 1, then come the scales from the finest
-to the coarsest, each hourglass-major — the first `2^L` subbands of a scale
+what each one is: the lowpass is subband 1, then come the scales from the coarsest
+to the finest, each hourglass-major — the first `2^L` subbands of a scale
 belong to the first hourglass (``|\omega_1|`` dominant), the next `2^L` to the
 second, the last `2^L` to the third.
 

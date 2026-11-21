@@ -10,7 +10,7 @@
     @test sprint(show, t) == "NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], bernstein_order = 12, halfband_order = 1, transition = 1.0, tight = true)"
     layout = subband_layout(t, (16, 16, 16))
     @test nsubbands(t, (16, 16, 16)) == length(layout) == 1 + 6 + 12 + 12
-    @test layout[1] == (scale = 4, direction = 0)
+    @test layout[1] == (scale = 0, direction = 0)
     @test layout[2] == (scale = 1, direction = 1)
     @test layout[8] == (scale = 2, direction = 1)
     @test supports_streaming(t) === true
@@ -300,11 +300,26 @@ end
 end
 
 @testitem "NSSurfacelet — scales and direction_levels default from each other" tags = [:ns_surfacelet] begin
-    @test NSSurfacelet(scales = 4).direction_levels == [2, 2, 1, 1]
+    @test NSSurfacelet(scales = 4).direction_levels == [1, 1, 2, 2]
     @test NSSurfacelet(scales = Int32(1)).direction_levels == [1]
     @test NSSurfacelet(direction_levels = [1, 2]).scales == 2
     @test NSSurfacelet(direction_levels = [1, 2]) == NSSurfacelet(scales = 2, direction_levels = [1, 2])
     @test_throws "length(direction_levels) must equal scales" NSSurfacelet(scales = 3, direction_levels = [1, 2])
     @test_throws "give `scales`, `direction_levels` or both" NSSurfacelet()
     @test_throws "scales must be ≥ 1" NSSurfacelet(scales = 0)
+end
+
+@testitem "NSSurfacelet — scales run from the coarsest to the finest" tags = [:ns_surfacelet] begin
+    n = 16
+    t = NSSurfacelet(direction_levels = [0, 1], bernstein_order = 6)
+    layout = subband_layout(t, (n, n, n))
+    @test layout[1].scale == 0
+    @test [d.scale for d in layout[2:end]] == [fill(1, 3); fill(2, 6)]
+    # A wave near the Nyquist frequency lands in the finest scale, scale 2, and
+    # a slow one in the coarse lowpass or the coarsest scale.
+    fast = [cospi(2 * (7 * (i - 1) + 6 * (j - 1)) / n) for i in 1:n, j in 1:n, _ in 1:n]
+    slow = [cospi(2 * (i - 1) / n) for i in 1:n, _ in 1:n, _ in 1:n]
+    energy(x) = (c = analyze(t, x); [sum(abs2, subband(t, c, i)) for i in eachindex(layout)])
+    @test layout[argmax(energy(fast))].scale == 2
+    @test layout[argmax(energy(slow))].scale in (0, 1)
 end

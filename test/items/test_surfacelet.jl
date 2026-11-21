@@ -7,7 +7,7 @@
     @test t != Surfacelet(scales = 2, direction_levels = [1, 2], checkerboard_order = 8)
     @test sprint(show, t) == "Surfacelet(scales = 2, direction_levels = [1, 2], pyramid_ratio = 1.5, checkerboard_order = 12, diamond_length = 15, kaiser_beta = 2.5, diamond_power = 4)"
     layout = subband_layout(t, (48, 48, 48))
-    @test layout[1] == (scale = 3, hourglass = 0, wedge = 0)
+    @test layout[1] == (scale = 0, hourglass = 0, wedge = 0)
     @test layout[2] == (scale = 1, hourglass = 1, wedge = 1)
     @test count(d -> d.scale == 1, layout) == 6
     @test count(d -> d.scale == 2, layout) == 12
@@ -45,7 +45,7 @@ end
         ((48, 48, 48), 1.5, 2, [1, 2], 12),
         ((48, 24, 36), 1.5, 1, [2], 8),
         ((32, 32, 32), 1, 2, [1, 1], 4),
-        ((64, 32, 32), 2, 2, [3, 1], 18),
+        ((64, 32, 32), 2, 2, [1, 3], 18),
         ((32, 32, 32), 2, 1, [[-1 2 0; 1 -1 1; 0 3 -1]], 6),
         ((24, 24, 24), 1.5, 1, [0], 12),
     )
@@ -116,7 +116,7 @@ end
     dims = (96, 96, 96)
     red(L) = surfacelet_redundancy(Surfacelet(scales = 2, direction_levels = L, checkerboard_order = 4), dims)
     @test red([1, 1]) == red([3, 2]) == red([4, 4])
-    # Mode 1.5: scale 1 at 96³, scale 2 at 64³, coarse at 32³.
+    # Mode 1.5: scale 2 (the finest) at 96³, scale 1 at 64³, coarse at 32³.
     @test red([1, 1]) ≈ 3 + 3 * (64 / 96)^3 + (32 / 96)^3
     t = Surfacelet(scales = 1, direction_levels = [2])
     c = analyze(t, randn(dims...))
@@ -214,7 +214,7 @@ end
 
 @testitem "Surfacelet — scales and direction_levels default from each other" tags = [:surfacelet] begin
     using Random
-    @test Surfacelet(scales = 3).direction_levels == [2, 1, 1]
+    @test Surfacelet(scales = 3).direction_levels == [1, 1, 2]
     @test Surfacelet(direction_levels = [1, 2]).scales == 2
     @test_throws "length(direction_levels) must equal scales" Surfacelet(scales = 1, direction_levels = [1, 2])
     @test_throws "give `scales`, `direction_levels` or both" Surfacelet()
@@ -224,4 +224,19 @@ end
         x = randn(Xoshiro(J), ntuple(_ -> 3 * 2^J, 3))
         @test maximum(abs, synthesize(t, analyze(t, x)) .- x) < 1.0e-10
     end
+end
+
+@testitem "Surfacelet — scales run from the coarsest to the finest" tags = [:surfacelet] begin
+    n = 48
+    t = Surfacelet(direction_levels = [0, 1])
+    layout = subband_layout(t, (n, n, n))
+    @test layout[1].scale == 0
+    @test [d.scale for d in layout[2:end]] == [fill(1, 3); fill(2, 6)]
+    # A wave near the Nyquist frequency lands in the finest scale, scale 2, and
+    # a slow one in the coarse lowpass or the coarsest scale.
+    fast = [cospi(2 * (19 * (i - 1) + 17 * (j - 1)) / n) for i in 1:n, j in 1:n, _ in 1:n]
+    slow = [cospi(2 * (i - 1) / n) for i in 1:n, _ in 1:n, _ in 1:n]
+    energy(x) = (c = analyze(t, x); [sum(abs2, subband(t, c, i)) for i in eachindex(layout)])
+    @test layout[argmax(energy(fast))].scale == 2
+    @test layout[argmax(energy(slow))].scale in (0, 1)
 end

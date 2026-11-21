@@ -54,7 +54,7 @@ struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _S
     cfwd::F                 # … and on the coarse spectrum; each a pair (threaded, serial)
     cbwd::G
     layout::SubbandLayout{3}    # of the coefficients
-    offsets::Vector{Int}    # [j] subbands before scale j's first
+    offsets::Vector{Int}    # [j] subbands before the first of pyramid level j (1 the finest)
     rcoef::R                # complex data: real coefficients of one channel; `nothing` otherwise
 end
 
@@ -71,7 +71,9 @@ function _surfacelet_workspace(
     ) where {Td, T}
     tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1, got $(tasks)"))
     layout = SubbandLayout(_surf_layout_sizes(t, dims), dims)
-    offsets = cumsum([1; [_nsubbands(sc.levels) for sc in scales[1:(end - 1)]]])
+    # The coefficients hold the scales coarse to fine, so the coarser levels come first.
+    counts = [_nsubbands(sc.levels) for sc in scales]
+    offsets = [1 + sum(counts[(j + 1):end]; init = 0) for j in eachindex(counts)]
     # The block FFTs read and write the subbands in place, at offsets in the
     # coefficients' one vector that need not keep its memory alignment.
     aligned = all(r -> ((first(r) - 1) * sizeof(T)) % 64 == 0, layout.ranges)
@@ -123,10 +125,12 @@ function MultiscaleTransformsBase.make_workspace(
     Td = data_eltype(T0)
     T = filter_eltype(Td)
     pyramid = _fourier_pyramid(T, dims, t.scales, t.pyramid_ratio)
+    # Pyramid level j (1 the finest) is scale J - j + 1.
     scales = map(1:t.scales) do j
         n = pyramid[j].n
+        lv = t.levels[t.scales - j + 1]
         masks = _ritf_masks(T, n; msize = t.diamond_length, beta = T(t.kaiser_beta), lambda = t.diamond_power)
-        _SurfScale(n, t.levels[j], masks, _surf_stages(T, n, t.levels[j], t.checkerboard_order))
+        _SurfScale(n, lv, masks, _surf_stages(T, n, lv, t.checkerboard_order))
     end
     return _surfacelet_workspace(Td, dims, t, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
@@ -167,14 +171,14 @@ function surfacelet_redundancy(t::Surfacelet, dims::Dims)
 end
 
 # The sizes of the subbands of `t` on a `dims` volume, in `subband_layout`
-# order: the lowpass, then for every scale the wedges of hourglass 1, 2, 3, each
+# order: the lowpass, then for every scale, coarse to fine, the wedges of hourglass 1, 2, 3, each
 # in SurfBox's block order.  Throws as `make_workspace` does for sizes the
 # pyramid or the directional levels cannot divide.
 function _surf_layout_sizes(t::Surfacelet, dims::NTuple{3, Int})
     pyramid = _fourier_pyramid(Float64, dims, t.scales, t.pyramid_ratio)
     sizes = [last(pyramid).nlow]
     for j in 1:t.scales
-        n = pyramid[j].n
+        n = pyramid[t.scales - j + 1].n
         for K in 1:3
             counts = ntuple(d -> 1 << t.levels[j][K][d], 3)
             all(d -> n[d] % counts[d] == 0, 1:3) ||
@@ -190,14 +194,14 @@ end
     subband_layout(t::Surfacelet, dims) -> Vector{@NamedTuple{scale::Int, hourglass::Int, wedge::Int}}
 
 What each subband of `t` is: the lowpass first, as
-`(scale = J + 1, hourglass = 0, wedge = 0)` with `J = t.scales`, then for scale 1 (the finest), 2, …,
-`J` the wedges of hourglass 1, 2, 3 in turn, `(scale = j, hourglass = K, wedge = w)`
+`(scale = 0, hourglass = 0, wedge = 0)`, then for scale 1 (the coarsest), 2, …,
+`t.scales` (the finest) the wedges of hourglass 1, 2, 3 in turn, `(scale = j, hourglass = K, wedge = w)`
 with the wedges in SurfBox's order.  Hourglass `K` keeps axis `K` at the scale's
 full length and decimates the other two.
 """
 function MultiscaleTransformsBase.subband_layout(t::Surfacelet, dims::Dims)
     _surf_layout_sizes(t, _check_volume(dims))
-    layout = [(scale = t.scales + 1, hourglass = 0, wedge = 0)]
+    layout = [(scale = 0, hourglass = 0, wedge = 0)]
     for j in 1:t.scales, K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
         push!(layout, (scale = j, hourglass = K, wedge = w))
     end

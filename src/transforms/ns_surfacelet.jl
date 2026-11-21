@@ -96,9 +96,10 @@ function MultiscaleTransformsBase.make_workspace(
     resp = ntuple(d -> _rc_responses(T, t.scales, dims[d], bins(d)), 3)
     # Bⱼ ≡ 0 exactly when ℓⱼ = 1 wherever Π_{i<j} ℓᵢ > 0, on every axis: the
     # factors are separable, ≤ 1, and 1 at DC.
+    # Pyramid level j (1 the finest) is scale J - j + 1.
     for j in 1:t.scales
         all(d -> all(((a, l),) -> a == 0 || l == 1, zip(resp[d][1][j], resp[d][2][j])), 1:3) &&
-            throw(ArgumentError("size $(dims) is too small for $(t.scales) scales: scale $(j) would be empty"))
+            throw(ArgumentError("size $(dims) is too small for $(t.scales) scales: scale $(t.scales - j + 1) would be empty"))
     end
     orient(v, d) = reshape(v, ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
@@ -183,14 +184,16 @@ function _ns_workspace(
 end
 
 # The items, group masks and wedge banks of the cascade.  Group g = 3(j - 1) + i
-# is hourglass i of scale j; its items are the wedges (p, q), channel
+# is hourglass i of scale j (coarse to fine; pyramid level J - j + 1, as `pa`,
+# `pl` and `band` are indexed finest first); its items are the wedges (p, q), channel
 # (p - 1)·nb + q of its bank, at subband `1 + (subbands of scales < j) +
 # _ns_index(i, p, q, na, nb)` of `subband_layout` (the lowpass is subband 1).
 function _ns_mask_bank(t::NSSurfacelet, m1, m2, wedges, pa, pl, band)
-    cached(j) = isempty(band) ? similar(m1, 0, 0, 0) : band[j]
+    J = t.scales
+    cached(k) = isempty(band) ? similar(m1, 0, 0, 0) : band[k]
     groups = [(j, i) for j in eachindex(wedges) for i in 1:3]
-    ana = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, true, t.tight) for (j, i) in groups]
-    syn = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, t.tight, t.tight) for (j, i) in groups]
+    ana = [_NSBandMask(m1, m2, cached(J - j + 1), pa[J - j + 1], pl[J - j + 1], i, true, t.tight) for (j, i) in groups]
+    syn = [_NSBandMask(m1, m2, cached(J - j + 1), pa[J - j + 1], pl[J - j + 1], i, t.tight, t.tight) for (j, i) in groups]
     offsets = cumsum([1; [_ns_nbands(t, j) for j in 1:(t.scales - 1)]])
     items = MaskItem{1}[]
     banks = map(enumerate(groups)) do (g, (j, i))
@@ -465,15 +468,15 @@ _check_volume(dims::Dims) = throw(ArgumentError("the surfacelet transforms take 
 """
     subband_layout(t::NSSurfacelet, dims) -> Vector{@NamedTuple{scale::Int, direction::Int}}
 
-What each subband of `t` is: the lowpass first, as `(scale = J + 1, direction = 0)`
-with `J = t.scales`, then the directional subbands of scale 1 (the finest), 2, …,
-`J`, each as `(scale = j, direction = k)` with `k` in `1:3·2^t.direction_levels[j]`: hourglass 1, 2, 3 in
+What each subband of `t` is: the lowpass first, as `(scale = 0, direction = 0)`,
+then the directional subbands of scale 1 (the coarsest), 2, …, `t.scales` (the
+finest), each as `(scale = j, direction = k)` with `k` in `1:3·2^t.direction_levels[j]`: hourglass 1, 2, 3 in
 turn, and inside each the wedges in `Surfacelets.ndfb_subband_index` order.
 Every subband has size `dims`.
 """
 function MultiscaleTransformsBase.subband_layout(t::NSSurfacelet, dims::Dims)
     _check_volume(dims)
-    layout = [(scale = t.scales + 1, direction = 0)]
+    layout = [(scale = 0, direction = 0)]
     for j in 1:t.scales, k in 1:_ns_nbands(t, j)
         push!(layout, (scale = j, direction = k))
     end

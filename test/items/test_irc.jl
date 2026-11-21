@@ -163,13 +163,18 @@ end
 @testitem "surfacelet transform reproduces SurfBox's Surfdec / Surfrec" tags = [:surfacelet, :surfbox] setup = [SurfBoxIRC] begin
     L111 = [-1 1 1; 1 -1 1; 1 1 -1]
     L212 = [-1 2 1; 1 -1 2; 2 1 -1]
-    for (tag, n, mode, Ls, bo) in (("m15", 48, 1.5, [L111, L111], 8), ("m2", 64, 2, [L212, L111], 4))
+    # SurfBox numbers the scales finest first: `Lev_array{1}` and `Y{1}` are the
+    # finest scale, which is scale `J` here.
+    surfbox_scale(t, scale) = t.scales - scale + 1
+    # `Lev_array` as passed to Surfdec, finest scale first.
+    for (tag, n, mode, lev_array, bo) in (("m15", 48, 1.5, [L111, L111], 8), ("m2", 64, 2, [L212, L111], 4))
         x = testvol(n)
-        t = Surfacelet(scales = 2, direction_levels = Ls, pyramid_ratio = mode, checkerboard_order = bo)
+        t = Surfacelet(direction_levels = reverse(lev_array), pyramid_ratio = mode, checkerboard_order = bo)
         c = analyze(t, x)
         for (i, d) in enumerate(subband_layout(t, size(x)))
             i == 1 && continue
-            @test fp_match(subband(t, c, i), golden["surf_$(tag)_$(d.scale)_$(d.hourglass)_$(d.wedge)"])
+            key = "surf_$(tag)_$(surfbox_scale(t, d.scale))_$(d.hourglass)_$(d.wedge)"
+            @test fp_match(subband(t, c, i), golden[key])
         end
         @test fp_match(subband(t, c, 1), golden["surf_$(tag)_low"])
         r = synthesize(t, c)

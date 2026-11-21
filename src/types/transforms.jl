@@ -22,8 +22,8 @@ see the "Theory" page.  Every subband has the size of the data, so the
 transform is invariant under circular shifts.
 
 - `scales` — number of pyramid levels (`J` in the papers).
-- `direction_levels` — directional depth per scale (`ℓⱼ`; SurfBox's
-  `Lev_array`), length `scales`.  Scale `j` produces
+- `direction_levels` — directional depth per scale (`ℓⱼ`), length `scales`,
+  from the coarsest scale to the finest.  Scale `j` produces
   `3 * 2^(direction_levels[j])` directional subbands.
 - `bernstein_order` — order `N` of the Bernstein mapping kernels of the
   hourglass bank; larger sharpens the boundaries between directional subbands.
@@ -56,14 +56,14 @@ julia> t = NSSurfacelet(direction_levels = [1, 2], bernstein_order = 6);
 
 julia> c = analyze(t, x);
 
-julia> nsubbands(t, size(x))   # the lowpass, then 6 + 12 directional subbands
+julia> nsubbands(t, size(x))   # the lowpass, then 6 + 12 directional subbands, coarse to fine
 19
 
 julia> maximum(abs, synthesize(t, c) .- x) < 1e-10
 true
 
 julia> NSSurfacelet(scales = 4)
-NSSurfacelet(scales = 4, direction_levels = [2, 2, 1, 1], bernstein_order = 12, halfband_order = 1, transition = 1.0, tight = true)
+NSSurfacelet(scales = 4, direction_levels = [1, 1, 2, 2], bernstein_order = 12, halfband_order = 1, transition = 1.0, tight = true)
 ```
 
 # References
@@ -136,10 +136,10 @@ function _scales_and_levels(scales, direction_levels)
     return something(scales, length(direction_levels)), direction_levels
 end
 
-# Parabolic scaling, finest scale first: one directional level at the two
+# Parabolic scaling, coarsest scale first: one directional level at the two
 # coarsest scales and one more every second scale toward the finest, so that
 # the number of directions doubles at every other scale.
-_parabolic_levels(scales::Integer) = [1 + (scales - j) ÷ 2 for j in 1:scales]
+_parabolic_levels(scales::Integer) = [1 + (j - 1) ÷ 2 for j in 1:scales]
 
 function _check_scales(scales::Integer, direction_levels::AbstractVector)
     scales >= 1 || throw(ArgumentError("scales must be ≥ 1, got $(scales)"))
@@ -166,8 +166,9 @@ per voxel with the default `pyramid_ratio`, whatever the number of directions
 of each parameter is given in parentheses.
 
 - `scales` — number of scales (the length of `Lev_array`).
-- `direction_levels` — directional refinement per scale (`Lev_array`), length
-  `scales`.  An integer `L` gives `2^L` wedges in each of the three
+- `direction_levels` — directional refinement per scale, length `scales`,
+  from the coarsest scale to the finest (SurfBox's `Lev_array` lists the
+  scales finest first, so this is `reverse(Lev_array)`).  An integer `L` gives `2^L` wedges in each of the three
   hourglasses (`3 · 2^L` subbands), split as evenly as possible between the
   two transverse axes.  A `3 × 3` integer matrix gives SurfBox's level matrix
   instead: row `K` holds the number of checkerboard stages along each axis
