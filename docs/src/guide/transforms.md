@@ -90,7 +90,9 @@ spectrum — one forward FFT, then one inverse FFT per subband — and the subba
 are computed in parallel on Julia's threads unless `threaded = false`.
 With `analyze!` and `synthesize!` a loop
 allocates nothing but the threads' tasks; the `tasks` keyword caps the threads,
-and with them the buffers.  The workspace caches each scale's
+and with them the buffers.  By default the workspace runs one analysis and
+synthesis at construction (`prewarm = true`), so that the first call in a loop
+is already compiled.  The workspace caches each scale's
 pyramid bandpass as one real array on the rfft grid; pass
 `cache_bandpass = false` to save that memory at some speed.
 
@@ -195,7 +197,9 @@ the buffers and FFT plans the transform runs in; build it once and reuse it.
 With a workspace, `analyze!` and `synthesize!` write into
 existing coefficients and volumes and allocate nothing but a few array headers
 and the threads' tasks. The blocks of each scale are split among Julia's
-threads, up to the workspace's `tasks`, unless `threaded = false`. A workspace
+threads, up to the workspace's `tasks` (one per thread by default), unless
+`threaded = false`. Its workspace takes the keywords of the nonsubsampled
+transform's, except `cache_bandpass`. A workspace
 holds scratch buffers, so give each task its own.  Complex volumes are
 transformed as two real channels, exactly real-linearly.
 

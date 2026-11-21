@@ -57,3 +57,55 @@ end
     @test_throws DimensionMismatch analyze!(similar_coefficients(Surfacelet(scales = 2, direction_levels = [2, 2]), xs), s, xs)
     @test_throws "element type" analyze!(SubbandVector(zeros(Float32, length(cs)), cs.layout), s, xs)
 end
+
+@testitem "make_workspace — shared keywords" tags = [:ns_surfacelet, :surfacelet] begin
+    using FFTW, Random
+    # An irfft plan is a scaled brfft plan.
+    estimate(p) = hasproperty(p, :flags) ? p.flags & FFTW.ESTIMATE != 0 : estimate(p.p)
+    nt = Threads.nthreads()
+    cases = (
+        (NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6), (16, 12, 20)),
+        (Surfacelet(scales = 2, direction_levels = [1, 2]), (48, 24, 36)),
+    )
+    for (t, dims) in cases, Td in (Float64, ComplexF64)
+        x = randn(Xoshiro(21), Td, dims...)
+        ns = t isa NSSurfacelet
+        plans(ws) = ns ? (ws.engine.pfwd, ws.engine.pinv) : (ws.pfwd[1], ws.pbwd[1], ws.cfwd[2], ws.work[1].hg[1].fwd)
+        # flags reach the host FFT plans (FFTW.MEASURE is 0, so test the ESTIMATE bit).
+        # MEASURE planning leaves wisdom that later ESTIMATE plans use, so it comes
+        # first: every ESTIMATE workspace below then plans alike.
+        @test !any(estimate, plans(make_workspace(t, Td, dims; prewarm = false)))
+        ref = make_workspace(t, x; flags = FFTW.ESTIMATE, prewarm = false)
+        @test all(estimate, plans(ref))
+        c = analyze(ref, x)
+        # tasks: `nothing` is one per thread, `1` a serial workspace.
+        for f in (() -> make_workspace(t, x; flags = FFTW.ESTIMATE), () -> make_workspace(t, Td, dims; flags = FFTW.ESTIMATE))
+            ws = f()
+            if ns
+                @test ws.tasks === nothing && length(ws.engine.buffers) == nt
+            else
+                @test ws.tasks == nt
+            end
+        end
+        one = make_workspace(t, Td, dims; flags = FFTW.ESTIMATE, tasks = Int32(1))
+        if ns
+            @test length(one.engine.buffers) == 1
+        else
+            @test one.tasks == 1 && one.pfwd[1] === one.pfwd[2]
+        end
+        @test analyze(one, x) == c
+        @test_throws "tasks must be ≥ 1" make_workspace(t, x; tasks = 0)
+        @test_throws "tasks must be ≥ 1" make_workspace(t, Td, dims; tasks = 0)
+        # tune is accepted and changes nothing; prewarm leaves no state behind.
+        for kw in ((; tune = true), (; prewarm = true), (; tune = true, prewarm = false))
+            ws = make_workspace(t, x; flags = FFTW.ESTIMATE, kw...)
+            @test analyze(ws, x) == c
+            @test synthesize(ws, c) == synthesize(ref, c)
+            @test analyze(make_workspace(t, Td, dims; flags = FFTW.ESTIMATE, kw...), x) == c
+        end
+        @test_throws MethodError make_workspace(t, x; no_such_keyword = true)
+        @test_throws MethodError make_workspace(t, Td, dims; no_such_keyword = true)
+        # The shared keywords do not hide the size error.
+        @test_throws "three axes" make_workspace(t, Td, (16, 16); flags = FFTW.ESTIMATE, tasks = 1, tune = false, prewarm = false)
+    end
+end

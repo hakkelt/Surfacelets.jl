@@ -16,3 +16,14 @@ function _adapt_workspace(x::AbstractArray, ws)
     # integer tables, which an element-typed destination cannot all fit.
     return ext.adapt_workspace(typeof(x).name.wrapper, ws)
 end
+
+# One analysis and synthesis of zeros with `ws`, in arrays like `proto` (host or
+# device), so that the first call with `ws` is compiled and finds its buffers
+# touched.
+function _prewarm!(ws::AbstractTransformWorkspace, proto::AbstractArray)
+    x = fill!(similar(proto, eltype(ws), size(ws)), zero(eltype(ws)))
+    c = similar_coefficients(transform(ws), x)
+    analyze!(c, ws, x)
+    synthesize!(x, ws, c)
+    return ws
+end

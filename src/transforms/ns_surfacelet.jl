@@ -84,7 +84,16 @@ _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 
 function MultiscaleTransformsBase.make_workspace(
         t::NSSurfacelet, ::Type{T0}, dims::Dims{3};
-        flags::Integer = FFTW.MEASURE, cache_bandpass::Bool = true, tasks::Union{Integer, Nothing} = nothing
+        flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
+        prewarm::Bool = true, cache_bandpass::Bool = true
+    ) where {T0 <: Number}
+    ws = _ns_host_workspace(t, T0, dims; flags, tasks, cache_bandpass)
+    return prewarm ? _prewarm!(ws, Array{eltype(ws), 3}(undef, 0, 0, 0)) : ws
+end
+
+# The host workspace, not yet run.
+function _ns_host_workspace(
+        t::NSSurfacelet, ::Type{T0}, dims::Dims{3}; flags::Integer, tasks::Union{Integer, Nothing}, cache_bandpass::Bool
     ) where {T0 <: Number}
     tasks === nothing || tasks >= 1 || throw(ArgumentError("tasks must be ≥ 1, got $(tasks)"))
     all(>=(1), dims) || throw(ArgumentError("volume size must be positive, got $(dims)"))
@@ -110,22 +119,33 @@ function MultiscaleTransformsBase.make_workspace(
     return _ns_workspace(Td, dims, t, m1, m2, wedges, pa, pl, band, proto, flags, ntasks)
 end
 
-MultiscaleTransformsBase.make_workspace(::NSSurfacelet, ::Type{<:Number}, dims::Dims) =
-    throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
+MultiscaleTransformsBase.make_workspace(
+    ::NSSurfacelet, ::Type{<:Number}, dims::Dims;
+    flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
+    prewarm::Bool = true, cache_bandpass::Bool = true
+) = throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
 
 """
-    make_workspace(t::NSSurfacelet, T::Type{<:Number}, dims;
-                   flags = FFTW.MEASURE, cache_bandpass = true, tasks = nothing) -> NSSurfaceletWorkspace
-    make_workspace(t::NSSurfacelet, x::AbstractArray; kwargs...) -> NSSurfaceletWorkspace
+    make_workspace(t::NSSurfacelet, T::Type{<:Number}, dims; flags = FFTW.MEASURE, tasks = nothing,
+                   tune = false, prewarm = true, cache_bandpass = true) -> NSSurfaceletWorkspace
+    make_workspace(t::NSSurfacelet, x::AbstractArray; <same keywords>) -> NSSurfaceletWorkspace
 
 The workspace of `t` for volumes of size `dims` (three axes) and element type
 `T` (real or complex; an integer type means `float(T)`).  The second form takes
 size, element type and array type from `x`: for a device array the workspace is
 built on the host and moved with `Adapt`.
 
-`flags` are the FFTW planner flags.  `tasks` bounds the tasks a threaded call
-uses, and with them the buffers: one set per task, one task per Julia thread
-when `nothing`.
+Keywords:
+
+- `flags`: the FFTW planner flags of the host FFT plans; ignored on a device.
+- `tasks`: the most tasks a threaded call runs the subbands on, and with them the
+  buffers, one set per task; `nothing` is one per Julia thread (never more than
+  the threads), `1` a serial workspace.  A device runs one.
+- `tune`: accepted and ignored (there is no device batch tuning).
+- `prewarm`: run one analysis and synthesis of zeros at construction (on the
+  device, for a device `x`), so that the first call is compiled and its buffers
+  are touched.  `Adapt.adapt` of a workspace does not run it.
+- `cache_bandpass`: see below.
 
 Memory: the hourglass response is one `real(T)` array on the rfft grid,
 `(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·tasks + 1` such arrays for
@@ -138,8 +158,15 @@ vectors instead, so that everything per-scale is vectors and planes.
 Throws an `ArgumentError` when `dims` is too small for `t.scales` scales: a scale
 whose bandpass would be identically zero.
 """
-MultiscaleTransformsBase.make_workspace(t::NSSurfacelet, x::AbstractArray; kwargs...) =
-    _workspace_like(x, make_workspace(t, eltype(x), size(x); kwargs...))
+function MultiscaleTransformsBase.make_workspace(
+        t::NSSurfacelet, x::AbstractArray;
+        flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
+        prewarm::Bool = true, cache_bandpass::Bool = true
+    )
+    ws = make_workspace(t, eltype(x), size(x); flags, tasks, tune, prewarm = false, cache_bandpass)
+    ws = _workspace_like(x, ws)
+    return prewarm ? _prewarm!(ws, x) : ws
+end
 
 # The wedge factors of one scale with depth `L`, in precision `T`: the analysis
 # masks' planes, square-rooted when the bank is tight (the weights are ≥ 0 up to
@@ -214,7 +241,7 @@ end
 # and data like `x` (its masks are baked in, so a mismatch would silently
 # transform with the wrong ones), or a new one.
 function _ns_workspace_for(workspace, t::NSSurfacelet, x::AbstractArray)
-    workspace === nothing && return make_workspace(t, x)
+    workspace === nothing && return make_workspace(t, x; prewarm = false)
     workspace isa NSSurfaceletWorkspace ||
         throw(ArgumentError("an NSSurfacelet needs an NSSurfaceletWorkspace, got $(typeof(workspace))"))
     return check_workspace(workspace, t, data_eltype(x), size(x))

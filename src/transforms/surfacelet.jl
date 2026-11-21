@@ -44,7 +44,7 @@ FFT plans there.
 struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _SurfScale{T}, W <: _ScaleWork, A <: AbstractArray{Complex{T}, 3}, F, G, R} <: AbstractTransformWorkspace
     dims::NTuple{3, Int}
     transform::Surfacelet
-    tasks::Int              # as requested; a device runs one
+    tasks::Int              # as requested, `nothing` resolved to the thread count; a device runs one
     pyramid::Vector{L}
     scales::Vector{C}
     work::Vector{W}         # scales with equal tables share one
@@ -120,8 +120,15 @@ _fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? 
 
 function MultiscaleTransformsBase.make_workspace(
         t::Surfacelet, ::Type{T0}, dims::Dims{3};
-        tasks::Integer = Threads.nthreads(), flags::Integer = FFTW.MEASURE
+        flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
+        prewarm::Bool = true
     ) where {T0 <: Number}
+    ws = _surfacelet_host_workspace(t, T0, dims, flags, tasks === nothing ? Threads.nthreads() : tasks)
+    return prewarm ? _prewarm!(ws, Array{eltype(ws), 3}(undef, 0, 0, 0)) : ws
+end
+
+# The host workspace, not yet run.
+function _surfacelet_host_workspace(t::Surfacelet, ::Type{T0}, dims::Dims{3}, flags::Integer, tasks::Integer) where {T0 <: Number}
     Td = data_eltype(T0)
     T = filter_eltype(Td)
     pyramid = _fourier_pyramid(T, dims, t.scales, t.pyramid_ratio)
@@ -135,13 +142,15 @@ function MultiscaleTransformsBase.make_workspace(
     return _surfacelet_workspace(Td, dims, t, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
 
-MultiscaleTransformsBase.make_workspace(::Surfacelet, ::Type{<:Number}, dims::Dims) =
-    throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
+MultiscaleTransformsBase.make_workspace(
+    ::Surfacelet, ::Type{<:Number}, dims::Dims;
+    flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false, prewarm::Bool = true
+) = throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
 
 """
     make_workspace(t::Surfacelet, T::Type{<:Number}, dims;
-                   tasks = Threads.nthreads(), flags = FFTW.MEASURE) -> SurfaceletWorkspace
-    make_workspace(t::Surfacelet, x::AbstractArray; kwargs...) -> SurfaceletWorkspace
+                   flags = FFTW.MEASURE, tasks = nothing, tune = false, prewarm = true) -> SurfaceletWorkspace
+    make_workspace(t::Surfacelet, x::AbstractArray; <same keywords>) -> SurfaceletWorkspace
 
 Precompute everything `t` needs for volumes of size `dims` (three axes) and
 element type `T` (real or complex; an integer type means `float(T)`).  The
@@ -152,14 +161,29 @@ point in closed form) and the workspace is moved with `Adapt`.
 The pyramid must be able to resample every scale exactly, so with
 `pyramid_ratio = 1.5` each dimension must be divisible by `3 · 2^J`, with `2`
 by `2^(J+1)`, and with `1` by `2^J`, for `J = t.scales`; each scale must also allow its directional
-levels (axis length divisible by `2^level`).  `tasks` bounds the threads a
-transform with the workspace uses: the blocks of a scale are split among that
-many tasks, each with a buffer of one block, and the full-volume FFTs run on
-that many FFTW threads (on one in a serial call).  `flags` are the FFTW planner
-flags; pass `FFTW.ESTIMATE` for a workspace used once.
+levels (axis length divisible by `2^level`).
+
+Keywords:
+
+- `flags`: the FFTW planner flags of the host FFT plans; pass `FFTW.ESTIMATE`
+  for a workspace used once.  Ignored on a device.
+- `tasks`: the most tasks a transform with the workspace uses: the blocks of a
+  scale are split among that many tasks, each with a buffer of one block, and
+  the full-volume FFTs run on that many FFTW threads (on one in a serial call).
+  `nothing` is one per Julia thread, `1` a serial workspace.  A device runs one.
+- `tune`: accepted and ignored (there is no device batch tuning).
+- `prewarm`: run one analysis and synthesis of zeros at construction (on the
+  device, for a device `x`), so that the first call is compiled and its buffers
+  are touched.  `Adapt.adapt` of a workspace does not run it.
 """
-MultiscaleTransformsBase.make_workspace(t::Surfacelet, x::AbstractArray; kwargs...) =
-    _workspace_like(x, make_workspace(t, eltype(x), size(x); kwargs...))
+function MultiscaleTransformsBase.make_workspace(
+        t::Surfacelet, x::AbstractArray;
+        flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
+        prewarm::Bool = true
+    )
+    ws = _workspace_like(x, make_workspace(t, eltype(x), size(x); flags, tasks, tune, prewarm = false))
+    return prewarm ? _prewarm!(ws, x) : ws
+end
 
 """
     surfacelet_redundancy(t::Surfacelet, dims) -> Float64
@@ -227,7 +251,7 @@ end
 # with `FFTW.ESTIMATE` (used once) for data like `proto`.
 function _s_workspace_for(workspace, t::Surfacelet, ::Type{Td}, dims::Dims, proto::AbstractArray) where {Td}
     if workspace === nothing
-        return _workspace_like(proto, make_workspace(t, Td, dims; flags = FFTW.ESTIMATE))
+        return _workspace_like(proto, make_workspace(t, Td, dims; flags = FFTW.ESTIMATE, prewarm = false))
     end
     workspace isa SurfaceletWorkspace ||
         throw(ArgumentError("a Surfacelet needs a SurfaceletWorkspace, got $(typeof(workspace))"))
