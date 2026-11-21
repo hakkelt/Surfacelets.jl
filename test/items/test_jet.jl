@@ -110,7 +110,7 @@ end
     # ── Nonsubsampled directional bank ───────────────────────────────────────
     fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     @test fb isa NDFB
-    @test_call target_modules = M ndfb_sharing(hg, 1)
+    @test_call target_modules = M ndfb_sharing(hg; levels = 1)
     @test_call target_modules = M ndfb_subband_index(fb, 1, 1, 1)
     @test_call target_modules = M ndfb_subband_triple(fb, 1)
     @test_call target_modules = M ndfb_mask(fb, 1)
@@ -173,7 +173,7 @@ end
     # ── Nonsubsampled directional bank ───────────────────────────────────────
     @test_opt target_modules = M make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
     fb = make_ndfb(Float64, dims; levels = 1, bernstein_order = 6)
-    @test_opt target_modules = M ndfb_sharing(hg, 1)
+    @test_opt target_modules = M ndfb_sharing(hg; levels = 1)
     @test_opt target_modules = M ndfb_nsubbands(fb)
     @test_opt target_modules = M ndfb_subband_index(fb, 1, 1, 1)
     @test_opt target_modules = M ndfb_subband_triple(fb, 1)

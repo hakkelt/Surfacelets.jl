@@ -95,20 +95,21 @@ function make_ndfb(
     fb = make_hourglass(
         T, dims; bernstein_order, halfband_order, tight, threaded, flags
     )
-    return ndfb_sharing(fb, levels; halfband_order, transition)
+    return ndfb_sharing(fb; levels, halfband_order, transition)
 end
 
 """
-    ndfb_sharing(fb::HourglassFB, levels::Integer; halfband_order=fb.halfband_order, transition=1.0) -> NDFB
+    ndfb_sharing(fb::HourglassFB; levels = 2, halfband_order = fb.halfband_order, transition = 1.0) -> NDFB
 
 Build a directional bank on top of an *existing* hourglass bank instead of
 planning a new one.  The hourglass stage depends only on the volume size, so a
 multiscale transform can plan it once and vary only the wedge refinement per
 scale — the wedge masks are matrices, so an extra scale costs kilobytes.
+`levels`, `halfband_order` and `transition` are those of [`make_ndfb`](@ref).
 """
 function ndfb_sharing(
-        fb::HourglassFB{T}, levels::Integer;
-        halfband_order::Integer = fb.halfband_order, transition::Real = 1.0
+        fb::HourglassFB{T};
+        levels::Integer = 2, halfband_order::Integer = fb.halfband_order, transition::Real = 1.0
     ) where {T <: AbstractFloat}
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     transition >= 0 || throw(ArgumentError("transition must be ≥ 0"))

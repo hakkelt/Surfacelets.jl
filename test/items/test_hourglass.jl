@@ -243,7 +243,8 @@ end
     fb = make_ndfb((i32(8), i32(8), i32(8)); levels = i32(2), bernstein_order = i32(4), halfband_order = i32(1))
     fbref = make_ndfb((8, 8, 8); levels = 2, bernstein_order = 4, halfband_order = 1)
     @test make_ndfb(i32(8), i32(8), i32(8); levels = 1, bernstein_order = 4).levels == (1, 0)
-    @test ndfb_sharing(hg, i32(2); halfband_order = i32(1)).levels == fb.levels
+    @test ndfb_sharing(hg; levels = i32(2), halfband_order = i32(1)).levels == fb.levels
+    @test ndfb_sharing(hg).levels == (1, 1)
     @test ndfb_subband_index(fb, i32(2), i32(1), i32(2)) === ndfb_subband_index(fbref, 2, 1, 2)
     @test ndfb_subband_triple(fb, i32(5)) === ndfb_subband_triple(fbref, 5)
     @test ndfb_mask(fb, i32(5)) == ndfb_mask(fbref, 5)
