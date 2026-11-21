@@ -18,7 +18,7 @@
 # passband supports are made of) becomes the same ordering condition on the
 # integer sample indices `j_i` — see `mapping_coefficients`.
 #
-# We never materialise the FIR filter.  The 3-D transforms here are
+# We never materialize the FIR filter.  The 3-D transforms here are
 # nonsubsampled with a periodic boundary, so the kernel is only ever needed as
 # its frequency response sampled on the DFT grid, and that can be evaluated
 # exactly and directly from the polynomial — no truncation, no convolution.

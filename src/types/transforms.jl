@@ -1,6 +1,6 @@
 # The two surfacelet transforms as transform objects.
 #
-# The nonsubsampled transform's directional stage is parameterised by a
+# The nonsubsampled transform's directional stage is parameterized by a
 # Bernstein mapping order and a halfband split polynomial — the hourglass
 # partition has no filter-pair description at all, so these parameters have no
 # counterpart in a separable-lattice directional filter bank.  The decimated
@@ -26,7 +26,7 @@ transform is invariant under circular shifts.
 - `order` — Bernstein order of the hourglass mapping kernels; larger sharpens
   the boundaries between directional subbands.
 - `poly` — order of the 1-D halfband split polynomial.
-- `transition` — width of the overlap between neighbouring wedges, as a fraction
+- `transition` — width of the overlap between neighboring wedges, as a fraction
   of the wedge width.
 - `tight` — when `true` (the default) the directional masks are `√W`, which
   makes the whole transform a Parseval frame: `‖Sx‖ = ‖x‖` and the inverse is

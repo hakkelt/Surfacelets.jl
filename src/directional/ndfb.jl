@@ -69,8 +69,8 @@ between the two transverse planes of each hourglass (`l_a = ceil(L/2)`,
 weights are themselves a partition of unity.  `transition`
 is the half-width of the soft step at each wedge boundary, as a fraction of the
 wedge width: `0` gives hard boundaries, `0.5` lets the two steps of a wedge meet
-at its centre, and `1` (the default) ramps across a whole wedge on either side
-of each boundary, so no wedge has a flat passband — a plane wave at the centre
+at its center, and `1` (the default) ramps across a whole wedge on either side
+of each boundary, so no wedge has a flat passband — a plane wave at the center
 of a wedge keeps about 71 % of its energy there at `levels = 2`.
 
 # References
@@ -178,7 +178,7 @@ end
     ndfb_mask(fb::NDFB, idx::Integer) -> Array{T,3}
 
 Frequency-domain analysis mask of directional subband `idx` on the rfft grid.
-For inspection and tests; the transform never materialises one.
+For inspection and tests; the transform never materializes one.
 
 The masks sum to 1 over all subbands when the bank is not tight, and their
 squares sum to 1 when it is.  [`ndfb_weight`](@ref) returns the underlying
@@ -196,7 +196,7 @@ end
     ndfb_weight(fb::NDFB, idx::Integer) -> Array{T,3}
 
 Frequency-domain *weight* of directional subband `idx`, before the `tight`
-normalisation: the hourglass weight times the two wedge factors.  The weights
+normalization: the hourglass weight times the two wedge factors.  The weights
 sum to 1 over all subbands at every frequency.
 """
 function ndfb_weight(fb::NDFB{T}, idx::Integer) where {T}
@@ -228,7 +228,7 @@ _mask_accumulate!(acc, fb::NDFB, spec, i::Int, p::Int, q::Int) =
 All `3 * 2^levels` directional subbands, each the size of `volume`.
 
 Memory warning: at 256³ `Float32` a single subband is 64 MB, so `levels = 3`
-(24 subbands) materialises 1.5 GB.  Use the callback form below to process
+(24 subbands) materializes 1.5 GB.  Use the callback form below to process
 subbands one at a time instead.
 """
 function ndfb_decompose(volume::AbstractArray{Td, 3}, fb::NDFB) where {Td}
@@ -324,7 +324,7 @@ end
 
 # Iterate the subbands in index order, handing `g` the linear index and the
 # (hourglass, p, q) triple that names the mask.  The mask itself is never
-# materialised — see `_mask_multiply!`.
+# materialized — see `_mask_multiply!`.
 function _walk_subbands(g, fb::NDFB)
     na, nb = _wedge_counts(fb)
     for i in 1:3, p in 1:na, q in 1:nb
@@ -373,7 +373,7 @@ end
 
 Streaming reconstruction: `f(k)` must return directional subband `k`.  Subbands
 are consumed one at a time and in index order, so a caller holding them on disk
-or regenerating them never materialises the full set.
+or regenerating them never materializes the full set.
 """
 function ndfb_reconstruct!(f, volume::AbstractArray{<:Number, 3}, fb::NDFB)
     size(volume) == fb.fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
@@ -386,10 +386,10 @@ function ndfb_reconstruct!(f, volume::AbstractArray{<:Number, 3}, fb::NDFB)
         end
         return volume
     end
-    return _ndfb_synthesise!(f, volume, fb)
+    return _ndfb_synthesize!(f, volume, fb)
 end
 
-function _ndfb_synthesise!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T <: AbstractFloat}
+function _ndfb_synthesize!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T <: AbstractFloat}
     hg = fb.fb
     # `work` is the buffer the inverse plan consumes and nothing else uses during
     # synthesis, so the masked spectra accumulate straight into it — no separate
@@ -407,7 +407,7 @@ function _ndfb_synthesise!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T
     return volume
 end
 
-function _ndfb_synthesise!(
+function _ndfb_synthesize!(
         f, volume::AbstractArray{Complex{T}, 3}, fb::NDFB{T}
     ) where {T <: AbstractFloat}
     hg = fb.fb

@@ -142,12 +142,12 @@ end
             return nothing
         end
         @test argmax(e) == predict(k)
-        # The winning wedge must dominate, not merely edge out its neighbours.
+        # The winning wedge must dominate, not merely edge out its neighbors.
         @test e[argmax(e)] / sum(e) > 0.3
     end
 end
 
-@testitem "ndfb — streaming callback matches the materialised subbands" tags = [:directional] begin
+@testitem "ndfb — streaming callback matches the materialized subbands" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
     using Random
     Random.seed!(81)

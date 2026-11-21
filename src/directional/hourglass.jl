@@ -44,12 +44,12 @@
 #     with subband-dependent variance.
 #
 #   * `tight = true` (the default) — the masks are `√W_i`, the pointwise
-#     normalisation SurfBox uses.  Then `Σ (√W_i)² = Σ W_i = 1` identically: a
+#     normalization SurfBox uses.  Then `Σ (√W_i)² = Σ W_i = 1` identically: a
 #     Parseval frame, `Σ_i ‖s_i‖² = ‖x‖²`, and the analysis adjoint is its own
 #     inverse.  Synthesis applies the same masks, so reconstruction costs a
 #     forward transform per subband plus one inverse instead of a bare sum.
 #
-# (SurfBox normalises to `Σ V_i² = N` rather than 1; the two differ only by the
+# (SurfBox normalizes to `Σ V_i² = N` rather than 1; the two differ only by the
 # constant `√N`, and bound 1 is the convention the rest of this package uses.)
 
 """
@@ -114,10 +114,10 @@ Build the 3-D hourglass filter bank for `dims`-sized volumes.
 
 `order` is the Bernstein order `N` of the mapping kernels: larger `N` sharpens
 the transition between hourglass subbands (Lu & Do use `N = 12`, which in their
-FIR realisation corresponds to filters of support up to 61³ — here it costs
+FIR realization corresponds to filters of support up to 61³ — here it costs
 nothing but a slightly longer design step).  `poly` is the order `m` of the 1-D
 halfband split polynomial; larger `m` flattens the response near the passband
-centres.  Neither affects perfect reconstruction, which is exact for any choice.
+centers.  Neither affects perfect reconstruction, which is exact for any choice.
 
 `tight` selects how the three weights become filters.  With `tight = true` (the
 default) the masks are `√W_i`, so the bank is a Parseval frame — analysis
@@ -240,7 +240,7 @@ make_hourglass(n1::Integer, n2::Integer, n3::Integer, ::Type{Td} = Float64; kwar
     hourglass_mask(fb::HourglassFB, i::Integer) -> Array{T,3}
 
 The frequency-domain analysis mask of hourglass subband `i` (1, 2 or 3) on the
-rfft grid.  Materialising it is only useful for inspection and tests — the
+rfft grid.  Materializing it is only useful for inspection and tests — the
 transform derives mask values on the fly.
 
 The three masks sum to 1 at every frequency when `fb.tight` is false, and their
@@ -259,7 +259,7 @@ end
     hourglass_weight(fb::HourglassFB, i::Integer) -> Array{T,3}
 
 The frequency-domain *weight* `W_i` of hourglass subband `i` on the rfft grid,
-before the `tight` normalisation.  The three weights are a partition of unity —
+before the `tight` normalization.  The three weights are a partition of unity —
 `Σ_i W_i = 1` at every frequency — for any `order`/`poly`.
 """
 function hourglass_weight(fb::HourglassFB{T}, i::Integer) where {T}
@@ -271,7 +271,7 @@ function hourglass_weight(fb::HourglassFB{T}, i::Integer) where {T}
 end
 
 # The weights are exact partitions of unity in real arithmetic, but rounding can
-# leave one a few ulps below zero, so the tight normalisation clamps.
+# leave one a few ulps below zero, so the tight normalization clamps.
 @inline _tight_sqrt(x::T) where {T} = sqrt(max(x, zero(T)))
 
 # Stage weights, written as broadcastable scalar functions of the cached f₀
@@ -364,12 +364,12 @@ end
 # two banks differ by which arguments they pass and not by a second copy of the
 # mask expression.  That matters beyond duplication — when `tight` is set the
 # same mask is reapplied on synthesis, so the two expressions drifting apart
-# would break the Parseval normalisation silently.
+# would break the Parseval normalization silently.
 #
 # `_wedge_scale` resolves `nothing` at compile time, so the hourglass bank does
 # not pay two multiplies by an all-ones factor it does not have.
 #
-# The mask is never materialised on the transform paths: at 256³ Float32 it is a
+# The mask is never materialized on the transform paths: at 256³ Float32 it is a
 # 34 MB write followed immediately by a 34 MB read, per subband.  Folding it into
 # the multiply removes both while keeping the expression broadcast-only, which is
 # what the GPU path needs.
@@ -432,10 +432,10 @@ function hourglass_reconstruct!(
         @. volume = s1 + s2 + s3
         return volume
     end
-    return _hourglass_synthesise!(volume, subbands, fb)
+    return _hourglass_synthesize!(volume, subbands, fb)
 end
 
-function _hourglass_synthesise!(
+function _hourglass_synthesize!(
         volume::AbstractArray{T, 3}, subbands, fb::HourglassFB{T}
     ) where {T <: AbstractFloat}
     # `work` is the buffer the inverse plan consumes and nothing else uses during
@@ -452,7 +452,7 @@ function _hourglass_synthesise!(
     return volume
 end
 
-function _hourglass_synthesise!(
+function _hourglass_synthesize!(
         volume::AbstractArray{Complex{T}, 3}, subbands, fb::HourglassFB{T}
     ) where {T <: AbstractFloat}
     # Real and imaginary parts take the identical real kernel, as everywhere

@@ -44,7 +44,7 @@ The pyramid is therefore a tight frame, and so is the hourglass and wedge stage
 with `tight = true`.  The frame bounds of a cascade are the products of its
 stages' bounds (da Cunha, Zhou and Do [4], Proposition 1), so the whole
 transform is a Parseval frame: ``\|Sx\| = \|x\|``, and its inverse is its
-adjoint.  That is what an analysis-sparsity regulariser and a denoiser that
+adjoint.  That is what an analysis-sparsity regularizer and a denoiser that
 thresholds coefficients assume; Lu and Do design the hourglass bank as a
 near-tight frame for the same reasons ("optimality in noise reduction as well
 as numerical stability", [2]).
@@ -87,12 +87,12 @@ spectrum ──┬─ P₁                             (3-D mapping kernel)
 ```
 
 The second stage needs only two frequency variables.  That is not an
-optimisation but a theorem: Lu and Do's Proposition 1 shows the optimal passband
+optimization but a theorem: Lu and Do's Proposition 1 shows the optimal passband
 support for a tree node with index set ``J`` involves ``|J|`` frequency
 variables, so in 3-D the second cut is a 2-D design.
 
 The partition is easiest to see on planes of the frequency cube.  The figure
-colours every frequency by the hourglass whose weight is largest there (the
+colors every frequency by the hourglass whose weight is largest there (the
 counterpart of the hourglass partition figures in Lu and Do's papers), on the
 plane ``\omega_3 = 0`` and on a plane ``\omega_3 = 3\pi/8`` cutting through all
 three:
@@ -161,7 +161,7 @@ evaluating the mapping kernel directly on the DFT grid is *exact* — there is n
 truncation of the FIR filters the paper reports (supports of 37³ for the
 first stage and up to 25×61×61 for the second).
 
-**A partition of unity, normalised into a Parseval frame.**  The 1-D
+**A partition of unity, normalized into a Parseval frame.**  The 1-D
 polynomials used here satisfy ``f_0(x) + f_1(x) = 1`` identically, so the three
 *weights* ``W_k`` sum to 1 at every frequency, for every choice of `order` and
 `poly`.  What the filters do with that partition is the `tight` setting of
@@ -174,7 +174,7 @@ polynomials used here satisfy ``f_0(x) + f_1(x) = 1`` identically, so the three
     arrives with subband-dependent variance.
 
   * `tight = true` (the default) — the masks are ``\sqrt{W_k}``, the pointwise
-    normalisation SurfBox uses.  Then ``\sum_k (\sqrt{W_k})^2 = \sum_k W_k = 1``
+    normalization SurfBox uses.  Then ``\sum_k (\sqrt{W_k})^2 = \sum_k W_k = 1``
     identically: a Parseval frame, ``\sum_k \|s_k\|^2 = \|x\|^2``, with the
     analysis adjoint as its own inverse.  Synthesis reapplies the masks, so it
     costs a forward transform per subband plus one inverse rather than a bare
@@ -185,14 +185,14 @@ dominates the nonsubsampled transform.  At 128³ `Float32` with `J = 2`, `L = [2
 threads: the directional inverse costs 0.294 s tight against 0.096 s loose
 (3.1×), but the full round trip only moves from 0.66 s to 0.76 s (1.15×).
 
-Both are exact.  SurfBox normalises to ``\sum_k V_k^2 = N`` rather than 1 — the
+Both are exact.  SurfBox normalizes to ``\sum_k V_k^2 = N`` rather than 1 — the
 same construction up to the constant ``\sqrt{N}`` — and
 `test/items/test_surfbox_reference.jl` checks both against it.  Whichever
-setting is in use, the deviation from Lu and Do's optimised lifting/ladder
-coefficients costs nothing in frame conditioning; the pointwise normalisation
+setting is in use, the deviation from Lu and Do's optimized lifting/ladder
+coefficients costs nothing in frame conditioning; the pointwise normalization
 reaches tightness on its own.
 
-The normalisation exposes a constraint the plain-sum path hides: each mask must
+The normalization exposes a constraint the plain-sum path hides: each mask must
 be **even** in frequency, or the masked spectrum is not Hermitian and the real
 subband is a lossy record of it.  A plain sum never notices, since the
 individual asymmetries cancel before the inverse transform.  See
@@ -213,7 +213,7 @@ ratios
 s = \omega_a / \omega_i \in [-1, 1], \qquad t = \omega_b / \omega_i \in [-1, 1]
 ```
 
-parameterise direction, and ``l`` levels of refinement cut each into ``2^l``
+parameterize direction, and ``l`` levels of refinement cut each into ``2^l``
 equal slabs.  With ``l_a + l_b = L`` this gives ``2^L`` wedges per hourglass and
 ``3 \cdot 2^L`` directional subbands in total, whose ideal passbands are
 rectangular-based pyramids radiating from the origin.
@@ -235,7 +235,7 @@ perfectly reconstructing — so perfect reconstruction alone does not detect the
 error.  The test suite therefore checks the wedge *index* a plane wave lands in,
 not merely that some subband is large.
 
-The same plane ``\omega_3 = 0`` at ``L = 4`` (``l_a = l_b = 2``), coloured by
+The same plane ``\omega_3 = 0`` at ``L = 4`` (``l_a = l_b = 2``), colored by
 the subband of largest weight, shows the fan of wedges each hourglass is cut
 into — four per hourglass on this plane, since ``\omega_3 = 0`` fixes the second
 transverse ratio:
@@ -382,7 +382,7 @@ V_K = \sqrt{3\, h_K \big/ \textstyle\sum_k h_k},
 
 so ``\sum_K V_K^2 = 3`` exactly and synthesis divides by 3: a tight frame of
 redundancy 3, the minimum for an hourglass partition above two dimensions.  This
-is a different discrete realisation of the hourglass from the Bernstein mapping
+is a different discrete realization of the hourglass from the Bernstein mapping
 kernels the nonsubsampled transform uses; the decimated transform uses
 SurfBox's so that it can match it coefficient for coefficient.  Channel ``K``
 keeps only the non-negative half of axis ``K``, since its output is real.
@@ -392,7 +392,7 @@ keeps only the non-negative half of axis ``K``, since its output is real.
 Inside hourglass ``K``, every other axis ``m`` gets ``l_m`` two-channel
 checkerboard stages on the ``(\omega_K, \omega_m)`` planes, each downsampling
 axis ``m`` by 2.  At stage ``\ell`` axis ``m`` is cut into blocks of
-``b = n_m / 2^\ell`` bins; each pair of neighbouring blocks is one subband of the
+``b = n_m / 2^\ell`` bins; each pair of neighboring blocks is one subband of the
 previous stage, and downsampling folds the pair, ``F_c(A)A + F_c(B)B``, into
 channel ``c``'s half.  The resampling that keeps the iteration on the wedge is
 folded into the filters: the ``g``-th subband of the previous stage uses the
@@ -422,7 +422,7 @@ G_1 = \tfrac{e^{-j\omega_m}}{\sqrt2}(1 - B),
 ```
 
 and since ``t`` has only odd taps, ``B(\omega + \pi e_m) = -B(\omega)``, which
-gives ``H_0 G_0 + H_1 G_1 = 2`` with the alias term cancelling: perfect
+gives ``H_0 G_0 + H_1 G_1 = 2`` with the alias term canceling: perfect
 reconstruction.  The bank is biorthogonal, not orthogonal, so the transform is
 a frame with exact reconstruction whose inverse is not its adjoint.  These
 closed forms reproduce the 2-D filters SurfBox ships (`cbd_filters_<bo>`, orders
@@ -449,7 +449,7 @@ failed by 0.27.
 
 `_wedge_ratio` fixes the sign from the first coordinate that can carry one:
 ``\omega_\mathrm{ref}`` when it is neither 0 nor ``\pi``, and
-``\omega_\mathrm{tr}`` otherwise.  Each factor canonicalises its own plane
+``\omega_\mathrm{tr}`` otherwise.  Each factor canonicalizes its own plane
 independently, so the masks stay separable — the property the GPU path depends
 on — and `ndfb — masks are even in frequency` pins the result.
 
@@ -472,9 +472,9 @@ boxes this transform used before IRC.
 
 **The nonsubsampled transform is checked on its partition**
 (`test/items/test_surfbox_reference.jl`), since its Bernstein hourglass is a
-deliberately different realisation.  What the comparison establishes:
+deliberately different realization.  What the comparison establishes:
 
-  * The tight normalisation matches.  SurfBox's masks satisfy
+  * The tight normalization matches.  SurfBox's masks satisfy
     ``\sum_k V_k^2 = 3`` to machine precision; this package's satisfy
     ``\sum_k V_k^2 = 1``, the same construction scaled by ``\sqrt{3}``.
   * The hourglass geometry agrees.  Over a 32³ grid the two constructions pick
@@ -495,7 +495,7 @@ For the nonsubsampled transform that is as far as the comparison can go: its
 hourglass composes Bernstein mapping polynomials where SurfBox raises a diamond
 kernel's response to a power, and its wedges are directly-placed frequency
 boundaries rather than a resampled checkerboard chain.  Same ideal partition,
-different discrete realisation.
+different discrete realization.
 
 ## References
 

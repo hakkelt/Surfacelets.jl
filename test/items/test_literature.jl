@@ -2,13 +2,13 @@
 # numbers they quote, so that a change to the construction shows up as a
 # deliberate edit to the documentation rather than a silent drift.
 
-@testitem "ndfb — wedge-centre energy follows the transition width" tags = [:directional] begin
+@testitem "ndfb — wedge-center energy follows the transition width" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_decompose
     # `transition` is the half-width of each wedge-boundary step, so at the
-    # default of 1 the steps on either side of a wedge overlap at its centre and
+    # default of 1 the steps on either side of a wedge overlap at its center and
     # no wedge has a flat passband. The `make_ndfb` docstring quotes the 71 %.
     n = 32
-    # Hourglass 1 (ω₁ dominant), both transverse ratios 1/2: the centre of wedge
+    # Hourglass 1 (ω₁ dominant), both transverse ratios 1/2: the center of wedge
     # (p, q) = (2, 2) at `levels = 2`.
     k = (8, 4, 4)
     v = [

@@ -67,7 +67,7 @@ end
     fb = make_hourglass((12, 14, 10), Float64; order = 6, poly = 1)
     @test fb.tight
     m = ntuple(i -> hourglass_mask(fb, i), 3)
-    # sum of squares, not sum, is what is 1 for the tight normalisation
+    # sum of squares, not sum, is what is 1 for the tight normalization
     @test maximum(abs, m[1] .^ 2 .+ m[2] .^ 2 .+ m[3] .^ 2 .- 1) < 1.0e-14
     # ... and it shows up as energy preservation of the analysis operator.
     x = randn(Xoshiro(71), 12, 14, 10)

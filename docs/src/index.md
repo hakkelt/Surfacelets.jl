@@ -24,7 +24,7 @@ subband(t, coeffs, 2)          # the first directional subband; subband 1 is the
 subband_layout(t, size(vol))   # what each subband is
 ```
 
-At working sizes the materialised coefficient set does not fit — at 256³
+At working sizes the materialized coefficient set does not fit — at 256³
 `Float32` with these settings it is 3.1 GB — so the nonsubsampled transform also
 has a streaming form that hands you one subband at a time:
 

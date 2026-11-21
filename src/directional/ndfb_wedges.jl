@@ -4,7 +4,7 @@
 #
 #     s = ω_a / ω_i ∈ [-1, 1],    t = ω_b / ω_i ∈ [-1, 1]
 #
-# parameterise direction, and an `l`-level refinement cuts each into `2^l` equal
+# parameterize direction, and an `l`-level refinement cuts each into `2^l` equal
 # slabs.  Both ratios are invariant under `ω → -ω`, so the masks stay symmetric
 # and real volumes keep real subbands.  Each ratio involves only two frequency
 # axes, so a wedge mask is a *matrix*, not a volume — the whole bank stores
@@ -59,7 +59,7 @@ function _wedge_masks_plane(
 
     nref, ntr = n[ref], n[tr]
     @inbounds for (q, wt) in enumerate(wtr), (p, wr) in enumerate(wref)
-        # Ratio parameterising direction inside the hourglass.
+        # Ratio parameterizing direction inside the hourglass.
         s = _wedge_ratio(wr, wt, _self_conjugate_bin(p, nref), _self_conjugate_bin(q, ntr))
         for k in 1:nw
             flat[k][p, q] = _wedge_weight(s, k, nw, transition, poly)
@@ -73,7 +73,7 @@ end
 # never from the frequency value.  `2π(k - 1)/n` misses `T(π)` by an ulp for
 # roughly half of all even `n` (22, 26, 30, 44, 52, 60, 88, 120, 240, …) — either
 # landing just short of π, or just past it and folding to ≈ -π — so a value
-# comparison silently skips the canonicalisation below at those sizes, and the
+# comparison silently skips the canonicalization below at those sizes, and the
 # `tight = true` bank then loses perfect reconstruction outright.
 @inline _self_conjugate_bin(k::Int, n::Int) = mod(2 * (k - 1), n) == 0
 
@@ -92,7 +92,7 @@ end
 #
 # The fix is to fix the sign from the first coordinate that *can* carry one:
 # `ω_ref` when its bin is not self-conjugate, `ω_tr` otherwise.  When both are
-# self-negating the ratio is constant anyway.  Each factor canonicalises its own
+# self-negating the ratio is constant anyway.  Each factor canonicalizes its own
 # plane, which keeps the masks separable — the property the GPU path depends on.
 @inline function _wedge_ratio(wr::T, wt::T, ref_self::Bool, tr_self::Bool) where {T}
     # ω_ref = 0 is the hourglass apex; the value is arbitrary because the wedge

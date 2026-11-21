@@ -10,7 +10,7 @@
 # 2.  Everything happens in the frequency domain, in place:
 #
 #   * Downsampling by 2 along m folds the spectrum.  At stage `le` axis m is cut
-#     into blocks of `b = n_m / 2^le` bins; each pair of neighbouring blocks
+#     into blocks of `b = n_m / 2^le` bins; each pair of neighboring blocks
 #     (A, B) is one subband at the previous stage, and the two channels' folded
 #     outputs `F_c(A)·A + F_c(B)·B` overwrite A (channel 0) and B (channel 1).
 #
@@ -62,7 +62,7 @@ function _irc_slice(
     end
     sz = ntuple(d -> d == K ? nKh : (d == m ? nm : 1), 3)
     # `S` is indexed (K, m); when m comes first in memory it must be transposed
-    # before the reshape, not merely relabelled.
+    # before the reshape, not merely relabeled.
     return _orient(S, K, m, sz)
 end
 

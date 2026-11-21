@@ -63,7 +63,7 @@ end
 
 # One hourglass at one scale: its half-spectrum, the IRC scratch (half of it), one
 # wedge block, and the real FFTs between a block and its subband, halving axis K.
-# The inverse is unnormalised; the `1/N` rides on the mask.
+# The inverse is unnormalized; the `1/N` rides on the mask.
 #
 # FFTW takes the region `(K, others…)` directly.  The device FFTs (and JLArrays)
 # halve only the first dimension of an increasing region, so for K ≠ 1 there the

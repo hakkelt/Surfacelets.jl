@@ -3,7 +3,7 @@
 # "Multidimensional Directional Filter Banks and Surfacelets", IEEE TIP 16(4),
 # 2007, Section V-A.
 #
-# This is a different realisation of the hourglass partition from the Bernstein
+# This is a different realization of the hourglass partition from the Bernstein
 # mapping kernels of `hourglass.jl`, which the nonsubsampled transform uses.  It
 # is kept separate so the decimated transform reproduces the reference
 # implementation coefficient for coefficient.
@@ -52,7 +52,7 @@ function _ritf_window(::Type{T}, n::Int, beta::Real) where {T}
 end
 
 # Zero-phase response of the diamond kernel.  With u = k₁ + k₂ and v = k₁ - k₂
-# (which must share parity) and `w` even, the double sum factorises into an
+# (which must share parity) and `w` even, the double sum factorizes into an
 # even-tap and an odd-tap part:
 #     D(a, b) = Cₑ(α) Cₑ(β) + Cₒ(α) Cₒ(β),   α = (a + b)/2,  β = (a - b)/2.
 function _ritf_diamond(w::AbstractVector{T}, a::T, b::T) where {T}

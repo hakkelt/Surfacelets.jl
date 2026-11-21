@@ -49,7 +49,7 @@ struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _S
     scales::Vector{C}
     work::Vector{W}         # scales with equal tables share one
     spectra::Vector{A}      # [j] the spectrum entering level j; [end] the coarse lowpass
-    pfwd::F                 # in-place FFT and unnormalised inverse on spectra[1] …
+    pfwd::F                 # in-place FFT and unnormalized inverse on spectra[1] …
     pbwd::G
     cfwd::F                 # … and on the coarse spectrum; each a pair (threaded, serial)
     cbwd::G
@@ -94,7 +94,7 @@ function _surfacelet_workspace(
     }(dims, t, Int(tasks), collect(pyramid), collect(scales), work, spectra, pfwd, pbwd, cfwd, cbwd, layout, offsets, rcoef)
 end
 
-# In-place FFT and unnormalised inverse of `A`, each as a pair: on `tasks` FFTW
+# In-place FFT and unnormalized inverse of `A`, each as a pair: on `tasks` FFTW
 # threads for a threaded call, on one for a serial call (`threaded = false`, or
 # inside a caller's NestedThreading restriction).  A plan keeps the thread count
 # it was made with, so a serial call needs a plan of its own.  One plan serves
@@ -277,7 +277,7 @@ function _surfacelet_forward_body!(c, src, ws::SurfaceletWorkspace, threaded::Bo
     return c
 end
 
-# `store!(X, s)` writes the volume from its unnormalised spectrum `X` and `s = 1/N`.
+# `store!(X, s)` writes the volume from its unnormalized spectrum `X` and `s = 1/N`.
 function _surfacelet_inverse_body!(store!::S, c, ws::SurfaceletWorkspace, threaded::Bool) where {S}
     C = ws.spectra[end]
     C .= subband(c, 1)
@@ -328,7 +328,7 @@ end
 """
     similar_coefficients(t::Surfacelet, x::AbstractArray) -> SubbandVector
 
-Uninitialised coefficients of `t` for volumes like `x`: a `SubbandVector`
+Uninitialized coefficients of `t` for volumes like `x`: a `SubbandVector`
 (MultiscaleTransformsBase) of element type `float(eltype(x))` stored in an array like `x` (host or device),
 with the subbands of [`subband_layout`](@ref subband_layout(::Surfacelet, ::Dims)),
 the lowpass first.

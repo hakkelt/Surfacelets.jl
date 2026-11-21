@@ -344,7 +344,7 @@ MultiscaleFilterBanks.mask_apply!(Z, M::_WedgeMask, Y) = M.unit ? copyto!(Z, Y) 
 MultiscaleFilterBanks.mask_accumulate!(A, M::_WedgeMask, F) = M.unit ? (@.. A += F; A) : _wedge_mul!(A, F, M.wa, M.wb, true)
 
 # The engine passes a scale with the group and lowpass products; it is 1 here
-# (the inverse plan is normalised).
+# (the inverse plan is normalized).
 function MultiscaleFilterBanks.mask_apply!(Z, M::Union{_NSBandMask, _NSLowpassMask, _WedgeMask}, X, s)
     MultiscaleFilterBanks.mask_apply!(Z, M, X)
     isone(s) || (Z .*= s)
@@ -352,7 +352,7 @@ function MultiscaleFilterBanks.mask_apply!(Z, M::Union{_NSBandMask, _NSLowpassMa
 end
 
 # dst = Y·wa·wb, or dst += Y·wa·wb when `add`.  On the host the 3-D broadcast
-# does not vectorise across the singleton axes — it runs at a tenth of a plain
+# does not vectorize across the singleton axes — it runs at a tenth of a plain
 # copy — so the host method walks the columns, each a contiguous 1-D broadcast in
 # which a plane contributes a column or a scalar, through FastBroadcast's `@..`
 # (15–25% faster than Base's broadcast on these columns).
@@ -485,7 +485,7 @@ MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume
 """
     similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> AbstractArray
 
-Uninitialised coefficients of `t` for volumes like `x`: an array like `x` of
+Uninitialized coefficients of `t` for volumes like `x`: an array like `x` of
 size `(size(x)..., nsubbands(t, size(x)))` and element type `float(eltype(x))`,
 whose slice `[:, :, :, i]` is subband `i` of
 [`subband_layout`](@ref subband_layout(::NSSurfacelet, ::Dims)), the lowpass first.
@@ -576,7 +576,7 @@ end
 Streaming synthesis into `x`: `f(i)` must return subband `i` of
 [`subband_layout(t, size(x))`](@ref subband_layout).  It is called once per
 subband, the directional subbands in increasing `i` and then the lowpass, so a
-caller holding the subbands on disk or regenerating them never materialises the
+caller holding the subbands on disk or regenerating them never materializes the
 full set.  The synthesis runs serially: `f` is called from the calling task,
 one subband at a time and in that order.  `threaded` does not apply and is
 ignored.

@@ -4,11 +4,11 @@
 # `test/reference/surfbox_hourglass_32.bin` holds the first hourglass analysis
 # mask of SurfBox's `HourGlassDec` on a 32^3 grid, restricted to the
 # non-negative-frequency octant. `test/reference/gen_surfbox_golden.m`
-# regenerates it. SurfBox normalises pointwise so that `sum_k V_k^2 == 3`; this
+# regenerates it. SurfBox normalizes pointwise so that `sum_k V_k^2 == 3`; this
 # package instead builds a partition of unity, so the comparable quantity is
 # `W_k == V_k^2 / 3`.
 #
-# The two constructions are different discrete realisations of the same ideal
+# The two constructions are different discrete realizations of the same ideal
 # hourglass partition -- SurfBox raises the magnitude response of a
 # Kaiser-windowed diamond kernel to the power lambda, this package composes
 # Bernstein mapping polynomials -- so the masks are compared on geometry
@@ -69,7 +69,7 @@
 
     # The weights are a partition of unity; the analysis masks are their square
     # roots, so this package is tight the same way SurfBox is. The two differ
-    # only in the constant: SurfBox normalises to `sum_k V_k^2 == N`, this
+    # only in the constant: SurfBox normalizes to `sum_k V_k^2 == N`, this
     # package to 1, so `V_surfbox == sqrt(N) * V_mine` up to the transition-band
     # differences measured above.
     unity = w_mine[1] .+ w_mine[2] .+ w_mine[3]
@@ -78,7 +78,7 @@
     parseval = masks[1] .^ 2 .+ masks[2] .^ 2 .+ masks[3] .^ 2
     @test all(x -> isapprox(x, 1.0; atol = 1.0e-12), parseval)
 
-    # Without the normalisation the masks are the weights themselves, and the
+    # Without the normalization the masks are the weights themselves, and the
     # frame-bound ratio is 3 rather than 1.
     loose = make_hourglass((32, 32, 32), Float64; tight = false)
     energy = sum(hourglass_mask(loose, k) .^ 2 for k in 1:3)
@@ -92,7 +92,7 @@ end
 # checkerboard chain, this package's `ndfb` places the same ideal wedge
 # boundaries directly in frequency, and neither orders its subbands the same
 # way -- so the test asks whether the two agree on the *partition* of
-# directions, up to relabelling.
+# directions, up to relabeling.
 
 @testitem "ndfb matches the SurfBox reference wedge partition" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose

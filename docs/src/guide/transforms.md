@@ -21,7 +21,7 @@ decimated      volume ─ Fourier pyramid (resampled by 3/2, 2) ─ ritf + IRC (
 | Use for | analysis, shift-invariant denoising | sparsifying transform in reconstruction |
 
 Choosing: take the decimated transform when memory or iteration cost dominates
-and shift invariance does not matter (e.g. as a regulariser inside an iterative
+and shift invariance does not matter (e.g. as a regularizer inside an iterative
 reconstruction), and the nonsubsampled one when exact shift invariance or a
 Parseval frame is required and the volume is small enough (or the streaming form
 suffices).
@@ -70,8 +70,8 @@ end
 
 With the default `tight = true` the transform is a Parseval frame: the
 coefficients carry exactly the energy of the volume, ``\|Sx\| = \|x\|``, and
-the inverse is the adjoint. That is what an analysis-sparsity regulariser or a
-thresholding denoiser assumes: modified coefficients are synthesised by the
+the inverse is the adjoint. That is what an analysis-sparsity regularizer or a
+thresholding denoiser assumes: modified coefficients are synthesized by the
 adjoint of the analysis, and an error added to them reaches the image with no
 more energy than it had.
 
@@ -110,7 +110,7 @@ println("PR error with workspace: ", maximum(abs, out .- vol))
 ### Streaming — the form to use at working sizes
 
 At 256³ `Float32` one subband is 64 MB, so `J = 3` with `L = [2, 2, 3]`
-materialises 49 volumes — 3.1 GB — before anything is done with them. The
+materializes 49 volumes — 3.1 GB — before anything is done with them. The
 streaming form `analyze(f, t, x)` calls `f(i, band)` once per subband (the
 directional subbands first, the lowpass `i = 1` last) and reuses a single
 buffer, holding two volumes plus the plans.
@@ -308,7 +308,7 @@ savefig("surfacelet_atoms.png"); nothing # hide
 
 Each panel is the central ``x_3`` slice of a different directional subband's
 atom (the `k`-th wedge of the scale, subband `1 + k`), on its own symmetric
-colour scale. Wedges 1 and 3 belong to the first two hourglasses and oscillate
+color scale. Wedges 1 and 3 belong to the first two hourglasses and oscillate
 along their respective axes; wedge 5 belongs to the third, whose axis is
 perpendicular to the slice, so only its transverse envelope remains in-plane.
 

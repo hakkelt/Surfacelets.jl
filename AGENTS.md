@@ -14,7 +14,7 @@ conformance tests (`MultiscaleTransformsBase.Testing.test_transform`).
 
 The nonsubsampled transform is also **streaming**: `analyze(t, vol; workspace = ws) do i, band ... end`
 hands each subband to a callback (`band` is valid only until it returns), because the
-materialised coefficient set does not fit at working sizes (3.1 GB at 256³ `Float32`).
+materialized coefficient set does not fit at working sizes (3.1 GB at 256³ `Float32`).
 
 `Surfacelet` is the decimated counterpart: same frequency partition, each
 subband at its own reduced resolution.  It accepts complex volumes as two real
@@ -168,13 +168,13 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   weights are a partition of unity for any `order`/`poly`, and so are the wedge
   weights, so the products are too. `tight = true` (the default on
   `make_hourglass` / `make_ndfb` / `NSSurfacelet`) takes the masks to be `√W`,
-  which makes `Σ V² = 1` identically — the pointwise normalisation SurfBox uses,
+  which makes `Σ V² = 1` identically — the pointwise normalization SurfBox uses,
   scaled to bound 1 instead of `N`. Analysis then preserves energy, which is what
   thresholding and iterative reconstruction want. The price is synthesis: the masks
   have to be reapplied, so the directional inverse costs a forward transform per
   subband plus one inverse instead of a bare sum. Pass `tight = false` to get the
   partition-of-unity bank back, with a free inverse and a frame-bound ratio of 3.
-  **The normalisation makes mask evenness load-bearing.** A plain sum hides an
+  **The normalization makes mask evenness load-bearing.** A plain sum hides an
   asymmetric mask — `Σ W_k X = X` regardless — but reapplying `√W` requires each
   subband to survive an `irfft`/`rfft` round trip, which requires the mask to be
   even on the self-conjugate planes of the rfft grid. It was not, and PR failed by

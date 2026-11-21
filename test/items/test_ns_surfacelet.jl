@@ -62,7 +62,7 @@ end
     end
 end
 
-@testitem "ns_surfacelet — streaming analysis matches the materialised transform" tags = [:ns_surfacelet] begin
+@testitem "ns_surfacelet — streaming analysis matches the materialized transform" tags = [:ns_surfacelet] begin
     using Random
     Random.seed!(92)
     x = randn(16, 16, 16)
@@ -168,7 +168,7 @@ end
     @test_throws "element type" analyze(t, complex.(x, x); workspace = ws)
     wsj = make_workspace(NSSurfacelet(J = 1, L_array = [1]), Float64, (16, 16, 16))
     @test_throws "the workspace was built for NSSurfacelet(J = 1" analyze(t, x; workspace = wsj)
-    # Per-scale directional depth and the `tight` normalisation are baked into
+    # Per-scale directional depth and the `tight` normalization are baked into
     # the banks, so a workspace for another transform must be rejected rather
     # than silently overriding it.
     wsl = make_workspace(NSSurfacelet(J = 2, L_array = [2, 2], order = 6), Float64, (16, 16, 16))
