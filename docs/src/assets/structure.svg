@@ -46,7 +46,7 @@
     <text class="t" x="56" y="256" text-anchor="middle">coarse</text>
     <text class="s" x="0" y="292">no samplers anywhere: shift invariant, tight</text>
     <text class="s" x="0" y="308">redundancy 1 + Σⱼ 3·2<tspan class="sup">Lⱼ</tspan></text>
-    <text class="s" x="0" y="324">(49 at J = 3, L = [2, 2, 3])</text>
+    <text class="s" x="0" y="324">(49 at direction_levels = [2, 2, 3])</text>
   </g>
 
   <!-- ── Decimated surfacelet ──────────────────────────────────────────── -->
@@ -76,7 +76,7 @@
     <path class="ln" d="M56,214 L56,240"/>
     <text class="t" x="56" y="256" text-anchor="middle">coarse</text>
     <text class="s" x="0" y="292">not shift invariant</text>
-    <text class="s" x="0" y="308">redundancy ≈ 4 (pyr_mode = 1.5),</text>
+    <text class="s" x="0" y="308">redundancy ≈ 4 (pyramid_ratio = 1.5),</text>
     <text class="s" x="0" y="324">whatever the directions</text>
   </g>
 </svg>
