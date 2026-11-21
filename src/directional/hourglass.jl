@@ -106,8 +106,8 @@ Base.eltype(::HourglassFB{T}) where {T} = T
 _fftw_threads(threaded::Union{Bool, Nothing}) = threaded === false ? 1 : Threads.nthreads()
 
 """
-    make_hourglass(dims::NTuple{3,Int}, ::Type{T}=Float64;
-                    order::Int=12, poly::Int=1, tight::Bool=true,
+    make_hourglass(dims::NTuple{3,Integer}, ::Type{T}=Float64;
+                    order::Integer=12, poly::Integer=1, tight::Bool=true,
                     threaded = nothing, flags=FFTW.MEASURE) -> HourglassFB
 
 Build the 3-D hourglass filter bank for `dims`-sized volumes.
@@ -138,13 +138,14 @@ precision; complex volumes are filtered as two real passes, keeping
    [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_hourglass(
-        dims::NTuple{3, Int}, ::Type{T} = Float64;
-        order::Int = 12, poly::Int = 1, tight::Bool = true,
+        dims::NTuple{3, Integer}, ::Type{T} = Float64;
+        order::Integer = 12, poly::Integer = 1, tight::Bool = true,
         threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
+    dims = map(Int, dims)
     n1, n2, n3 = dims
-    m1, m2 = _hourglass_tables(T, dims, order, poly)
+    m1, m2 = _hourglass_tables(T, dims, Int(order), Int(poly))
     rbuf = zeros(T, n1, n2, n3)
     fwd, spec, inv = with_fftw_threads(_fftw_threads(threaded)) do
         f = plan_rfft(rbuf; flags = flags)
@@ -179,7 +180,7 @@ function _hourglass_tables(::Type{T}, dims::NTuple{3, Int}, order::Int, poly::In
 end
 
 function make_hourglass(
-        dims::NTuple{3, Int}, ::Type{Complex{T}}; kwargs...
+        dims::NTuple{3, Integer}, ::Type{Complex{T}}; kwargs...
     ) where {T <: AbstractFloat}
     fb = make_hourglass(dims, T; kwargs...)
     _complex_scratch!(fb)
@@ -232,11 +233,11 @@ function _load_complex_spectra!(fb::HourglassFB{T}, volume::AbstractArray{Comple
     return fb
 end
 
-make_hourglass(n1::Int, n2::Int, n3::Int, ::Type{Td} = Float64; kwargs...) where {Td} =
+make_hourglass(n1::Integer, n2::Integer, n3::Integer, ::Type{Td} = Float64; kwargs...) where {Td} =
     make_hourglass((n1, n2, n3), Td; kwargs...)
 
 """
-    hourglass_mask(fb::HourglassFB, i::Int) -> Array{T,3}
+    hourglass_mask(fb::HourglassFB, i::Integer) -> Array{T,3}
 
 The frequency-domain analysis mask of hourglass subband `i` (1, 2 or 3) on the
 rfft grid.  Materialising it is only useful for inspection and tests — the
@@ -246,23 +247,24 @@ The three masks sum to 1 at every frequency when `fb.tight` is false, and their
 *squares* sum to 1 when it is true.  See [`hourglass_weight`](@ref) for the
 underlying partition of unity in either case.
 """
-function hourglass_mask(fb::HourglassFB{T}, i::Int) where {T}
+function hourglass_mask(fb::HourglassFB{T}, i::Integer) where {T}
     1 <= i <= 3 || throw(ArgumentError("hourglass subband index must be 1, 2 or 3"))
     out = similar(fb.m1)
     # The transform kernel with a unit spectrum: the mask itself.
-    _mask_multiply!(out, fb, true, i)
+    _mask_multiply!(out, fb, true, Int(i))
     return out
 end
 
 """
-    hourglass_weight(fb::HourglassFB, i::Int) -> Array{T,3}
+    hourglass_weight(fb::HourglassFB, i::Integer) -> Array{T,3}
 
 The frequency-domain *weight* `W_i` of hourglass subband `i` on the rfft grid,
 before the `tight` normalisation.  The three weights are a partition of unity —
 `Σ_i W_i = 1` at every frequency — for any `order`/`poly`.
 """
-function hourglass_weight(fb::HourglassFB{T}, i::Int) where {T}
+function hourglass_weight(fb::HourglassFB{T}, i::Integer) where {T}
     1 <= i <= 3 || throw(ArgumentError("hourglass subband index must be 1, 2 or 3"))
+    i = Int(i)
     out = similar(fb.m1)
     @. out = _stage1_weight(fb.m1, i) * _stage2_weight(fb.m2, i)
     return out

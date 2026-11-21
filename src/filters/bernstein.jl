@@ -24,7 +24,7 @@
 # exactly and directly from the polynomial — no truncation, no convolution.
 
 """
-    bernstein_table(N::Int, omega::AbstractVector{T}) -> Matrix{T}
+    bernstein_table(N::Integer, omega::AbstractVector{T}) -> Matrix{T}
 
 Evaluate the order-`N` Bernstein basis at the frequencies `omega`, after the
 change of variables `x = (1 - cos ω) / 2`.  Returns an `(N+1) × length(omega)`
@@ -33,7 +33,8 @@ matrix whose `[j+1, k]` entry is `binomial(N, j) x_k^j (1 - x_k)^(N-j)`.
 The columns sum to 1, so any convex combination of rows stays in `[-1, 1]` when
 the coefficients do — this is what bounds the mapped filter responses.
 """
-function bernstein_table(N::Int, omega::AbstractVector{T}) where {T <: AbstractFloat}
+function bernstein_table(N::Integer, omega::AbstractVector{T}) where {T <: AbstractFloat}
+    N = Int(N)
     N >= 1 || throw(ArgumentError("Bernstein order must be ≥ 1"))
     tbl = Matrix{T}(undef, N + 1, length(omega))
     # The binomial row depends only on `N`, so it is built once rather than per
@@ -54,16 +55,16 @@ end
 _binomial_row(::Type{T}, N::Int) where {T} = T[T(binomial(N, j)) for j in 0:N]
 
 """
-    dft_frequencies(n::Int; half::Bool=false) -> Vector{Float64}
+    dft_frequencies([T = Float64,] n::Integer; half::Bool = false) -> Vector{T}
 
 Angular frequencies of a length-`n` DFT grid, `ω_k = 2π(k-1)/n`.  With
 `half = true` only the `n ÷ 2 + 1` frequencies kept by `rfft` are returned.
 """
-function dft_frequencies(::Type{T}, n::Int; half::Bool = false) where {T <: AbstractFloat}
+function dft_frequencies(::Type{T}, n::Integer; half::Bool = false) where {T <: AbstractFloat}
     m = half ? n ÷ 2 + 1 : n
     return T[2 * T(π) * (k - 1) / n for k in 1:m]
 end
-dft_frequencies(n::Int; half::Bool = false) = dft_frequencies(Float64, n; half = half)
+dft_frequencies(n::Integer; half::Bool = false) = dft_frequencies(Float64, n; half)
 
 # Folded angular frequencies of the DFT grid: ω ∈ (-π, π].  With `half = true`
 # only the non-negative half kept by `rfft` is returned, already in [0, π].
@@ -77,7 +78,7 @@ function _folded_frequencies(::Type{T}, n::Int; half::Bool = false) where {T}
 end
 
 """
-    mapping_coefficients(N::Int, d::Int, group::NTuple) -> Array{Int,d}
+    mapping_coefficients(N::Integer, d::Integer, group::NTuple{G, Integer}) -> Array{Int,d}
 
 Coefficient tensor of the Bernstein mapping kernel whose passband is
 
@@ -90,12 +91,12 @@ Entries are `+1` inside `S`, `-1` outside, and `0` on the boundary, evaluated at
 the Bernstein sample points `j / N`.  Only the ordering of the indices matters,
 which is why the sample points never have to be converted back to frequencies.
 """
-mapping_coefficients(N::Int, d::Int, group::NTuple{G, Int}) where {G} = mapping_coefficients(N, Val(d), group)
+mapping_coefficients(N::Integer, d::Integer, group::NTuple{G, Integer}) where {G} = mapping_coefficients(N, Val(Int(d)), group)
 
-function mapping_coefficients(N::Int, ::Val{d}, group::NTuple{G, Int}) where {d, G}
+function mapping_coefficients(N::Integer, ::Val{d}, group::NTuple{G, Integer}) where {d, G}
     1 <= G < d || throw(ArgumentError("group must be a proper non-empty subset of 1:d"))
     all(g -> 1 <= g <= d, group) || throw(ArgumentError("group indices out of range"))
-    c = Array{Int, d}(undef, ntuple(_ -> N + 1, d))
+    c = Array{Int, d}(undef, ntuple(_ -> Int(N) + 1, d))
     @inbounds for idx in CartesianIndices(c)
         j = Tuple(idx) .- 1
         a = maximum(ntuple(t -> j[group[t]], Val(G)))
@@ -117,17 +118,17 @@ product grid, with `|M| ≤ 1` wherever the coefficients are in `[-1, 1]`.
 Evaluated by successive axis contractions rather than by summing `(N+1)^d`
 separable outer products, so the cost is `O(N · ∏ nᵢ)` and not `O(N^d · ∏ nᵢ)`.
 """
-function mapping_response(coeffs::AbstractArray{<:Real, 1}, tables::Tuple{Matrix{T}}) where {T}
+function mapping_response(coeffs::AbstractArray{<:Real, 1}, tables::Tuple{AbstractMatrix{T}}) where {T}
     return vec(transpose(tables[1]) * T.(coeffs))
 end
 
-function mapping_response(coeffs::AbstractArray{<:Real, 2}, tables::NTuple{2, Matrix{T}}) where {T}
+function mapping_response(coeffs::AbstractArray{<:Real, 2}, tables::NTuple{2, AbstractMatrix{T}}) where {T}
     b1, b2 = tables
     # M[k1, k2] = Σ_{j1, j2} c[j1, j2] b1[j1, k1] b2[j2, k2]
     return transpose(b1) * (T.(coeffs) * b2)
 end
 
-function mapping_response(coeffs::AbstractArray{<:Real, 3}, tables::NTuple{3, Matrix{T}}) where {T}
+function mapping_response(coeffs::AbstractArray{<:Real, 3}, tables::NTuple{3, AbstractMatrix{T}}) where {T}
     b1, b2, b3 = tables
     np1 = size(b1, 1)
     n1, n2, n3 = size(b1, 2), size(b2, 2), size(b3, 2)
@@ -145,7 +146,7 @@ function mapping_response(coeffs::AbstractArray{<:Real, 3}, tables::NTuple{3, Ma
 end
 
 """
-    halfband_split(x, m::Int) -> f₀
+    halfband_split(x, m::Integer) -> f₀
 
 The maximally flat 1-D polynomial used to turn a mapping kernel into a
 two-channel split:
@@ -162,7 +163,8 @@ sum of the subbands.
 `m` controls the transition sharpness: `m = 0` gives `(1+x)/2`, larger `m` is
 flatter at `x = ±1` at the cost of a steeper polynomial.
 """
-function halfband_split(x::T, m::Int) where {T <: Real}
+function halfband_split(x::T, m::Integer) where {T <: Real}
+    m = Int(m)
     m >= 0 || throw(ArgumentError("polynomial order must be ≥ 0"))
     u = (one(T) + x) / 2
     v = (one(T) - x) / 2

@@ -52,8 +52,8 @@ end
 Base.eltype(::NDFB{T}) where {T} = T
 
 """
-    make_ndfb(dims::NTuple{3,Int}, ::Type{T}=Float64;
-                levels::Int=2, order::Int=12, poly::Int=1, tight::Bool=true,
+    make_ndfb(dims::NTuple{3,Integer}, ::Type{T}=Float64;
+                levels::Integer=2, order::Integer=12, poly::Integer=1, tight::Bool=true,
                 transition::Real=1.0, threaded = nothing, flags=FFTW.MEASURE)
 
 Build a 3-D NDFB producing `3 * 2^levels` directional subbands, each the full
@@ -83,8 +83,8 @@ of a wedge keeps about 71 % of its energy there at `levels = 2`.
    [doi:10.1109/TSP.2007.909340](https://doi.org/10.1109/TSP.2007.909340)
 """
 function make_ndfb(
-        dims::NTuple{3, Int}, ::Type{T} = Float64;
-        levels::Int = 2, order::Int = 12, poly::Int = 1, tight::Bool = true,
+        dims::NTuple{3, Integer}, ::Type{T} = Float64;
+        levels::Integer = 2, order::Integer = 12, poly::Integer = 1, tight::Bool = true,
         transition::Real = 1.0,
         threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
@@ -99,7 +99,7 @@ function make_ndfb(
 end
 
 """
-    ndfb_sharing(fb::HourglassFB, levels::Int; poly=fb.poly, transition=1.0) -> NDFB
+    ndfb_sharing(fb::HourglassFB, levels::Integer; poly=fb.poly, transition=1.0) -> NDFB
 
 Build a directional bank on top of an *existing* hourglass bank instead of
 planning a new one.  The hourglass stage depends only on the volume size, so a
@@ -107,21 +107,21 @@ multiscale transform can plan it once and vary only the wedge refinement per
 scale — the wedge masks are matrices, so an extra scale costs kilobytes.
 """
 function ndfb_sharing(
-        fb::HourglassFB{T}, levels::Int;
-        poly::Int = fb.poly, transition::Real = 1.0
+        fb::HourglassFB{T}, levels::Integer;
+        poly::Integer = fb.poly, transition::Real = 1.0
     ) where {T <: AbstractFloat}
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     transition >= 0 || throw(ArgumentError("transition must be ≥ 0"))
-    lev = _wedge_levels(levels)
-    wedges = ntuple(i -> _wedge_masks(fb.dims, i, lev, poly, T(transition)), 3)
+    lev = _wedge_levels(Int(levels))
+    wedges = ntuple(i -> _wedge_masks(fb.dims, i, lev, Int(poly), T(transition)), 3)
     return NDFB{T, typeof(wedges[1][1][1]), typeof(fb)}(fb, lev, wedges)
 end
 
-function make_ndfb(dims::NTuple{3, Int}, ::Type{Complex{T}}; kwargs...) where {T <: AbstractFloat}
+function make_ndfb(dims::NTuple{3, Integer}, ::Type{Complex{T}}; kwargs...) where {T <: AbstractFloat}
     return make_ndfb(dims, T; kwargs...)
 end
 
-make_ndfb(n1::Int, n2::Int, n3::Int, ::Type{Td} = Float64; kwargs...) where {Td} =
+make_ndfb(n1::Integer, n2::Integer, n3::Integer, ::Type{Td} = Float64; kwargs...) where {Td} =
     make_ndfb((n1, n2, n3), Td; kwargs...)
 
 # How many wedges the bank's refinement gives on each transverse plane; the
@@ -153,29 +153,29 @@ Linear index of the subband refining `hourglass` (1-3) at wedge `p` of its first
 transverse plane and wedge `q` of its second.  Subbands are ordered hourglass
 first, then `p`, then `q`.
 """
-function ndfb_subband_index(fb::NDFB, hourglass::Int, p::Int, q::Int)
+function ndfb_subband_index(fb::NDFB, hourglass::Integer, p::Integer, q::Integer)
     na, nb = _wedge_counts(fb)
     1 <= hourglass <= 3 || throw(ArgumentError("hourglass index must be 1, 2 or 3"))
     1 <= p <= na || throw(ArgumentError("wedge index p out of range 1:$(na)"))
     1 <= q <= nb || throw(ArgumentError("wedge index q out of range 1:$(nb)"))
-    return ((hourglass - 1) * na + (p - 1)) * nb + q
+    return ((Int(hourglass) - 1) * na + (Int(p) - 1)) * nb + Int(q)
 end
 
 """
-    ndfb_subband_triple(fb::NDFB, idx::Int) -> (hourglass, p, q)
+    ndfb_subband_triple(fb::NDFB, idx::Integer) -> (hourglass, p, q)
 
 Inverse of [`ndfb_subband_index`](@ref): which hourglass and which wedge of
 each transverse plane subband `idx` refines.  Use it to interpret a subband
 index as a direction.
 """
-function ndfb_subband_triple(fb::NDFB, idx::Int)
+function ndfb_subband_triple(fb::NDFB, idx::Integer)
     na, nb = _wedge_counts(fb)
     1 <= idx <= 3 * na * nb || throw(ArgumentError("subband index out of range"))
-    return _subband_triple(idx, na, nb)
+    return _subband_triple(Int(idx), na, nb)
 end
 
 """
-    ndfb_mask(fb::NDFB, idx::Int) -> Array{T,3}
+    ndfb_mask(fb::NDFB, idx::Integer) -> Array{T,3}
 
 Frequency-domain analysis mask of directional subband `idx` on the rfft grid.
 For inspection and tests; the transform never materialises one.
@@ -184,7 +184,7 @@ The masks sum to 1 over all subbands when the bank is not tight, and their
 squares sum to 1 when it is.  [`ndfb_weight`](@ref) returns the underlying
 partition of unity either way.
 """
-function ndfb_mask(fb::NDFB{T}, idx::Int) where {T}
+function ndfb_mask(fb::NDFB{T}, idx::Integer) where {T}
     i, p, q = ndfb_subband_triple(fb, idx)
     out = similar(fb.fb.m1)
     # The transform kernel with a unit spectrum: the mask itself.
@@ -193,13 +193,13 @@ function ndfb_mask(fb::NDFB{T}, idx::Int) where {T}
 end
 
 """
-    ndfb_weight(fb::NDFB, idx::Int) -> Array{T,3}
+    ndfb_weight(fb::NDFB, idx::Integer) -> Array{T,3}
 
 Frequency-domain *weight* of directional subband `idx`, before the `tight`
 normalisation: the hourglass weight times the two wedge factors.  The weights
 sum to 1 over all subbands at every frequency.
 """
-function ndfb_weight(fb::NDFB{T}, idx::Int) where {T}
+function ndfb_weight(fb::NDFB{T}, idx::Integer) where {T}
     i, p, q = ndfb_subband_triple(fb, idx)
     hg = fb.fb
     wa = fb.wedges[i][1][p]

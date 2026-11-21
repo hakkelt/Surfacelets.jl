@@ -214,3 +214,38 @@ end
     fb = make_hourglass((8, 8, 8), Float64; order = 4)
     @test_throws DimensionMismatch hourglass_decompose(randn(8, 8, 4), fb)
 end
+
+@testitem "public functions take any integer type" tags = [:filters] begin
+    using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight, make_ndfb, ndfb_sharing,
+        ndfb_subband_index, ndfb_subband_triple, ndfb_mask, ndfb_weight
+    i32 = Int32
+    @test Surfacelets.bernstein_table(i32(4), [0.0, 1.0]) == Surfacelets.bernstein_table(4, [0.0, 1.0])
+    @test Surfacelets.dft_frequencies(i32(8)) == Surfacelets.dft_frequencies(8)
+    @test Surfacelets.dft_frequencies(Float32, i32(8); half = true) == Surfacelets.dft_frequencies(Float32, 8; half = true)
+    @test Surfacelets.mapping_coefficients(i32(3), i32(3), (i32(1),)) == Surfacelets.mapping_coefficients(3, 3, (1,))
+    @test Surfacelets.mapping_coefficients(i32(3), Val(2), (i32(1),)) == Surfacelets.mapping_coefficients(3, Val(2), (1,))
+    @test Surfacelets.halfband_split(0.3, i32(2)) == Surfacelets.halfband_split(0.3, 2)
+    # Tables of any matrix type, here views.
+    tbl = Surfacelets.bernstein_table(3, Surfacelets.dft_frequencies(6))
+    c2 = Surfacelets.mapping_coefficients(3, 2, (1,))
+    @test Surfacelets.mapping_response(c2, (view(tbl, :, :), view(tbl, :, :))) ≈ Surfacelets.mapping_response(c2, (tbl, tbl))
+    c3 = Surfacelets.mapping_coefficients(3, 3, (1,))
+    v = view(tbl, :, 1:6)
+    @test Surfacelets.mapping_response(c3, (v, v, v)) ≈ Surfacelets.mapping_response(c3, (tbl, tbl, tbl))
+
+    hg = make_hourglass((i32(8), i32(8), i32(8)); order = i32(4), poly = i32(1))
+    ref = make_hourglass((8, 8, 8); order = 4, poly = 1)
+    @test hg.dims === (8, 8, 8)
+    @test make_hourglass(i32(8), i32(8), i32(8); order = 4).dims === (8, 8, 8)
+    @test hourglass_mask(hg, i32(2)) == hourglass_mask(ref, 2)
+    @test hourglass_weight(hg, i32(3)) == hourglass_weight(ref, 3)
+
+    fb = make_ndfb((i32(8), i32(8), i32(8)); levels = i32(2), order = i32(4), poly = i32(1))
+    fbref = make_ndfb((8, 8, 8); levels = 2, order = 4, poly = 1)
+    @test make_ndfb(i32(8), i32(8), i32(8); levels = 1, order = 4).levels == (1, 0)
+    @test ndfb_sharing(hg, i32(2); poly = i32(1)).levels == fb.levels
+    @test ndfb_subband_index(fb, i32(2), i32(1), i32(2)) === ndfb_subband_index(fbref, 2, 1, 2)
+    @test ndfb_subband_triple(fb, i32(5)) === ndfb_subband_triple(fbref, 5)
+    @test ndfb_mask(fb, i32(5)) == ndfb_mask(fbref, 5)
+    @test ndfb_weight(fb, i32(5)) == ndfb_weight(fbref, 5)
+end
