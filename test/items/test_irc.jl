@@ -165,7 +165,7 @@ end
     L212 = [-1 2 1; 1 -1 2; 2 1 -1]
     for (tag, n, mode, Ls, bo) in (("m15", 48, 1.5, [L111, L111], 8), ("m2", 64, 2, [L212, L111], 4))
         x = testvol(n)
-        t = Surfacelet(J = 2, L_array = Ls, pyr_mode = mode, bo = bo)
+        t = Surfacelet(scales = 2, direction_levels = Ls, pyramid_ratio = mode, checkerboard_order = bo)
         c = analyze(t, x)
         for (i, d) in enumerate(subband_layout(t, size(x)))
             i == 1 && continue
@@ -182,7 +182,7 @@ end
     # SurfBox at 96³, pyramid mode 1.5: 24 directions per scale over three
     # scales, and 96 over two — about 4 either way, flat in the direction count.
     for (nm, Lm, J) in (("d24", [-1 1 2; 2 -1 1; 1 2 -1], 3), ("d96", [-1 2 3; 3 -1 2; 2 3 -1], 2))
-        t = Surfacelet(J = J, L_array = fill(Lm, J), bo = 4)
+        t = Surfacelet(scales = J, direction_levels = fill(Lm, J), checkerboard_order = 4)
         @test surfacelet_redundancy(t, (96, 96, 96)) ≈ golden["red_96_$(nm)"][1]
     end
 end

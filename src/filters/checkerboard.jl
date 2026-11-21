@@ -55,14 +55,15 @@ const _CBD_LADDER = Dict{Int, Vector{Float64}}(
 """
     checkerboard_orders() -> Vector{Int}
 
-Orders `bo` for which checkerboard filters are available (4, 6, …, 18).
+The values of `checkerboard_order` for which checkerboard filters are
+available (4, 6, …, 18).
 """
 checkerboard_orders() = sort!(collect(keys(_CBD_LADDER)))
 
 function _cbd_ladder(bo::Int)
     t = get(_CBD_LADDER, bo, nothing)
     t === nothing &&
-        throw(ArgumentError("checkerboard filter order must be one of $(checkerboard_orders()), got $(bo)"))
+        throw(ArgumentError("checkerboard_order must be one of $(checkerboard_orders()), got $(bo)"))
     return t
 end
 

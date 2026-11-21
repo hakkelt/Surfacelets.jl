@@ -37,7 +37,7 @@ end
     # Lu & Do (2007), Theorem 1: an L-level NDFB in 3-D has 3·2^L subbands,
     # split between the two transverse planes of each hourglass.
     for L in 0:5
-        fb = make_ndfb((8, 8, 8), Float64; levels = L, order = 4)
+        fb = make_ndfb((8, 8, 8), Float64; levels = L, bernstein_order = 4)
         @test ndfb_nsubbands(fb) == 3 * 2^L
         @test sum(fb.levels) == L
         @test fb.levels[1] - fb.levels[2] in (0, 1)
@@ -51,7 +51,7 @@ end
     dims = (192, 192, 192)
     for (mode, r) in ((1, 6.4), (1.5, 4.0), (2, 3.4))
         for L in ([1, 1, 1], [3, 3, 3])
-            t = Surfacelet(J = 3, L_array = L, pyr_mode = mode, bo = 4)
+            t = Surfacelet(scales = 3, direction_levels = L, pyramid_ratio = mode, checkerboard_order = 4)
             @test isapprox(surfacelet_redundancy(t, dims), r; atol = 0.1)
         end
     end
@@ -59,8 +59,8 @@ end
 
 @testitem "positional-size convenience constructors" tags = [:directional] begin
     using Surfacelets: make_hourglass, make_ndfb, ndfb_nsubbands
-    @test make_hourglass(8, 10, 12; order = 4).dims == (8, 10, 12)
-    @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, order = 4)) == 6
+    @test make_hourglass(8, 10, 12; bernstein_order = 4).dims == (8, 10, 12)
+    @test ndfb_nsubbands(make_ndfb(8, 10, 12; levels = 1, bernstein_order = 4)) == 6
 
 end
 
@@ -76,7 +76,7 @@ end
 
 @testitem "ndfb_decompose! — wrong number of destination subbands" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_decompose!
-    fb = make_ndfb((8, 8, 8), Float64; levels = 1, order = 4)
+    fb = make_ndfb((8, 8, 8), Float64; levels = 1, bernstein_order = 4)
     x = randn(8, 8, 8)
     @test_throws DimensionMismatch ndfb_decompose!([similar(x)], x, fb)
 end

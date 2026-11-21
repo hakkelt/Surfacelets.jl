@@ -1,13 +1,13 @@
 @testitem "NSSurfacelet — construction, validation and equality" tags = [:ns_surfacelet] begin
     using MultiscaleTransformsBase: supports_streaming
-    t = NSSurfacelet(J = 3, L_array = [1, 2, 2])
-    @test t.J == 3
-    @test t.L_array == [1, 2, 2]
-    @test t == NSSurfacelet(J = 3, L_array = [1, 2, 2])
-    @test hash(t) == hash(NSSurfacelet(J = 3, L_array = Int32[1, 2, 2]))
-    @test t != NSSurfacelet(J = 3, L_array = [1, 2, 2], tight = false)
-    @test t != NSSurfacelet(J = 3, L_array = [1, 2, 2], transition = 0.5)
-    @test sprint(show, t) == "NSSurfacelet(J = 3, L_array = [1, 2, 2], order = 12, poly = 1, transition = 1.0, tight = true)"
+    t = NSSurfacelet(scales = 3, direction_levels = [1, 2, 2])
+    @test t.scales == 3
+    @test t.direction_levels == [1, 2, 2]
+    @test t == NSSurfacelet(scales = 3, direction_levels = [1, 2, 2])
+    @test hash(t) == hash(NSSurfacelet(scales = 3, direction_levels = Int32[1, 2, 2]))
+    @test t != NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], tight = false)
+    @test t != NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], transition = 0.5)
+    @test sprint(show, t) == "NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], bernstein_order = 12, halfband_order = 1, transition = 1.0, tight = true)"
     layout = subband_layout(t, (16, 16, 16))
     @test nsubbands(t, (16, 16, 16)) == length(layout) == 1 + 6 + 12 + 12
     @test layout[1] == (scale = 4, direction = 0)
@@ -15,12 +15,12 @@
     @test layout[8] == (scale = 2, direction = 1)
     @test supports_streaming(t) === true
     @test_throws "three axes" subband_layout(t, (16, 16))
-    @test_throws "J must be ≥ 1" NSSurfacelet(J = 0, L_array = Int[])
-    @test_throws "length(L_array) must equal J" NSSurfacelet(J = 2, L_array = [1])
-    @test_throws "L_array entries must be ≥ 0" NSSurfacelet(J = 1, L_array = [-1])
-    @test_throws "order must be ≥ 1" NSSurfacelet(J = 1, L_array = [1], order = 0)
-    @test_throws "poly must be ≥ 0" NSSurfacelet(J = 1, L_array = [1], poly = -1)
-    @test_throws "transition must be ≥ 0" NSSurfacelet(J = 1, L_array = [1], transition = -1)
+    @test_throws "scales must be ≥ 1" NSSurfacelet(scales = 0, direction_levels = Int[])
+    @test_throws "length(direction_levels) must equal scales" NSSurfacelet(scales = 2, direction_levels = [1])
+    @test_throws "direction_levels entries must be ≥ 0" NSSurfacelet(scales = 1, direction_levels = [-1])
+    @test_throws "bernstein_order must be ≥ 1" NSSurfacelet(scales = 1, direction_levels = [1], bernstein_order = 0)
+    @test_throws "halfband_order must be ≥ 0" NSSurfacelet(scales = 1, direction_levels = [1], halfband_order = -1)
+    @test_throws "transition must be ≥ 0" NSSurfacelet(scales = 1, direction_levels = [1], transition = -1)
 end
 
 @testitem "ns_surfacelet — perfect reconstruction" tags = [:ns_surfacelet] begin
@@ -29,7 +29,7 @@ end
     for dims in ((16, 16, 16), (12, 20, 8))
         x = randn(dims...)
         for (J, L) in ((1, [0]), (2, [1, 2]), (3, [1, 1, 2]))
-            t = NSSurfacelet(J = J, L_array = L, order = 6)
+            t = NSSurfacelet(scales = J, direction_levels = L, bernstein_order = 6)
             c = analyze(t, x)
             n = nsubbands(t, dims)
             @test n == 1 + sum(l -> 3 * 2^l, L)
@@ -43,7 +43,7 @@ end
     using Random
     Random.seed!(91)
     x = randn(16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     s = (3, -2, 5)
     a = analyze(t, x)
     b = analyze(t, circshift(x, s))
@@ -54,7 +54,7 @@ end
 
 @testitem "ns_surfacelet — a constant volume stays in the coarse residual" tags = [:ns_surfacelet] begin
     x = fill(1.75, 16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     c = analyze(t, x)
     @test maximum(abs, subband(t, c, 1) .- 1.75) < 1.0e-12
     for i in 2:nsubbands(t, size(x))
@@ -66,7 +66,7 @@ end
     using Random
     Random.seed!(92)
     x = randn(16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     ref = analyze(t, x)
     seen = Int[]
     r = analyze(t, x) do i, band
@@ -83,7 +83,7 @@ end
     using Random
     Random.seed!(93)
     x = randn(16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     c = analyze(t, x)
     r = similar(x)
     @test synthesize!(i -> subband(t, c, i), r, t) === r
@@ -94,7 +94,7 @@ end
 @testitem "ns_surfacelet — streaming complex and wrapped volumes" tags = [:ns_surfacelet] begin
     using Random
     rng = Xoshiro(96)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     z = complex.(randn(rng, 16, 16, 16), randn(rng, 16, 16, 16))
     for tasks in (1, 2)
         ws = make_workspace(t, z; tasks)
@@ -127,7 +127,7 @@ end
     using Random
     Random.seed!(94)
     xr = randn(16, 16, 16); xi = randn(16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     cc = analyze(t, complex.(xr, xi))
     cr = analyze(t, xr)
     ci = analyze(t, xi)
@@ -141,7 +141,7 @@ end
     using Random
     Random.seed!(95)
     x = randn(Float32, 16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     c = analyze(t, x)
     @test eltype(c) == Float32
     @test eltype(subband(t, c, 1)) == Float32
@@ -152,7 +152,7 @@ end
     using Random
     Random.seed!(96)
     x = randn(16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     ws = make_workspace(t, Float64, (16, 16, 16))
     @test transform(ws) === t && eltype(ws) == Float64 && size(ws) == (16, 16, 16)
     n = nsubbands(t, size(x))
@@ -166,14 +166,14 @@ end
 
     @test_throws DimensionMismatch analyze(t, randn(8, 8, 8); workspace = ws)
     @test_throws "element type" analyze(t, complex.(x, x); workspace = ws)
-    wsj = make_workspace(NSSurfacelet(J = 1, L_array = [1]), Float64, (16, 16, 16))
-    @test_throws "the workspace was built for NSSurfacelet(J = 1" analyze(t, x; workspace = wsj)
+    wsj = make_workspace(NSSurfacelet(scales = 1, direction_levels = [1]), Float64, (16, 16, 16))
+    @test_throws "the workspace was built for NSSurfacelet(scales = 1" analyze(t, x; workspace = wsj)
     # Per-scale directional depth and the `tight` normalization are baked into
     # the banks, so a workspace for another transform must be rejected rather
     # than silently overriding it.
-    wsl = make_workspace(NSSurfacelet(J = 2, L_array = [2, 2], order = 6), Float64, (16, 16, 16))
+    wsl = make_workspace(NSSurfacelet(scales = 2, direction_levels = [2, 2], bernstein_order = 6), Float64, (16, 16, 16))
     @test_throws ArgumentError analyze(t, x; workspace = wsl)
-    wst = make_workspace(NSSurfacelet(J = 2, L_array = [1, 2], order = 6, tight = false), Float64, (16, 16, 16))
+    wst = make_workspace(NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6, tight = false), Float64, (16, 16, 16))
     @test_throws ArgumentError analyze(t, x; workspace = wst)
     @test_throws "three axes" make_workspace(t, Float64, (16, 16))
     @test_throws "tasks must be ≥ 1" make_workspace(t, Float64, (16, 16, 16); tasks = 0)
@@ -184,7 +184,7 @@ end
 @testitem "ns_surfacelet — fewer tasks give identical coefficients" tags = [:ns_surfacelet] begin
     using Random
     x = randn(Xoshiro(15), 16, 12, 20)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     n = nsubbands(t, size(x))
     for Td in (Float64, ComplexF64)
         xd = Td.(x .+ (Td <: Complex ? 0.5im .* reverse(x; dims = 1) : 0))
@@ -207,7 +207,7 @@ end
     # ‖Sx‖ = ‖x‖ and ⟨Sx, c⟩ = ⟨x, S⁻¹c⟩ for random coefficients c: the inverse is
     # the adjoint.  Odd and short axes included (a cardiac axis has 8 bins).
     for dims in ((16, 16, 16), (15, 20, 8)), (J, L) in ((1, [1]), (3, [1, 1, 2]))
-        t = NSSurfacelet(J = J, L_array = L, order = 6)
+        t = NSSurfacelet(scales = J, direction_levels = L, bernstein_order = 6)
         n = nsubbands(t, dims)
         inner(a, b) = sum(i -> dot(subband(t, a, i), subband(t, b, i)), 1:n)
         x = randn(dims...)
@@ -226,11 +226,11 @@ end
     using Random
     # At 8 bins the third level's lowpass passes DC alone, which the fourth keeps
     # whole: scale 4 would be identically zero.
-    t = NSSurfacelet(J = 4, L_array = [0, 0, 0, 0], order = 4)
+    t = NSSurfacelet(scales = 4, direction_levels = [0, 0, 0, 0], bernstein_order = 4)
     @test_throws "too small for 4 scales" make_workspace(t, Float64, (8, 8, 8))
     # A short axis alone is not refused while the others still split the band.
     x = randn(Xoshiro(3), 32, 32, 8)
-    q = NSSurfacelet(J = 3, L_array = [0, 1, 1], order = 4)
+    q = NSSurfacelet(scales = 3, direction_levels = [0, 1, 1], bernstein_order = 4)
     c = analyze(q, x)
     layout = subband_layout(q, size(x))
     @test all(j -> maximum(abs, subband(q, c, findfirst(==((scale = j, direction = 1)), layout))) > 0, 1:3)
@@ -241,7 +241,7 @@ end
     using Random
     for (Td, tight) in ((Float64, true), (Float64, false), (ComplexF64, true))
         x = randn(Xoshiro(7), Td, 16, 12, 20)
-        t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6, tight = tight)
+        t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6, tight = tight)
         n = nsubbands(t, size(x))
         ws = make_workspace(t, x)
         wu = make_workspace(t, x; cache_bandpass = false)
@@ -259,7 +259,7 @@ end
 @testitem "ns_surfacelet — adapting a workspace to the host keeps it" tags = [:ns_surfacelet] begin
     using Adapt, Random
     x = randn(Xoshiro(11), 16, 16, 16)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     n = nsubbands(t, size(x))
     for cache in (true, false), tasks in (nothing, 1)
         ws = make_workspace(t, x; cache_bandpass = cache, tasks)
@@ -281,7 +281,7 @@ end
     # through the workspace's one-task path; an integer volume is copied into a
     # real buffer first.  Both give the threaded path's result exactly.
     x = randn(Xoshiro(13), 12, 16, 10)
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     n = nsubbands(t, size(x))
     ws = make_workspace(t, x)
     c = analyze(t, x; workspace = ws)
@@ -297,4 +297,14 @@ end
     ci = analyze(t, xi; workspace = ws)
     cf = analyze(t, float.(xi); workspace = ws)
     @test all(i -> subband(t, ci, i) == subband(t, cf, i), 1:n)
+end
+
+@testitem "NSSurfacelet — scales and direction_levels default from each other" tags = [:ns_surfacelet] begin
+    @test NSSurfacelet(scales = 4).direction_levels == [2, 2, 1, 1]
+    @test NSSurfacelet(scales = Int32(1)).direction_levels == [1]
+    @test NSSurfacelet(direction_levels = [1, 2]).scales == 2
+    @test NSSurfacelet(direction_levels = [1, 2]) == NSSurfacelet(scales = 2, direction_levels = [1, 2])
+    @test_throws "length(direction_levels) must equal scales" NSSurfacelet(scales = 3, direction_levels = [1, 2])
+    @test_throws "give `scales`, `direction_levels` or both" NSSurfacelet()
+    @test_throws "scales must be ≥ 1" NSSurfacelet(scales = 0)
 end

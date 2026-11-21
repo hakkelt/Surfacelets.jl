@@ -36,7 +36,7 @@ function _pyramid_mode(mode::Real)
     mode == 1 && return ((1 // 2, 1 // 4), (1 // 6, 1 // 12), (1 // 1, 2 // 1))
     mode == 1.5 && return ((1 // 2, 3 // 8), (1 // 7, 1 // 9), (3 // 2, 2 // 1))
     mode == 2 && return ((1 // 3, 1 // 3), (1 // 7, 1 // 7), (2 // 1, 2 // 1))
-    throw(ArgumentError("pyramid mode must be 1, 1.5 or 2, got $(mode)"))
+    throw(ArgumentError("pyramid_ratio must be 1, 1.5 or 2, got $(mode)"))
 end
 
 _rcos(x::T) where {T} = x <= 0 ? zero(T) : (x >= 1 ? one(T) : (1 - cospi(x)) / 2)

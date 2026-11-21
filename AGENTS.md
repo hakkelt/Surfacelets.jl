@@ -165,7 +165,7 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   reconstructs perfectly. Directional tests must assert the *index* of the subband
   a plane wave lands in.
 - **The directional bank is a Parseval frame by default.** The three hourglass
-  weights are a partition of unity for any `order`/`poly`, and so are the wedge
+  weights are a partition of unity for any `bernstein_order`/`halfband_order`, and so are the wedge
   weights, so the products are too. `tight = true` (the default on
   `make_hourglass` / `make_ndfb` / `NSSurfacelet`) takes the masks to be `√W`,
   which makes `Σ V² = 1` identically — the pointwise normalization SurfBox uses,

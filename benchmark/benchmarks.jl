@@ -42,7 +42,7 @@ for n in (32, 64)
 
     # ── NSSurfacelet ────────────────────────────────────────────────────────────────
     SUITE["NSSurfacelet"][sz_str] = BenchmarkGroup()
-    t = NSSurfacelet(J = 2, L_array = [1, 2], order = 12)
+    t = NSSurfacelet(direction_levels = [1, 2], bernstein_order = 12)
     ws = make_workspace(t, Float32, (n, n, n); flags = FFTW.ESTIMATE)
     SUITE["NSSurfacelet"][sz_str]["forward"] = @benchmarkable analyze($t, $vol)
     SUITE["NSSurfacelet"][sz_str]["forward (workspace)"] =
@@ -58,9 +58,9 @@ for n in (32, 64)
         @benchmarkable synthesize!($out, $t, $coeffs; workspace = $ws)
 
     # ── Decimated surfacelet (IRC) ───────────────────────────────────────────────
-    # pyr_mode = 2 so the power-of-two sizes divide; mode 1.5 needs a factor 3.
+    # pyramid_ratio = 2 so the power-of-two sizes divide; mode 1.5 needs a factor 3.
     SUITE["Surfacelet"][sz_str] = BenchmarkGroup()
-    st = Surfacelet(J = 2, L_array = [1, 2], pyr_mode = 2)
+    st = Surfacelet(direction_levels = [1, 2], pyramid_ratio = 2)
     sws = make_workspace(st, Float32, (n, n, n))
     SUITE["Surfacelet"][sz_str]["forward"] = @benchmarkable analyze($st, $vol; workspace = $sws)
     scoeffs = analyze(st, vol; workspace = sws)
@@ -69,11 +69,11 @@ for n in (32, 64)
     # ── NDFB ───────────────────────────────────────────────────────────────
     SUITE["NDFB"][sz_str] = BenchmarkGroup()
     for L in (1, 3)
-        fb = make_ndfb((n, n, n), Float32; levels = L, order = 12, flags = FFTW.ESTIMATE)
+        fb = make_ndfb((n, n, n), Float32; levels = L, bernstein_order = 12, flags = FFTW.ESTIMATE)
         SUITE["NDFB"][sz_str]["L=$(L) forward (streaming)"] =
             @benchmarkable ndfb_decompose((k, b) -> nothing, $vol, $fb)
     end
-    hg = make_hourglass((n, n, n), Float32; order = 12, flags = FFTW.ESTIMATE)
+    hg = make_hourglass((n, n, n), Float32; bernstein_order = 12, flags = FFTW.ESTIMATE)
     dsts = ntuple(_ -> similar(vol), 3)
     SUITE["NDFB"][sz_str]["hourglass forward"] =
         @benchmarkable hourglass_decompose!($dsts, $vol, $hg)

@@ -16,7 +16,7 @@ Pkg.add("Surfacelets")
 using Surfacelets
 
 vol    = randn(Float32, 128, 128, 128)
-t      = NSSurfacelet(J = 3, L_array = [2, 2, 3])   # 48 directional subbands
+t      = NSSurfacelet(scales = 3, direction_levels = [2, 2, 3])   # 48 directional subbands
 
 coeffs = analyze(t, vol)
 rec    = synthesize(t, coeffs)
@@ -45,7 +45,7 @@ Sizes must suit its 3/2 pyramid — divisible by 3, then by 2 per further scale:
 
 ```julia
 vol    = randn(Float32, 192, 192, 192)
-st     = Surfacelet(J = 3, L_array = [2, 2, 3])
+st     = Surfacelet(scales = 3, direction_levels = [2, 2, 3])
 sws    = make_workspace(st, vol)
 sc     = analyze(st, vol; workspace = sws)
 vol_r  = synthesize(st, sc; workspace = sws)
@@ -56,7 +56,7 @@ vol_r  = synthesize(st, sc; workspace = sws)
 | | [`NSSurfacelet`](@ref) | [`Surfacelet`](@ref) |
 |---|---|---|
 | Subband sizes | all equal to the input | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 4 (`pyr_mode = 1.5`), flat in the direction count |
+| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `direction_levels = [2, 2, 3]`) | ≈ 4 (`pyramid_ratio = 1.5`), flat in the direction count |
 | Shift invariance | exact | no — decimation breaks it |
 | Frame | tight (Parseval) | biorthogonal, perfect reconstruction |
 | Streaming form | yes, one subband at a time | not needed, the set fits |

@@ -6,7 +6,7 @@ using PrecompileTools: @setup_workload, @compile_workload
     # for a size nobody asked for.
     vol = zeros(Float64, 8, 8, 8)
     vol[4, 4, 4] = 1.0
-    t = NSSurfacelet(J = 1, L_array = [1], order = 4)
+    t = NSSurfacelet(direction_levels = [1], bernstein_order = 4)
     @compile_workload begin
         # The allocating round trip, the workspace path and the streaming form,
         # which is the entry point at working sizes.

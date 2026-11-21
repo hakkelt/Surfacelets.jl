@@ -29,7 +29,7 @@ contourlets are built; they use a frequency-domain pyramid "conceptually similar
 to the one used in the steerable pyramid" (Section VI-A of the paper [1]), whose
 lowpass ``L`` has a smooth transition band and whose highpass is
 ``\sqrt{1 - L^2}``.  The nonsubsampled transform uses that pyramid without its
-downsampling, with SurfBox's mode-1 band edges (`pyr_mode = 1` in
+downsampling, with SurfBox's mode-1 band edges (`pyramid_ratio = 1` in
 [Multiscale pyramid](@ref)): level ``j`` applies the separable raised-cosine
 lowpass ``\ell_j`` with cutoff ``w_j = 2^{-j}`` and transition
 ``w_j/3`` (in units of ``\pi``), and
@@ -119,7 +119,7 @@ dominant(planes) = map(I -> argmax([P[I] for P in planes]), CartesianIndices(fir
 ```@example theory
 using Surfacelets: make_hourglass, hourglass_weight
 n  = 64
-hg = make_hourglass((n, n, n), Float64; order = 12)
+hg = make_hourglass((n, n, n), Float64; bernstein_order = 12)
 w  = [hourglass_weight(hg, i) for i in 1:3]
 f  = ((-n ÷ 2):(n ÷ 2 - 1)) ./ (n ÷ 2)          # frequency in units of π
 
@@ -163,8 +163,8 @@ first stage and up to 25×61×61 for the second).
 
 **A partition of unity, normalized into a Parseval frame.**  The 1-D
 polynomials used here satisfy ``f_0(x) + f_1(x) = 1`` identically, so the three
-*weights* ``W_k`` sum to 1 at every frequency, for every choice of `order` and
-`poly`.  What the filters do with that partition is the `tight` setting of
+*weights* ``W_k`` sum to 1 at every frequency, for every choice of `bernstein_order` and
+`halfband_order`.  What the filters do with that partition is the `tight` setting of
 [`make_hourglass`](@ref):
 
   * `tight = false` — the masks are the weights themselves.  The synthesis
@@ -181,7 +181,7 @@ polynomials used here satisfy ``f_0(x) + f_1(x) = 1`` identically, so the three
     sum.
 
 The price is smaller than the extra transforms suggest, because the pyramid
-dominates the nonsubsampled transform.  At 128³ `Float32` with `J = 2`, `L = [2, 2]` and 8 FFTW
+dominates the nonsubsampled transform.  At 128³ `Float32` with `direction_levels = [2, 2]` and 8 FFTW
 threads: the directional inverse costs 0.294 s tight against 0.096 s loose
 (3.1×), but the full round trip only moves from 0.66 s to 0.76 s (1.15×).
 
@@ -199,7 +199,7 @@ individual asymmetries cancel before the inverse transform.  See
 "[A sign trap on the DFT grid](@ref sign-trap)" below — the same trap, in the same place,
 for the same reason.
 
-`order` (the Bernstein order ``N``) controls how sharply the subbands separate.
+`bernstein_order` (the Bernstein order ``N``) controls how sharply the subbands separate.
 Larger ``N`` converges to the ideal indicator; the deviation from it falls
 monotonically, from about 0.095 mean absolute error at ``N = 4`` to 0.024 at
 ``N = 20``.
@@ -242,7 +242,7 @@ transverse ratio:
 
 ```@example theory
 using Surfacelets: make_ndfb, ndfb_weight, ndfb_nsubbands
-fb = make_ndfb((n, n, n), Float64; levels = 4, order = 12)
+fb = make_ndfb((n, n, n), Float64; levels = 4, bernstein_order = 12)
 wk = [fullplane(ndfb_weight(fb, k), 0) for k in 1:ndfb_nsubbands(fb)]
 heatmap(f, f, permutedims(dominant(wk)); color = :turbo, aspect_ratio = :equal,
     xlabel = "ω₁/π", ylabel = "ω₂/π", title = "dominant NDFB subband, ω₃ = 0",
@@ -259,7 +259,7 @@ a ``L = 2`` bank carries more than half the weight:
 
 ```@example theory
 m   = 32
-fb2 = make_ndfb((m, m, m), Float64; levels = 2, order = 12)
+fb2 = make_ndfb((m, m, m), Float64; levels = 2, bernstein_order = 12)
 W   = ndfb_weight(fb2, 1)                     # hourglass 1, wedge (1, 1)
 fold(k, len) = (k - 1 <= len ÷ 2 ? k - 1 : k - 1 - len) / (len ÷ 2)
 pts = [
@@ -287,7 +287,7 @@ volume ─ pyramid ─┬─ coarse ─→ next scale
 
 Every coefficient array keeps the size of the input, so the transform is exactly
 shift-invariant — and correspondingly redundant: ``1 + \sum_j 3 \cdot 2^{L_j}``
-copies of the input.  For ``J = 3`` and ``L = [2, 2, 3]`` that is 49 volumes,
+copies of the input.  For `direction_levels = [2, 2, 3]` that is 49 volumes,
 3.1 GB at 256³ `Float32`.  The streaming form of [`analyze`](@ref) exists
 for this reason: it holds one subband at a time.
 
@@ -310,7 +310,7 @@ using CUDA, Adapt, Surfacelets
 using CUDA: CuArray
 import Adapt
 
-t  = NSSurfacelet(J = 2, L_array = [2, 2])
+t  = NSSurfacelet(scales = 2, direction_levels = [2, 2])
 ws = Adapt.adapt(CuArray, make_workspace(t, Float32, (128, 128, 128)))
 c  = analyze(t, CuArray(vol); workspace = ws)
 ```
@@ -359,9 +359,10 @@ and 0 beyond ``\pi(w + t)``:
 Because ``L`` vanishes before ``\pi/D``, cropping the spectrum to ``n/D`` bins is
 an exact, alias-free downsampling — even by the non-integer factor ``D = 3/2`` —
 and ``L^2 + (1 - L^2) = 1`` makes every level tight.  The highpass stays at full
-resolution and feeds the directional stage.  SurfBox's three modes:
+resolution and feeds the directional stage.  SurfBox's three modes
+(`pyramid_ratio`, SurfBox's `Pyr_mode`):
 
-| `pyr_mode` | first level ``(w, t, D)`` | later levels | redundancy (3-D) |
+| `pyramid_ratio` | first level ``(w, t, D)`` | later levels | redundancy (3-D) |
 |------------|---------------------------|--------------|------------------|
 | 1          | ``(1/2, 1/6, 1)``         | ``(1/4, 1/12, 2)`` | ≈ 6.4 |
 | 1.5        | ``(1/2, 1/7, 3/2)``       | ``(3/8, 1/9, 2)``  | ≈ 4.0 |
@@ -370,8 +371,9 @@ resolution and feeds the directional stage.  SurfBox's three modes:
 ### Hourglass stage ("ritf")
 
 A 2-D diamond kernel ``m(k_1, k_2) = w(k_1 + k_2)\, w(k_1 - k_2)``, with ``w`` a
-Kaiser-windowed half-band sinc of length `msize`, has a zero-phase response
-``D(\omega_a, \omega_b)``.  Raised to the even power ``\lambda`` and shifted by
+Kaiser-windowed half-band sinc of length `diamond_length` (SurfBox's `msize`) and
+Kaiser parameter `kaiser_beta`, has a zero-phase response
+``D(\omega_a, \omega_b)``.  Raised to the even power ``\lambda`` (`diamond_power`) and shifted by
 ``\pi`` along one axis it is a two-sided bow tie around that axis, and the
 product over the other planes gives the hourglass weight
 

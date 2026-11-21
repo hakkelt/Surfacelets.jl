@@ -1,7 +1,7 @@
 @testitem "ndfb — subband counting and index round trip" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_subband_triple
     for L in 0:3
-        fb = make_ndfb((8, 8, 8), Float64; levels = L, order = 4)
+        fb = make_ndfb((8, 8, 8), Float64; levels = L, bernstein_order = 4)
         @test ndfb_nsubbands(fb) == 3 * 2^L
         na, nb = 1 << fb.levels[1], 1 << fb.levels[2]
         @test na * nb == 2^L
@@ -13,7 +13,7 @@
         end
         @test sort(seen) == collect(1:ndfb_nsubbands(fb))
     end
-    fb = make_ndfb((8, 8, 8), Float64; levels = 2, order = 4)
+    fb = make_ndfb((8, 8, 8), Float64; levels = 2, bernstein_order = 4)
     @test_throws ArgumentError ndfb_subband_index(fb, 4, 1, 1)
     @test_throws ArgumentError ndfb_subband_index(fb, 1, 99, 1)
     @test_throws ArgumentError ndfb_subband_triple(fb, 0)
@@ -23,7 +23,7 @@ end
 @testitem "ndfb — weights are a partition of unity" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_mask, ndfb_weight
     for L in 0:3
-        fb = make_ndfb((10, 12, 8), Float64; levels = L, order = 6)
+        fb = make_ndfb((10, 12, 8), Float64; levels = L, bernstein_order = 6)
         total = sum(ndfb_weight(fb, i) for i in 1:ndfb_nsubbands(fb))
         @test maximum(abs, total .- 1) < 1.0e-13
         # Tight by default, so it is the squares of the masks that sum to 1.
@@ -37,12 +37,12 @@ end
     using Random
     x = randn(Xoshiro(81), 16, 16, 16)
     for L in 0:3
-        fb = make_ndfb(size(x), Float64; levels = L, order = 6)
+        fb = make_ndfb(size(x), Float64; levels = L, bernstein_order = 6)
         s = ndfb_decompose(x, fb)
         @test abs(sum(sum(abs2, b) for b in s) / sum(abs2, x) - 1) < 1.0e-12
         @test maximum(abs, ndfb_reconstruct(s, fb) .- x) < 1.0e-12
     end
-    loose = make_ndfb(size(x), Float64; levels = 2, order = 6, tight = false)
+    loose = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6, tight = false)
     sl = ndfb_decompose(x, loose)
     @test sum(sum(abs2, b) for b in sl) / sum(abs2, x) < 0.9
     @test maximum(abs, ndfb_reconstruct(sl, loose) .- x) < 1.0e-12
@@ -58,7 +58,7 @@ end
     # value rather than by index misses both, and the tight bank then silently
     # loses perfect reconstruction — so all three sizes are pinned here.
     for n in (12, 26, 30)
-        fb = make_ndfb((n, n, n), Float64; levels = 2, order = 6)
+        fb = make_ndfb((n, n, n), Float64; levels = 2, bernstein_order = 6)
         neg(i) = mod(1 - i, n) + 1
         for idx in 1:ndfb_nsubbands(fb)
             m = ndfb_mask(fb, idx)
@@ -80,7 +80,7 @@ end
     for dims in ((30, 16, 16), (16, 30, 16), (16, 16, 30), (26, 26, 26), (60, 16, 16))
         x = randn(Xoshiro(83), dims...)
         for L in 1:3
-            fb = make_ndfb(dims, Float64; levels = L, order = 6)
+            fb = make_ndfb(dims, Float64; levels = L, bernstein_order = 6)
             s = ndfb_decompose(x, fb)
             @test maximum(abs, ndfb_reconstruct(s, fb) .- x) < 1.0e-11
             @test abs(sum(sum(abs2, b) for b in s) / sum(abs2, x) - 1) < 1.0e-11
@@ -90,7 +90,7 @@ end
 
 @testitem "ndfb — wedges of one hourglass sum to that hourglass weight" tags = [:directional] begin
     using Surfacelets: hourglass_weight, make_ndfb, ndfb_subband_index, ndfb_weight
-    fb = make_ndfb((12, 12, 12), Float64; levels = 3, order = 6)
+    fb = make_ndfb((12, 12, 12), Float64; levels = 3, bernstein_order = 6)
     na, nb = 1 << fb.levels[1], 1 << fb.levels[2]
     for i in 1:3
         acc = sum(
@@ -108,7 +108,7 @@ end
     for dims in ((16, 16, 16), (12, 20, 8))
         x = randn(dims...)
         for L in 0:3, tr in (0.0, 0.5, 1.0)
-            fb = make_ndfb(dims, Float64; levels = L, order = 6, transition = tr)
+            fb = make_ndfb(dims, Float64; levels = L, bernstein_order = 6, transition = tr)
             s = ndfb_decompose(x, fb)
             @test length(s) == ndfb_nsubbands(fb)
             @test maximum(abs, ndfb_reconstruct(s, fb) .- x) < 1.0e-12
@@ -119,7 +119,7 @@ end
 @testitem "ndfb — plane waves land in the predicted wedge" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_subband_index, ndfb_decompose
     n = 32
-    fb = make_ndfb((n, n, n), Float64; levels = 4, order = 12, transition = 0.5)
+    fb = make_ndfb((n, n, n), Float64; levels = 4, bernstein_order = 12, transition = 0.5)
     la, lb = fb.levels
     transverse(i) = i == 1 ? (2, 3) : (i == 2 ? (1, 3) : (1, 2))
     function predict(k)
@@ -152,7 +152,7 @@ end
     using Random
     Random.seed!(81)
     x = randn(16, 16, 16)
-    fb = make_ndfb(size(x), Float64; levels = 2, order = 6)
+    fb = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6)
     ref = ndfb_decompose(x, fb)
     seen = Int[]
     ndfb_decompose(x, fb) do idx, band
@@ -169,7 +169,7 @@ end
     using Random
     Random.seed!(82)
     x = randn(16, 16, 16)
-    fb = make_ndfb(size(x), Float64; levels = 2, order = 6)
+    fb = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6)
     dst = [similar(x) for _ in 1:ndfb_nsubbands(fb)]
     ndfb_decompose!(dst, x, fb)
     ref = ndfb_decompose(x, fb)
@@ -183,7 +183,7 @@ end
     using Random
     Random.seed!(83)
     x = randn(16, 16, 16)
-    fb = make_ndfb(size(x), Float64; levels = 2, order = 6)
+    fb = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6)
     s = (5, -3, 2)
     a = ndfb_decompose(x, fb)
     b = ndfb_decompose(circshift(x, s), fb)
@@ -197,7 +197,7 @@ end
     using Random
     Random.seed!(84)
     xr = randn(16, 16, 16); xi = randn(16, 16, 16)
-    fb = make_ndfb(size(xr), ComplexF64; levels = 2, order = 6)
+    fb = make_ndfb(size(xr), ComplexF64; levels = 2, bernstein_order = 6)
     sc = ndfb_decompose(complex.(xr, xi), fb)
     sr = ndfb_decompose(xr, fb)
     si = ndfb_decompose(xi, fb)
@@ -212,7 +212,7 @@ end
     using Random
     Random.seed!(85)
     x = randn(Float32, 16, 16, 16)
-    fb = make_ndfb(size(x), Float32; levels = 2, order = 6)
+    fb = make_ndfb(size(x), Float32; levels = 2, bernstein_order = 6)
     @test eltype(fb) == Float32
     s = ndfb_decompose(x, fb)
     @test all(b -> eltype(b) == Float32, s)
@@ -221,7 +221,7 @@ end
 
 @testitem "ndfb — dimension validation" tags = [:directional] begin
     using Surfacelets: make_ndfb, ndfb_decompose
-    fb = make_ndfb((8, 8, 8), Float64; levels = 1, order = 4)
+    fb = make_ndfb((8, 8, 8), Float64; levels = 1, bernstein_order = 4)
     @test_throws DimensionMismatch ndfb_decompose(randn(8, 8, 4), fb)
     @test_throws DimensionMismatch ndfb_decompose((i, b) -> nothing, randn(4, 8, 8), fb)
 end

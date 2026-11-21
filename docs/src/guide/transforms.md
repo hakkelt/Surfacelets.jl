@@ -13,7 +13,7 @@ decimated      volume ─ Fourier pyramid (resampled by 3/2, 2) ─ ritf + IRC (
 | | [`NSSurfacelet`](@ref) | [`Surfacelet`](@ref) |
 |---|---|---|
 | Subband sizes | all equal to the input | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `J=3`, `L=[2,2,3]`) | ≈ 4 (`pyr_mode = 1.5`), whatever the directions |
+| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `direction_levels = [2, 2, 3]`) | ≈ 4 (`pyramid_ratio = 1.5`), whatever the directions |
 | Shift invariance | exact | no — decimation breaks it |
 | Frame | tight (Parseval) | biorthogonal, perfect reconstruction |
 | Streaming form | yes, one subband at a time | not needed, the set fits |
@@ -55,14 +55,14 @@ Plots.default(show = false)
 using Surfacelets, Random, Statistics
 
 vol = randn(Xoshiro(1), 32, 32, 32)
-t   = NSSurfacelet(J = 2, L_array = [1, 2])
+t   = NSSurfacelet(scales = 2, direction_levels = [1, 2])
 
 c   = analyze(t, vol)
 rec = synthesize(t, c)
 
 println("PR error: ", maximum(abs, rec .- vol))
 layout = subband_layout(t, size(vol))
-for j in 1:t.J
+for j in 1:t.scales
     println("scale $j: $(count(d -> d.scale == j, layout)) subbands of $(size(subband(t, c, 2)))")
 end
 @assert maximum(abs, rec .- vol) < 1e-12
@@ -109,7 +109,7 @@ println("PR error with workspace: ", maximum(abs, out .- vol))
 
 ### Streaming — the form to use at working sizes
 
-At 256³ `Float32` one subband is 64 MB, so `J = 3` with `L = [2, 2, 3]`
+At 256³ `Float32` one subband is 64 MB, so `direction_levels = [2, 2, 3]`
 materializes 49 volumes — 3.1 GB — before anything is done with them. The
 streaming form `analyze(f, t, x)` calls `f(i, band)` once per subband (the
 directional subbands first, the lowpass `i = 1` last) and reuses a single
@@ -163,7 +163,7 @@ That makes it a free correctness check on code built on top.
 ```@example guide
 xr = randn(Xoshiro(2), 16, 16, 16)
 xi = randn(Xoshiro(3), 16, 16, 16)
-t1 = NSSurfacelet(J = 1, L_array = [1])
+t1 = NSSurfacelet(scales = 1, direction_levels = [1])
 
 cc = analyze(t1, complex.(xr, xi))
 cr = analyze(t1, xr)
@@ -187,7 +187,7 @@ SurfBox, stage by stage, and reproduces its coefficients to rounding error:
    which refine it into wedges *and decimate critically* — each wedge is sampled
    on a lattice aligned with it.
 
-Sizes must suit the pyramid: with the default `pyr_mode = 1.5` the first level
+Sizes must suit the pyramid: with the default `pyramid_ratio = 1.5` the first level
 resamples by 3/2, so every dimension must be divisible by 3 and then by 2 once
 per further scale. [`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray))
 builds the pyramid profiles, hourglass masks and checkerboard filter slices, and
@@ -201,7 +201,7 @@ transformed as two real channels, exactly real-linearly.
 
 ```@example guide
 svol = randn(Xoshiro(3), 48, 48, 48)
-st   = Surfacelet(J = 2, L_array = [1, 2])
+st   = Surfacelet(scales = 2, direction_levels = [1, 2])
 sws  = make_workspace(st, svol)
 
 sc = analyze(st, svol; workspace = sws)   # allocates the coefficients once
@@ -223,7 +223,7 @@ frequency shell.
 slayout = subband_layout(st, size(svol))
 println("volume:  ", size(svol))
 println("coarse:  ", size(subband(st, sc, 1)))
-for j in 1:st.J
+for j in 1:st.scales
     idx = findall(d -> d.scale == j, slayout)
     println("scale $j: ", length(idx), " subbands, sizes ",
         unique(size(subband(st, sc, i)) for i in idx))
@@ -240,7 +240,7 @@ redundancy does not grow with the direction count:
 
 ```@example guide
 for L in ([1, 1], [2, 2], [3, 3], [4, 4])
-    sp = Surfacelet(J = 2, L_array = L, bo = 4)
+    sp = Surfacelet(scales = 2, direction_levels = L, checkerboard_order = 4)
     println("L = $L: ", lpad(3 * 2^L[1], 3), " + ", lpad(3 * 2^L[2], 3),
         " subbands → redundancy ", round(surfacelet_redundancy(sp, (96, 96, 96)), digits = 3),
         "   (nonsubsampled: ", 1 + sum(3 * 2^l for l in L), ")")
@@ -252,8 +252,8 @@ The pyramid mode is the redundancy dial — 1, 1.5 and 2 give about 6.4, 4.0 and
 
 ```@example guide
 for mode in (1, 1.5, 2)
-    sp = Surfacelet(J = 3, L_array = [2, 2, 2], pyr_mode = mode, bo = 4)
-    println("pyr_mode = $mode → redundancy ", round(surfacelet_redundancy(sp, (96, 96, 96)), digits = 2))
+    sp = Surfacelet(scales = 3, direction_levels = [2, 2, 2], pyramid_ratio = mode, checkerboard_order = 4)
+    println("pyramid_ratio = $mode → redundancy ", round(surfacelet_redundancy(sp, (96, 96, 96)), digits = 2))
 end
 ```
 
@@ -269,7 +269,7 @@ energy = sum(i -> sum(abs2, subband(st, sc, i)), eachindex(slayout))
 println("Σ‖sᵢ‖² / ‖x‖² = ", round(energy / sum(abs2, svol), digits = 3))
 ```
 
-Higher filter orders `bo` (4 to 18, default 12) are sharper directionally. They
+Higher filter orders `checkerboard_order` (4 to 18, default 12) are sharper directionally. They
 cost nothing extra here: the filters are evaluated in closed form on the
 frequency grid, which also lifts SurfBox's restriction that every block be wider
 than the spatial filter.
@@ -284,7 +284,7 @@ wedge and oscillating along the wedge axis.
 using Plots
 Plots.default(show = false)
 
-atom_t  = Surfacelet(J = 1, L_array = [1])
+atom_t  = Surfacelet(scales = 1, direction_levels = [1])
 atom_ws = make_workspace(atom_t, Float64, (48, 48, 48))
 
 function atom(k)
@@ -367,7 +367,7 @@ wave48 = [
     cospi(2 * (3 * (i - 1) + 7 * (j - 1) + 19 * (l - 1)) / m48)
         for i in 1:m48, j in 1:m48, l in 1:m48
 ]
-wt = Surfacelet(J = 1, L_array = [2])
+wt = Surfacelet(scales = 1, direction_levels = [2])
 wc = analyze(wt, wave48)
 
 wlayout = subband_layout(wt, size(wave48))

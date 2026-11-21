@@ -1,11 +1,11 @@
 @testitem "Surfacelet — construction, validation and equality" tags = [:surfacelet] begin
     using MultiscaleTransformsBase: supports_streaming
-    t = Surfacelet(J = 2, L_array = [1, 2])
-    @test t.J == 2
-    @test t == Surfacelet(J = 2, L_array = Int8[1, 2])
-    @test hash(t) == hash(Surfacelet(J = 2, L_array = [1, 2]))
-    @test t != Surfacelet(J = 2, L_array = [1, 2], bo = 8)
-    @test sprint(show, t) == "Surfacelet(J = 2, L_array = [1, 2], pyr_mode = 1.5, bo = 12, msize = 15, beta = 2.5, lambda = 4)"
+    t = Surfacelet(scales = 2, direction_levels = [1, 2])
+    @test t.scales == 2
+    @test t == Surfacelet(scales = 2, direction_levels = Int8[1, 2])
+    @test hash(t) == hash(Surfacelet(scales = 2, direction_levels = [1, 2]))
+    @test t != Surfacelet(scales = 2, direction_levels = [1, 2], checkerboard_order = 8)
+    @test sprint(show, t) == "Surfacelet(scales = 2, direction_levels = [1, 2], pyramid_ratio = 1.5, checkerboard_order = 12, diamond_length = 15, kaiser_beta = 2.5, diamond_power = 4)"
     layout = subband_layout(t, (48, 48, 48))
     @test layout[1] == (scale = 3, hourglass = 0, wedge = 0)
     @test layout[2] == (scale = 1, hourglass = 1, wedge = 1)
@@ -14,28 +14,28 @@
     @test nsubbands(t, (48, 48, 48)) == 19
     @test supports_streaming(t) === false
     # A SurfBox level matrix: row K is the stage count per axis in hourglass K.
-    q = Surfacelet(J = 1, L_array = [[-1 2 1; 1 -1 2; 2 1 -1]])
+    q = Surfacelet(scales = 1, direction_levels = [[-1 2 1; 1 -1 2; 2 1 -1]])
     @test q.levels[1] == ((0, 2, 1), (1, 0, 2), (2, 1, 0))
     @test nsubbands(q, (96, 96, 96)) == 25
     # The levels as given keep a concrete-enough element type: integers or matrices.
-    @test eltype(t.L_array) == Union{Int, Matrix{Int}}
-    @test t.L_array == [1, 2]
-    @test q.L_array[1] isa Matrix{Int}
-    mixed = Surfacelet(J = 2, L_array = Any[Int8(1), Int32[-1 2 1; 1 -1 2; 2 1 -1]])
-    @test mixed.L_array[1] === 1
-    @test mixed.L_array[2] isa Matrix{Int}
+    @test eltype(t.direction_levels) == Union{Int, Matrix{Int}}
+    @test t.direction_levels == [1, 2]
+    @test q.direction_levels[1] isa Matrix{Int}
+    mixed = Surfacelet(scales = 2, direction_levels = Any[Int8(1), Int32[-1 2 1; 1 -1 2; 2 1 -1]])
+    @test mixed.direction_levels[1] === 1
+    @test mixed.direction_levels[2] isa Matrix{Int}
     @test mixed.levels == [t.levels[1], q.levels[1]]
     @test checkerboard_orders() == collect(4:2:18)
-    @test_throws "J must be ≥ 1" Surfacelet(J = 0, L_array = Int[])
-    @test_throws "length(L_array) must equal J" Surfacelet(J = 2, L_array = [1])
-    @test_throws "directional levels must be ≥ 0" Surfacelet(J = 1, L_array = [-1])
-    @test_throws "3 × 3" Surfacelet(J = 1, L_array = [ones(Int, 2, 2)])
-    @test_throws "integer or a 3 × 3" Surfacelet(J = 1, L_array = [1.5])
-    @test_throws "pyramid mode" Surfacelet(J = 1, L_array = [1], pyr_mode = 3)
-    @test_throws ArgumentError Surfacelet(J = 1, L_array = [1], bo = 5)
-    @test_throws "msize" Surfacelet(J = 1, L_array = [1], msize = 14)
-    @test_throws "beta" Surfacelet(J = 1, L_array = [1], beta = 0)
-    @test_throws "lambda" Surfacelet(J = 1, L_array = [1], lambda = 3)
+    @test_throws "scales must be ≥ 1" Surfacelet(scales = 0, direction_levels = Int[])
+    @test_throws "length(direction_levels) must equal scales" Surfacelet(scales = 2, direction_levels = [1])
+    @test_throws "directional levels must be ≥ 0" Surfacelet(scales = 1, direction_levels = [-1])
+    @test_throws "3 × 3" Surfacelet(scales = 1, direction_levels = [ones(Int, 2, 2)])
+    @test_throws "integer or a 3 × 3" Surfacelet(scales = 1, direction_levels = [1.5])
+    @test_throws "pyramid_ratio" Surfacelet(scales = 1, direction_levels = [1], pyramid_ratio = 3)
+    @test_throws "checkerboard_order must be one of" Surfacelet(scales = 1, direction_levels = [1], checkerboard_order = 5)
+    @test_throws "diamond_length" Surfacelet(scales = 1, direction_levels = [1], diamond_length = 14)
+    @test_throws "kaiser_beta" Surfacelet(scales = 1, direction_levels = [1], kaiser_beta = 0)
+    @test_throws "diamond_power" Surfacelet(scales = 1, direction_levels = [1], diamond_power = 3)
 end
 
 @testitem "surfacelet — perfect reconstruction" tags = [:surfacelet] begin
@@ -51,7 +51,7 @@ end
     )
     for (dims, mode, J, L, bo) in cases
         x = randn(rng, dims...)
-        t = Surfacelet(J = J, L_array = L, pyr_mode = mode, bo = bo)
+        t = Surfacelet(scales = J, direction_levels = L, pyramid_ratio = mode, checkerboard_order = bo)
         ws = make_workspace(t, Float64, dims)
         c = analyze(t, x; workspace = ws)
         n = nsubbands(t, dims)
@@ -63,7 +63,7 @@ end
 @testitem "surfacelet — threaded and serial runs agree" tags = [:surfacelet] begin
     using Random
     x = randn(Xoshiro(5), 48, 24, 36)
-    t = Surfacelet(J = 2, L_array = [1, 2])
+    t = Surfacelet(scales = 2, direction_levels = [1, 2])
     n = nsubbands(t, size(x))
     ws = make_workspace(t, x)
     c = analyze(t, x; workspace = ws)
@@ -74,13 +74,13 @@ end
         @test d ≈ c
         @test synthesize(t, d; workspace = q, threaded) ≈ synthesize(t, c; workspace = ws)
     end
-    @test_throws "tasks must be ≥ 1" make_workspace(Surfacelet(J = 1, L_array = [1]), Float64, (24, 24, 24); tasks = 0)
+    @test_throws "tasks must be ≥ 1" make_workspace(Surfacelet(scales = 1, direction_levels = [1]), Float64, (24, 24, 24); tasks = 0)
 end
 
 @testitem "surfacelet — works without a caller-supplied workspace" tags = [:surfacelet] begin
     using Random
     x = randn(Xoshiro(101), 24, 24, 24)
-    t = Surfacelet(J = 1, L_array = [1])
+    t = Surfacelet(scales = 1, direction_levels = [1])
     c = analyze(t, x)
     @test c.layout.signal_size == size(x)
     @test maximum(abs, synthesize(t, c) .- x) < 1.0e-11
@@ -92,7 +92,7 @@ end
     for T in (Float64, Float32)
         xr = randn(rng, T, 48, 24, 36); xi = randn(rng, T, 48, 24, 36)
         z = complex.(xr, xi)
-        t = Surfacelet(J = 2, L_array = [1, 2])
+        t = Surfacelet(scales = 2, direction_levels = [1, 2])
         n = nsubbands(t, size(z))
         cc = analyze(t, z)
         @test eltype(cc) == Complex{T}
@@ -114,11 +114,11 @@ end
     # stages decimate by 2 per split.  So redundancy is 3 per scale times the
     # pyramid's geometric sum, and does not depend on the directional levels.
     dims = (96, 96, 96)
-    red(L) = surfacelet_redundancy(Surfacelet(J = 2, L_array = L, bo = 4), dims)
+    red(L) = surfacelet_redundancy(Surfacelet(scales = 2, direction_levels = L, checkerboard_order = 4), dims)
     @test red([1, 1]) == red([3, 2]) == red([4, 4])
     # Mode 1.5: scale 1 at 96³, scale 2 at 64³, coarse at 32³.
     @test red([1, 1]) ≈ 3 + 3 * (64 / 96)^3 + (32 / 96)^3
-    t = Surfacelet(J = 1, L_array = [2])
+    t = Surfacelet(scales = 1, direction_levels = [2])
     c = analyze(t, randn(dims...))
     for K in 1:3
         bands = [subband(t, c, 1 + i) for i in (4K - 3):(4K)]
@@ -131,7 +131,7 @@ end
 
 @testitem "surfacelet — a plane wave lands in its own hourglass" tags = [:surfacelet] begin
     n = 48
-    t = Surfacelet(J = 1, L_array = [2])
+    t = Surfacelet(scales = 1, direction_levels = [2])
     ws = make_workspace(t, Float64, (n, n, n))
     for (k, K) in (((14, 3, 2), 1), ((2, 15, 4), 2), ((3, -2, 13), 3))
         v = [
@@ -150,7 +150,7 @@ end
 @testitem "surfacelet — a constant volume lands in the coarse subband" tags = [:surfacelet] begin
     dims = (48, 48, 48)
     x = fill(0.5, dims)
-    t = Surfacelet(J = 2, L_array = [1, 1])
+    t = Surfacelet(scales = 2, direction_levels = [1, 1])
     ws = make_workspace(t, Float64, dims)
     c = analyze(t, x; workspace = ws)
     for i in 2:nsubbands(t, dims)
@@ -163,7 +163,7 @@ end
     using Random
     dims = (24, 24, 24)
     x = randn(Xoshiro(103), Float32, dims...)
-    t = Surfacelet(J = 1, L_array = [1])
+    t = Surfacelet(scales = 1, direction_levels = [1])
     ws = make_workspace(t, Float32, dims)
     c = analyze(t, x; workspace = ws)
     @test eltype(c) == Float32
@@ -173,26 +173,26 @@ end
 @testitem "surfacelet — validation" tags = [:surfacelet] begin
     using Random
     dims = (24, 24, 24)
-    t = Surfacelet(J = 1, L_array = [1])
+    t = Surfacelet(scales = 1, direction_levels = [1])
     ws = make_workspace(t, Float64, dims)
     @test transform(ws) === t && size(ws) == dims && eltype(ws) == Float64
     # 1.5 does not divide 20, and 2^4 does not divide 24.
     @test_throws ArgumentError make_workspace(t, Float64, (20, 24, 24))
-    @test_throws ArgumentError make_workspace(Surfacelet(J = 1, L_array = [7]), Float64, dims)
-    @test_throws ArgumentError subband_layout(Surfacelet(J = 1, L_array = [7]), dims)
+    @test_throws ArgumentError make_workspace(Surfacelet(scales = 1, direction_levels = [7]), Float64, dims)
+    @test_throws ArgumentError subband_layout(Surfacelet(scales = 1, direction_levels = [7]), dims)
     @test_throws "three axes" make_workspace(t, Float64, (24, 24))
     @test_throws DimensionMismatch analyze(t, randn(48, 48, 48); workspace = ws)
-    @test_throws "the workspace was built for Surfacelet(J = 1" analyze(Surfacelet(J = 1, L_array = [2]), randn(dims...); workspace = ws)
+    @test_throws "the workspace was built for Surfacelet(scales = 1" analyze(Surfacelet(scales = 1, direction_levels = [2]), randn(dims...); workspace = ws)
     c = analyze(t, randn(Xoshiro(104), dims...); workspace = ws)
-    @test_throws "subband layout" synthesize(t, similar_coefficients(Surfacelet(J = 1, L_array = [2]), zeros(dims)); workspace = ws)
+    @test_throws "subband layout" synthesize(t, similar_coefficients(Surfacelet(scales = 1, direction_levels = [2]), zeros(dims)); workspace = ws)
     @test_throws "subband layout" synthesize(t, similar_coefficients(t, zeros(48, 48, 48)); workspace = ws)
-    @test_throws DimensionMismatch synthesize(Surfacelet(J = 1, L_array = [2]), c)
+    @test_throws DimensionMismatch synthesize(Surfacelet(scales = 1, direction_levels = [2]), c)
 end
 
 @testitem "surfacelet — serial calls use single-threaded FFT plans" tags = [:surfacelet] begin
     using Adapt, Random
     x = randn(Xoshiro(13), 48, 24, 36)
-    t = Surfacelet(J = 2, L_array = [1, 2])
+    t = Surfacelet(scales = 2, direction_levels = [1, 2])
     ws = make_workspace(t, x; tasks = 2)
     for f in (ws.pfwd, ws.pbwd, ws.cfwd, ws.cbwd)
         @test f[1] !== f[2]
@@ -210,4 +210,18 @@ end
     @test synthesize(wh, analyze(wh, x)) ≈ x
     wz = Adapt.adapt(Array, make_workspace(t, ComplexF64, size(x)))
     @test eltype(wz) == ComplexF64
+end
+
+@testitem "Surfacelet — scales and direction_levels default from each other" tags = [:surfacelet] begin
+    using Random
+    @test Surfacelet(scales = 3).direction_levels == [2, 1, 1]
+    @test Surfacelet(direction_levels = [1, 2]).scales == 2
+    @test_throws "length(direction_levels) must equal scales" Surfacelet(scales = 1, direction_levels = [1, 2])
+    @test_throws "give `scales`, `direction_levels` or both" Surfacelet()
+    # The parabolic default is a valid configuration at every depth.
+    for J in 1:4
+        t = Surfacelet(scales = J)
+        x = randn(Xoshiro(J), ntuple(_ -> 3 * 2^J, 3))
+        @test maximum(abs, synthesize(t, analyze(t, x)) .- x) < 1.0e-10
+    end
 end

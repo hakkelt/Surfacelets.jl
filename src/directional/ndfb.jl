@@ -53,7 +53,7 @@ Base.eltype(::NDFB{T}) where {T} = T
 
 """
     make_ndfb(dims::NTuple{3,Integer}, ::Type{T}=Float64;
-                levels::Integer=2, order::Integer=12, poly::Integer=1, tight::Bool=true,
+                levels::Integer=2, bernstein_order::Integer=12, halfband_order::Integer=1, tight::Bool=true,
                 transition::Real=1.0, threaded = nothing, flags=FFTW.MEASURE)
 
 Build a 3-D NDFB producing `3 * 2^levels` directional subbands, each the full
@@ -64,7 +64,8 @@ between the two transverse planes of each hourglass (`l_a = ceil(L/2)`,
 `l_b = floor(L/2)`), matching the balanced expansion rule of the paper.
 `levels = 0` leaves the plain three-subband hourglass bank.
 
-`order`, `poly` and `tight` are forwarded to [`make_hourglass`](@ref); with
+`bernstein_order` (Bernstein order `N`), `halfband_order` (halfband polynomial
+order `m`) and `tight` are forwarded to [`make_hourglass`](@ref); with
 `tight = true` (the default) the whole bank is a Parseval frame, since the wedge
 weights are themselves a partition of unity.  `transition`
 is the half-width of the soft step at each wedge boundary, as a fraction of the
@@ -84,7 +85,7 @@ of a wedge keeps about 71 % of its energy there at `levels = 2`.
 """
 function make_ndfb(
         dims::NTuple{3, Integer}, ::Type{T} = Float64;
-        levels::Integer = 2, order::Integer = 12, poly::Integer = 1, tight::Bool = true,
+        levels::Integer = 2, bernstein_order::Integer = 12, halfband_order::Integer = 1, tight::Bool = true,
         transition::Real = 1.0,
         threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
@@ -92,14 +93,13 @@ function make_ndfb(
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     0 <= transition || throw(ArgumentError("transition must be ≥ 0"))
     fb = make_hourglass(
-        dims, T; order = order, poly = poly, tight = tight,
-        threaded = threaded, flags = flags
+        dims, T; bernstein_order, halfband_order, tight, threaded, flags
     )
-    return ndfb_sharing(fb, levels; poly = poly, transition = transition)
+    return ndfb_sharing(fb, levels; halfband_order, transition)
 end
 
 """
-    ndfb_sharing(fb::HourglassFB, levels::Integer; poly=fb.poly, transition=1.0) -> NDFB
+    ndfb_sharing(fb::HourglassFB, levels::Integer; halfband_order=fb.halfband_order, transition=1.0) -> NDFB
 
 Build a directional bank on top of an *existing* hourglass bank instead of
 planning a new one.  The hourglass stage depends only on the volume size, so a
@@ -108,12 +108,12 @@ scale — the wedge masks are matrices, so an extra scale costs kilobytes.
 """
 function ndfb_sharing(
         fb::HourglassFB{T}, levels::Integer;
-        poly::Integer = fb.poly, transition::Real = 1.0
+        halfband_order::Integer = fb.halfband_order, transition::Real = 1.0
     ) where {T <: AbstractFloat}
     levels >= 0 || throw(ArgumentError("levels must be ≥ 0"))
     transition >= 0 || throw(ArgumentError("transition must be ≥ 0"))
     lev = _wedge_levels(Int(levels))
-    wedges = ntuple(i -> _wedge_masks(fb.dims, i, lev, Int(poly), T(transition)), 3)
+    wedges = ntuple(i -> _wedge_masks(fb.dims, i, lev, Int(halfband_order), T(transition)), 3)
     return NDFB{T, typeof(wedges[1][1][1]), typeof(fb)}(fb, lev, wedges)
 end
 
@@ -270,7 +270,7 @@ julia> using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
 
 julia> x = randn(Xoshiro(4), 16, 16, 16);
 
-julia> fb = make_ndfb(size(x), Float64; levels = 2, order = 6);
+julia> fb = make_ndfb(size(x), Float64; levels = 2, bernstein_order = 6);
 
 julia> energy = zeros(ndfb_nsubbands(fb));
 

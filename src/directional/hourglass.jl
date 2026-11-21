@@ -68,8 +68,8 @@ mutable struct HourglassFB{
         C3 <: AbstractArray{Complex{T}, 3}, Pf, Pi,
     }
     const dims::NTuple{3, Int}
-    const order::Int              # Bernstein order N of the mapping kernels
-    const poly::Int               # order m of the 1-D halfband split polynomial
+    const bernstein_order::Int    # Bernstein order N of the mapping kernels
+    const halfband_order::Int     # order m of the 1-D halfband split polynomial
     const tight::Bool             # masks are √W (Parseval) rather than W
     # `f₀` of the two mapping responses, cached rather than the responses
     # themselves: the split polynomial is otherwise re-evaluated per voxel for
@@ -107,15 +107,15 @@ _fftw_threads(threaded::Union{Bool, Nothing}) = threaded === false ? 1 : Threads
 
 """
     make_hourglass(dims::NTuple{3,Integer}, ::Type{T}=Float64;
-                    order::Integer=12, poly::Integer=1, tight::Bool=true,
+                    bernstein_order::Integer=12, halfband_order::Integer=1, tight::Bool=true,
                     threaded = nothing, flags=FFTW.MEASURE) -> HourglassFB
 
 Build the 3-D hourglass filter bank for `dims`-sized volumes.
 
-`order` is the Bernstein order `N` of the mapping kernels: larger `N` sharpens
+`bernstein_order` is the Bernstein order `N` of the mapping kernels: larger `N` sharpens
 the transition between hourglass subbands (Lu & Do use `N = 12`, which in their
 FIR realization corresponds to filters of support up to 61³ — here it costs
-nothing but a slightly longer design step).  `poly` is the order `m` of the 1-D
+nothing but a slightly longer design step).  `halfband_order` is the order `m` of the 1-D
 halfband split polynomial; larger `m` flattens the response near the passband
 centers.  Neither affects perfect reconstruction, which is exact for any choice.
 
@@ -139,13 +139,13 @@ precision; complex volumes are filtered as two real passes, keeping
 """
 function make_hourglass(
         dims::NTuple{3, Integer}, ::Type{T} = Float64;
-        order::Integer = 12, poly::Integer = 1, tight::Bool = true,
+        bernstein_order::Integer = 12, halfband_order::Integer = 1, tight::Bool = true,
         threaded::Union{Bool, Nothing} = nothing,
         flags::Integer = FFTW.MEASURE
     ) where {T <: AbstractFloat}
     dims = map(Int, dims)
     n1, n2, n3 = dims
-    m1, m2 = _hourglass_tables(T, dims, Int(order), Int(poly))
+    m1, m2 = _hourglass_tables(T, dims, Int(bernstein_order), Int(halfband_order))
     rbuf = zeros(T, n1, n2, n3)
     fwd, spec, inv = with_fftw_threads(_fftw_threads(threaded)) do
         f = plan_rfft(rbuf; flags = flags)
@@ -153,7 +153,7 @@ function make_hourglass(
         f, s, plan_irfft(s, n1; flags = flags)
     end
     return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
-        dims, order, poly, tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
+        dims, bernstein_order, halfband_order, tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
         nothing, nothing, nothing
     )
 end
@@ -260,7 +260,7 @@ end
 
 The frequency-domain *weight* `W_i` of hourglass subband `i` on the rfft grid,
 before the `tight` normalization.  The three weights are a partition of unity —
-`Σ_i W_i = 1` at every frequency — for any `order`/`poly`.
+`Σ_i W_i = 1` at every frequency — for any `bernstein_order`/`halfband_order`.
 """
 function hourglass_weight(fb::HourglassFB{T}, i::Integer) where {T}
     1 <= i <= 3 || throw(ArgumentError("hourglass subband index must be 1, 2 or 3"))
@@ -305,7 +305,7 @@ julia> using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconst
 
 julia> x = randn(Xoshiro(2), 16, 16, 16);
 
-julia> fb = make_hourglass(size(x), Float64; order = 6);
+julia> fb = make_hourglass(size(x), Float64; bernstein_order = 6);
 
 julia> s = hourglass_decompose(x, fb);
 
@@ -404,7 +404,7 @@ end
     hourglass_reconstruct(subbands, fb::HourglassFB) -> volume
 
 Invert [`hourglass_decompose`](@ref).  Perfect reconstruction holds exactly for
-any `order`/`poly` — it is structural, not an approximation that degrades with
+any `bernstein_order`/`halfband_order` — it is structural, not an approximation that degrades with
 filter sharpness.
 
 When `fb.tight` is false the synthesis filters are all 1 and this is a plain

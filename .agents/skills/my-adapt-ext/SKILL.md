@@ -26,10 +26,10 @@ KernelAbstractions.
 using CUDA, Adapt, Surfacelets
 
 x  = CuArray(vol)
-ws = make_workspace(NSSurfacelet(J = 2, L_array = [1, 2]), x)   # host build + Adapt.adapt(CuArray, ⋅)
+ws = make_workspace(NSSurfacelet(direction_levels = [1, 2]), x)   # host build + Adapt.adapt(CuArray, ⋅)
 c  = analyze(transform(ws), x; workspace = ws)
 
-st  = Surfacelet(J = 2, L_array = [1, 2])
+st  = Surfacelet(direction_levels = [1, 2])
 sws = Adapt.adapt(CuArray, make_workspace(st, Float32, dims))
 sc  = analyze(st, x; workspace = sws)
 ```
@@ -85,7 +85,7 @@ using CUDA, Adapt, Surfacelets
 
 dims = (16, 16, 16)
 x    = randn(Float32, dims...)
-t    = NSSurfacelet(J = 1, L_array = [1], order = 6)
+t    = NSSurfacelet(direction_levels = [1], bernstein_order = 6)
 ref  = analyze(t, x)
 
 ws  = make_workspace(t, CuArray(x))

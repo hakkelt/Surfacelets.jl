@@ -90,20 +90,20 @@ function MultiscaleTransformsBase.make_workspace(
     all(>=(1), dims) || throw(ArgumentError("volume size must be positive, got $(dims)"))
     Td = data_eltype(T0)
     T = filter_eltype(Td)
-    m1, m2 = _hourglass_tables(T, dims, t.order, t.poly)
-    wedges = [_ns_wedge_factors(T, dims, l, t) for l in t.L_array]
+    m1, m2 = _hourglass_tables(T, dims, t.bernstein_order, t.halfband_order)
+    wedges = [_ns_wedge_factors(T, dims, l, t) for l in t.direction_levels]
     bins(d) = d == 1 ? (1:(dims[1] ÷ 2 + 1)) : (1:dims[d])
-    resp = ntuple(d -> _rc_responses(T, t.J, dims[d], bins(d)), 3)
+    resp = ntuple(d -> _rc_responses(T, t.scales, dims[d], bins(d)), 3)
     # Bⱼ ≡ 0 exactly when ℓⱼ = 1 wherever Π_{i<j} ℓᵢ > 0, on every axis: the
     # factors are separable, ≤ 1, and 1 at DC.
-    for j in 1:t.J
+    for j in 1:t.scales
         all(d -> all(((a, l),) -> a == 0 || l == 1, zip(resp[d][1][j], resp[d][2][j])), 1:3) &&
-            throw(ArgumentError("size $(dims) is too small for $(t.J) scales: scale $(j) would be empty"))
+            throw(ArgumentError("size $(dims) is too small for $(t.scales) scales: scale $(j) would be empty"))
     end
     orient(v, d) = reshape(v, ntuple(k -> k == d ? length(v) : 1, 3))
     per_level(r, J) = [ntuple(d -> orient(resp[d][r][j], d), 3) for j in 1:J]
-    pa, pl = per_level(1, t.J + 1), per_level(2, t.J)
-    band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:t.J] : typeof(m1)[]
+    pa, pl = per_level(1, t.scales + 1), per_level(2, t.scales)
+    band = cache_bandpass ? [_bandpass.(pa[j]..., pl[j]...) for j in 1:t.scales] : typeof(m1)[]
     proto = Array{T, 3}(undef, 0, 0, 0)
     ntasks = tasks === nothing ? nothing : Int(tasks)
     return _ns_workspace(Td, dims, t, m1, m2, wedges, pa, pl, band, proto, flags, ntasks)
@@ -129,12 +129,12 @@ when `nothing`.
 Memory: the hourglass response is one `real(T)` array on the rfft grid,
 `(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·tasks + 1` such arrays for
 real data and `4·tasks + 2` for complex data (`9` with one task).  With `cache_bandpass = true` the
-pyramid's bandpass of each scale is precomputed as well, `J` more such arrays;
+pyramid's bandpass of each scale is precomputed as well, `t.scales` more such arrays;
 it saves recomputing the non-separable factor `√(1 - ℓⱼ²)` once per hourglass
 and channel in both directions.  Pass `false` to broadcast it from per-axis
 vectors instead, so that everything per-scale is vectors and planes.
 
-Throws an `ArgumentError` when `dims` is too small for `t.J` scales: a scale
+Throws an `ArgumentError` when `dims` is too small for `t.scales` scales: a scale
 whose bandpass would be identically zero.
 """
 MultiscaleTransformsBase.make_workspace(t::NSSurfacelet, x::AbstractArray; kwargs...) =
@@ -146,7 +146,7 @@ MultiscaleTransformsBase.make_workspace(t::NSSurfacelet, x::AbstractArray; kwarg
 function _ns_wedge_factors(::Type{T}, dims::NTuple{3, Int}, L::Int, t::NSSurfacelet) where {T}
     lev = _wedge_levels(L)
     return ntuple(3) do i
-        map(_wedge_masks(dims, i, lev, t.poly, T(t.transition))) do planes
+        map(_wedge_masks(dims, i, lev, t.halfband_order, T(t.transition))) do planes
             t.tight ? [_tight_sqrt.(w) for w in planes] : planes
         end
     end
@@ -191,7 +191,7 @@ function _ns_mask_bank(t::NSSurfacelet, m1, m2, wedges, pa, pl, band)
     groups = [(j, i) for j in eachindex(wedges) for i in 1:3]
     ana = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, true, t.tight) for (j, i) in groups]
     syn = [_NSBandMask(m1, m2, cached(j), pa[j], pl[j], i, t.tight, t.tight) for (j, i) in groups]
-    offsets = cumsum([1; [_ns_nbands(t, j) for j in 1:(t.J - 1)]])
+    offsets = cumsum([1; [_ns_nbands(t, j) for j in 1:(t.scales - 1)]])
     items = MaskItem{1}[]
     banks = map(enumerate(groups)) do (g, (j, i))
         wa, wb = wedges[j][i]
@@ -465,22 +465,22 @@ _check_volume(dims::Dims) = throw(ArgumentError("the surfacelet transforms take 
 """
     subband_layout(t::NSSurfacelet, dims) -> Vector{@NamedTuple{scale::Int, direction::Int}}
 
-What each subband of `t` is: the lowpass first, as `(scale = J + 1, direction = 0)`,
-then the directional subbands of scale 1 (the finest), 2, …, `J`, each as
-`(scale = j, direction = k)` with `k` in `1:3·2^L_array[j]`: hourglass 1, 2, 3 in
+What each subband of `t` is: the lowpass first, as `(scale = J + 1, direction = 0)`
+with `J = t.scales`, then the directional subbands of scale 1 (the finest), 2, …,
+`J`, each as `(scale = j, direction = k)` with `k` in `1:3·2^t.direction_levels[j]`: hourglass 1, 2, 3 in
 turn, and inside each the wedges in `Surfacelets.ndfb_subband_index` order.
 Every subband has size `dims`.
 """
 function MultiscaleTransformsBase.subband_layout(t::NSSurfacelet, dims::Dims)
     _check_volume(dims)
-    layout = [(scale = t.J + 1, direction = 0)]
-    for j in 1:t.J, k in 1:_ns_nbands(t, j)
+    layout = [(scale = t.scales + 1, direction = 0)]
+    for j in 1:t.scales, k in 1:_ns_nbands(t, j)
         push!(layout, (scale = j, direction = k))
     end
     return layout
 end
 
-MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.J))
+MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.scales))
 
 """
     similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> AbstractArray
@@ -543,8 +543,8 @@ analysis runs serially: `f` is called from the calling task, one subband at a
 time and in that order, so it need not be thread-safe.  `threaded` does not
 apply and is ignored.
 
-This is the form to use at working sizes.  At 256³ `Float32` with `J = 3` and
-`L = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming holds a few
+This is the form to use at working sizes.  At 256³ `Float32` with `scales = 3` and
+`direction_levels = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming holds a few
 volumes plus the plans.
 
 # Examples
@@ -553,7 +553,7 @@ julia> using Surfacelets, Random
 
 julia> x = randn(Xoshiro(6), 16, 16, 16);
 
-julia> t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6);
+julia> t = NSSurfacelet(direction_levels = [1, 1], bernstein_order = 6);
 
 julia> energy = zeros(nsubbands(t, size(x)));
 

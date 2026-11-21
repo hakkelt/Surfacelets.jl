@@ -46,7 +46,7 @@ end
     Random.seed!(200)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    cpu = make_hourglass(dims, Float32; order = 6)
+    cpu = make_hourglass(dims, Float32; bernstein_order = 6)
     ref = hourglass_decompose(x, cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
@@ -66,7 +66,7 @@ end
     Random.seed!(201)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    cpu = make_ndfb(dims, Float32; levels = 2, order = 6)
+    cpu = make_ndfb(dims, Float32; levels = 2, bernstein_order = 6)
     ref = ndfb_decompose(x, cpu)
     for backend in GPUBackends.fft_backends
         xg = to_gpu(backend, x)
@@ -86,7 +86,7 @@ end
     Random.seed!(202)
     dims = (16, 16, 16)
     x = randn(Float32, dims...)
-    t = NSSurfacelet(J = 2, L_array = [1, 1], order = 6)
+    t = NSSurfacelet(scales = 2, direction_levels = [1, 1], bernstein_order = 6)
     n = nsubbands(t, dims)
     ws_cpu = make_workspace(t, Float32, dims)
     ref = analyze(t, x; workspace = ws_cpu)
@@ -119,7 +119,7 @@ end
     Random.seed!(203)
     dims = (16, 16, 16)
     z = randn(ComplexF32, dims...)
-    t = NSSurfacelet(J = 1, L_array = [1], order = 6)
+    t = NSSurfacelet(scales = 1, direction_levels = [1], bernstein_order = 6)
     ref = analyze(t, z)
     for backend in GPUBackends.fft_backends
         zg = to_gpu(backend, z)
@@ -143,7 +143,7 @@ end
     Random.seed!(204)
     dims = (48, 48, 48)
     x = randn(Float32, dims...)
-    t = Surfacelet(J = 2, L_array = [1, 2])
+    t = Surfacelet(scales = 2, direction_levels = [1, 2])
     n = nsubbands(t, dims)
     # Building the workspace evaluates every filter slice point by point, so it
     # happens once on the host; the device workspace is an adapt of it.
@@ -169,7 +169,7 @@ end
     using GPUEnv, Random
     Random.seed!(205)
     dims = (24, 24, 24)
-    t = Surfacelet(J = 1, L_array = [1])
+    t = Surfacelet(scales = 1, direction_levels = [1])
     z = randn(ComplexF32, dims...)
     ref = analyze(t, z)
     for backend in GPUBackends.fft_backends

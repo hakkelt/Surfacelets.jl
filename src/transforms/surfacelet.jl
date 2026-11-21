@@ -122,11 +122,11 @@ function MultiscaleTransformsBase.make_workspace(
     ) where {T0 <: Number}
     Td = data_eltype(T0)
     T = filter_eltype(Td)
-    pyramid = _fourier_pyramid(T, dims, t.J, t.pyr_mode)
-    scales = map(1:t.J) do j
+    pyramid = _fourier_pyramid(T, dims, t.scales, t.pyramid_ratio)
+    scales = map(1:t.scales) do j
         n = pyramid[j].n
-        masks = _ritf_masks(T, n; msize = t.msize, beta = T(t.beta), lambda = t.lambda)
-        _SurfScale(n, t.levels[j], masks, _surf_stages(T, n, t.levels[j], t.bo))
+        masks = _ritf_masks(T, n; msize = t.diamond_length, beta = T(t.kaiser_beta), lambda = t.diamond_power)
+        _SurfScale(n, t.levels[j], masks, _surf_stages(T, n, t.levels[j], t.checkerboard_order))
     end
     return _surfacelet_workspace(Td, dims, t, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
@@ -146,8 +146,8 @@ array the tables are built on the host (the filter slices are evaluated point by
 point in closed form) and the workspace is moved with `Adapt`.
 
 The pyramid must be able to resample every scale exactly, so with
-`pyr_mode = 1.5` each dimension must be divisible by `3 · 2^J`, with `2` by
-`2^(J+1)`, and with `1` by `2^J`; each scale must also allow its directional
+`pyramid_ratio = 1.5` each dimension must be divisible by `3 · 2^J`, with `2`
+by `2^(J+1)`, and with `1` by `2^J`, for `J = t.scales`; each scale must also allow its directional
 levels (axis length divisible by `2^level`).  `tasks` bounds the threads a
 transform with the workspace uses: the blocks of a scale are split among that
 many tasks, each with a buffer of one block, and the full-volume FFTs run on
@@ -171,9 +171,9 @@ end
 # in SurfBox's block order.  Throws as `make_workspace` does for sizes the
 # pyramid or the directional levels cannot divide.
 function _surf_layout_sizes(t::Surfacelet, dims::NTuple{3, Int})
-    pyramid = _fourier_pyramid(Float64, dims, t.J, t.pyr_mode)
+    pyramid = _fourier_pyramid(Float64, dims, t.scales, t.pyramid_ratio)
     sizes = [last(pyramid).nlow]
-    for j in 1:t.J
+    for j in 1:t.scales
         n = pyramid[j].n
         for K in 1:3
             counts = ntuple(d -> 1 << t.levels[j][K][d], 3)
@@ -190,21 +190,21 @@ end
     subband_layout(t::Surfacelet, dims) -> Vector{@NamedTuple{scale::Int, hourglass::Int, wedge::Int}}
 
 What each subband of `t` is: the lowpass first, as
-`(scale = J + 1, hourglass = 0, wedge = 0)`, then for scale 1 (the finest), 2, …,
+`(scale = J + 1, hourglass = 0, wedge = 0)` with `J = t.scales`, then for scale 1 (the finest), 2, …,
 `J` the wedges of hourglass 1, 2, 3 in turn, `(scale = j, hourglass = K, wedge = w)`
 with the wedges in SurfBox's order.  Hourglass `K` keeps axis `K` at the scale's
 full length and decimates the other two.
 """
 function MultiscaleTransformsBase.subband_layout(t::Surfacelet, dims::Dims)
     _surf_layout_sizes(t, _check_volume(dims))
-    layout = [(scale = t.J + 1, hourglass = 0, wedge = 0)]
-    for j in 1:t.J, K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
+    layout = [(scale = t.scales + 1, hourglass = 0, wedge = 0)]
+    for j in 1:t.scales, K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
         push!(layout, (scale = j, hourglass = K, wedge = w))
     end
     return layout
 end
 
-MultiscaleTransformsBase.nsubbands(t::Surfacelet, dims::Dims) = (_surf_layout_sizes(t, _check_volume(dims)); 1 + sum(j -> _nsubbands(t.levels[j]), 1:t.J))
+MultiscaleTransformsBase.nsubbands(t::Surfacelet, dims::Dims) = (_surf_layout_sizes(t, _check_volume(dims)); 1 + sum(j -> _nsubbands(t.levels[j]), 1:t.scales))
 
 # ── Driver ────────────────────────────────────────────────────────────────────
 

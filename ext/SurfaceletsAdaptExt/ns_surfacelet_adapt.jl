@@ -27,7 +27,7 @@ function Adapt.adapt_structure(to, fb::HourglassFB)
     inv = plan_irfft(spec, size(rbuf, 1))
     T = eltype(m1)
     return HourglassFB{T, typeof(m1), typeof(spec), typeof(fwd), typeof(inv)}(
-        fb.dims, fb.order, fb.poly, fb.tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
+        fb.dims, fb.bernstein_order, fb.halfband_order, fb.tight, m1, m2, fwd, inv, spec, similar(spec), rbuf,
         fb.spec2 === nothing ? nothing : similar(spec),
         fb.rbuf2 === nothing ? nothing : similar(rbuf),
         fb.cbuf === nothing ? nothing : similar(spec, fb.dims),
