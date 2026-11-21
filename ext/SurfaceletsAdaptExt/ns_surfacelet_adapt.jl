@@ -10,7 +10,7 @@
 # `Adapt.adapt_structure` methods do:
 #
 #     fb  = Adapt.adapt(CuArray, make_hourglass(Float32, dims))
-#     ws  = Adapt.adapt(CuArray, make_workspace(NSSurfacelet(...), Float32, dims))
+#     ws  = Adapt.adapt(CuArray, make_workspace(NSSurfacelet(...), Float32, dims; prewarm = false))
 #
 # FFTW plans cannot be moved, so each is replanned against the adapted buffer;
 # `plan_rfft` is the AbstractFFTs generic, so it dispatches to the backend's FFT

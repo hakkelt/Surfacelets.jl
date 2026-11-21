@@ -311,7 +311,7 @@ using CUDA: CuArray
 import Adapt
 
 t  = NSSurfacelet(scales = 2, direction_levels = [2, 2])
-ws = Adapt.adapt(CuArray, make_workspace(t, Float32, (128, 128, 128)))
+ws = Adapt.adapt(CuArray, make_workspace(t, Float32, (128, 128, 128); prewarm = false))
 c  = analyze(t, CuArray(vol); workspace = ws)
 ```
 
