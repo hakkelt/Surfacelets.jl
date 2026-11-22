@@ -75,7 +75,7 @@ function _pyramid_level(::Type{T}, n::NTuple{3, Int}, w::Rational, tbw::Rational
     for a in 1:3
         nr = n[a]
         full, P = _rcos_axis(T, nr, w, tbw)
-        2P < nr || throw(ArgumentError("size $(nr) is too small for the pyramid"))
+        2P <= nlow[a] || throw(ArgumentError("size $(nr) is too small for the pyramid"))
         # non-negative bins 0:P, then the mirrored negative bins -P:-1
         idx[a] = vcat(collect(0:P), collect((nr - P):(nr - 1))) .+ 1
         idx_low[a] = vcat(collect(0:P), collect((nlow[a] - P):(nlow[a] - 1))) .+ 1

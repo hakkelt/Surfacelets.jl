@@ -41,7 +41,7 @@ The decimated counterpart, [`Surfacelet`](@ref), is Lu and Do's
 surfacelet transform, reproducing their reference toolbox SurfBox to rounding
 error. Every subband sits on its own decimated grid — about 4 coefficients per
 voxel, whatever the number of directions — at the cost of shift invariance.
-Sizes must suit its 3/2 pyramid — divisible by 3, then by 2 per further scale:
+Sizes must suit its pyramid (see [`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray)) for the rule; 192³ fits):
 
 ```julia
 vol    = randn(Float32, 192, 192, 192)

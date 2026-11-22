@@ -129,6 +129,7 @@ end
 
 # The host workspace, not yet run.
 function _surfacelet_host_workspace(t::Surfacelet, ::Type{T0}, dims::Dims{3}, flags::Integer, tasks::Integer) where {T0 <: Number}
+    _check_surfacelet_size(t, dims)
     Td = data_eltype(T0)
     T = filter_eltype(Td)
     pyramid = _fourier_pyramid(T, dims, t.scales, t.pyramid_ratio)
@@ -158,10 +159,17 @@ second form takes size, element type and array type from `x`: for a device
 array the tables are built on the host (the filter slices are evaluated point by
 point in closed form) and the workspace is moved with `Adapt`.
 
-The pyramid must be able to resample every scale exactly, so with
-`pyramid_ratio = 1.5` each dimension must be divisible by `3 · 2^J`, with `2`
-by `2^(J+1)`, and with `1` by `2^J`, for `J = t.scales`; each scale must also allow its directional
-levels (axis length divisible by `2^level`).
+Sizes: every axis must fit the pyramid at every scale, `J = t.scales` of them.
+From the finest scale (the volume) to the coarsest, the axis length must be even
+(the hourglass stage) and divisible by the wedge count `2^ℓ` of the scale's
+directional levels along that axis.  The pyramid then resamples it, by `3/2`
+at the finest scale with `pyramid_ratio = 1.5` (by `2` with `2`, not at all with
+`1`) and by `2` at every coarser one, so the length must be a multiple of `3`
+(or `2`) there; and the resampled length must leave room for the lowpass's
+support, which rules out short axes.  For example, with `pyramid_ratio = 1.5`
+and no directional levels any multiple of `3 · 2^max(1, J - 1)` fits.  A size
+that does not fit throws an `ArgumentError` naming the axis, the scale and the
+nearest length that does.
 
 Keywords:
 
@@ -194,11 +202,59 @@ function surfacelet_redundancy(t::Surfacelet, dims::Dims)
     return sum(prod, _surf_layout_sizes(t, _check_volume(dims))) / prod(dims)
 end
 
+# The first reason an axis of length `n` does not fit `t`, or `nothing`.  Per
+# scale, fine to coarse (pyramid level j feeds scale J - j + 1): the hourglass
+# stage needs an even length, the directional levels a multiple of their wedge
+# count, the resampling by D = p/q a multiple of p, and the lowpass of length
+# n·q/p room for its support 0…P on both sides (2P ≤ n·q/p; otherwise the crop
+# folds bins onto each other).
+function _surfacelet_axis_problem(t::Surfacelet, a::Int, n::Int)
+    J = t.scales
+    ws, tbws, Ds = _pyramid_mode(t.pyramid_ratio)
+    for j in 1:J
+        s = J - j + 1
+        where = "at scale $(s) of $(J) (1 the coarsest) the length is $(n)"
+        iseven(n) || return "$(where), which must be even"
+        c = 1 << maximum(K -> t.levels[s][K][a], 1:3)
+        n % c == 0 || return "$(where), which the directional levels must split into $(c) wedge blocks"
+        k = j == 1 ? 1 : 2
+        D = Ds[k]
+        (n * denominator(D)) % numerator(D) == 0 ||
+            return "$(where), which resampling by $(numerator(D))/$(denominator(D)) needs to be a multiple of $(numerator(D))"
+        nlow = n * denominator(D) ÷ numerator(D)
+        P = first(_rcos_edges(n, ws[k], tbws[k]))
+        2P <= nlow || return "$(where), too small for the pyramid's lowpass"
+        n = nlow
+    end
+    return nothing
+end
+
+# Throws, naming the axis, the scale and the nearest length that fits, unless
+# every axis of `dims` fits `t`.
+function _check_surfacelet_size(t::Surfacelet, dims::NTuple{3, Int})
+    for a in 1:3
+        problem = _surfacelet_axis_problem(t, a, dims[a])
+        problem === nothing && continue
+        n = dims[a]
+        near = 0
+        for d in 1:(4n + 64)
+            for m in (n - d, n + d)
+                m >= 1 && _surfacelet_axis_problem(t, a, m) === nothing && (near = m; break)
+            end
+            near > 0 && break
+        end
+        hint = near > 0 ? "; the nearest length that fits is $(near)" : ""
+        throw(ArgumentError("a volume of size $(dims) does not fit Surfacelet(scales = $(t.scales), pyramid_ratio = $(t.pyramid_ratio)): axis $(a): $(problem)$(hint)"))
+    end
+    return dims
+end
+
 # The sizes of the subbands of `t` on a `dims` volume, in `subband_layout`
 # order: the lowpass, then for every scale, coarse to fine, the wedges of hourglass 1, 2, 3, each
 # in SurfBox's block order.  Throws as `make_workspace` does for sizes the
 # pyramid or the directional levels cannot divide.
 function _surf_layout_sizes(t::Surfacelet, dims::NTuple{3, Int})
+    _check_surfacelet_size(t, dims)
     pyramid = _fourier_pyramid(Float64, dims, t.scales, t.pyramid_ratio)
     sizes = [last(pyramid).nlow]
     for j in 1:t.scales

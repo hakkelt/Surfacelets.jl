@@ -190,9 +190,11 @@ SurfBox, stage by stage, and reproduces its coefficients to rounding error:
    on a lattice aligned with it.
 
 Sizes must suit the pyramid: with the default `pyramid_ratio = 1.5` the first level
-resamples by 3/2, so every dimension must be divisible by 3 and then by 2 once
-per further scale. [`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray))
-builds the pyramid profiles, hourglass masks and checkerboard filter slices, and
+resamples by 3/2 and every further level by 2, and every scale must be even and
+split into its directional wedge blocks; the docstring of
+[`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray)) states the
+exact rule, and a size that does not fit throws an error naming the nearest one
+that does. `make_workspace` builds the pyramid profiles, hourglass masks and checkerboard filter slices, and
 the buffers and FFT plans the transform runs in; build it once and reuse it.
 With a workspace, `analyze!` and `synthesize!` write into
 existing coefficients and volumes and allocate nothing but a few array headers

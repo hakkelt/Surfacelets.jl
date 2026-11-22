@@ -181,6 +181,21 @@ end
     @test_throws ArgumentError make_workspace(Surfacelet(scales = 1, direction_levels = [7]), Float64, dims)
     @test_throws ArgumentError subband_layout(Surfacelet(scales = 1, direction_levels = [7]), dims)
     @test_throws "three axes" make_workspace(t, Float64, (24, 24))
+    # A lowpass too short for its support would fold bins: rejected up front,
+    # with the nearest length that fits.
+    t2 = Surfacelet(scales = 1, direction_levels = [0], pyramid_ratio = 2)
+    @test_throws "axis 1: at scale 1 of 1 (1 the coarsest) the length is 10, too small for the pyramid's lowpass; the nearest length that fits is 8" make_workspace(t2, Float64, (10, 10, 10))
+    @test_throws "axis 1: at scale 3 of 3 (1 the coarsest) the length is 20" make_workspace(Surfacelet(scales = 3), Float64, (20, 24, 24))
+    @test_throws "resampling by 3/2 needs to be a multiple of 3" make_workspace(Surfacelet(scales = 1, direction_levels = [0]), Float64, (20, 24, 24))
+    for f in (subband_layout, surfacelet_redundancy, nsubbands)
+        @test_throws "too small for the pyramid's lowpass" f(t2, (10, 10, 10))
+    end
+    # The smallest sizes that fit each ratio reconstruct.
+    for (r, n) in ((1.5, 6), (2, 4), (1, 2), (1.5, 12))
+        ts = Surfacelet(scales = n == 12 ? 2 : 1, direction_levels = n == 12 ? [0, 0] : [0], pyramid_ratio = r)
+        x = randn(Xoshiro(5), n, n, n)
+        @test synthesize(ts, analyze(ts, x)) ≈ x
+    end
     @test_throws DimensionMismatch analyze(t, randn(48, 48, 48); workspace = ws)
     @test_throws "the workspace was built for Surfacelet(scales = 1" analyze(Surfacelet(scales = 1, direction_levels = [2]), randn(dims...); workspace = ws)
     c = analyze(t, randn(Xoshiro(104), dims...); workspace = ws)
