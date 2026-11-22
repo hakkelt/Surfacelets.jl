@@ -41,7 +41,8 @@ function bernstein_table(N::Integer, omega::AbstractVector{T}) where {T <: Abstr
     # frequency: the table is `(N+1) × length(omega)` and `omega` is a grid axis.
     bin = _binomial_row(T, N)
     @inbounds for (k, w) in enumerate(omega)
-        x = (one(T) - cos(w)) / 2
+        # sin(w/2)² = (1 - cos w)/2 without cancellation at small w.
+        x = sin(w / 2)^2
         x = clamp(x, zero(T), one(T))
         y = one(T) - x
         for j in 0:N
