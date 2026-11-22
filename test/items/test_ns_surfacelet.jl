@@ -18,6 +18,14 @@
     @test layout[8] == (scale = 2, direction = 1)
     @test supports_streaming(t) === true
     @test_throws "three axes" subband_layout(t, (16, 16))
+    # Host arrays that are not `Array`s (a BitArray, a range) stay on the host.
+    let t1 = NSSurfacelet(scales = 1), b = trues(16, 16, 16), r = reshape(1.0:4096.0, 16, 16, 16)
+        @test analyze(t1, b) ≈ analyze(t1, Float64.(b))
+        @test analyze(t1, r) ≈ analyze(t1, collect(r))
+        s1 = Surfacelet(scales = 1, direction_levels = [1])
+        r24 = reshape(1.0:(24^3), 24, 24, 24)
+        @test Vector(analyze(s1, r24)) ≈ Vector(analyze(s1, collect(r24)))
+    end
     let t1 = NSSurfacelet(scales = 1), z = complex.(randn(16, 16, 16), randn(16, 16, 16))
         @test_throws "coefficients of element type Float64, the workspace is for ComplexF64" analyze!(zeros(16, 16, 16, nsubbands(t1, (16, 16, 16))), t1, z)
     end

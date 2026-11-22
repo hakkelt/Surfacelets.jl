@@ -41,6 +41,7 @@ using NestedThreading: NestedThreading
 
 using MultiscaleFilterBanks: MultiscaleFilterBanks,
     data_eltype, filter_eltype, foreach_chunk, loop_threaded, with_fftw_threads, n_tasks,
+    is_device_array, storage_type,
     MaskBankEngine, MaskBank, MaskItem,
     mask_bank_forward!, mask_bank_inverse!, mask_bank_stream_forward!, mask_bank_stream_inverse!
 
