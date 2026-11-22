@@ -26,6 +26,8 @@
     @test mixed.direction_levels[2] isa Matrix{Int}
     @test mixed.levels == [t.levels[1], q.levels[1]]
     @test checkerboard_orders() == collect(4:2:18)
+    @test Surfacelet(scales = 1, direction_levels = [1], checkerboard_order = Int32(12)) ==
+        Surfacelet(scales = 1, direction_levels = [1], checkerboard_order = 12)
     @test_throws "scales must be ≥ 1" Surfacelet(scales = 0, direction_levels = Int[])
     @test_throws "length(direction_levels) must equal scales" Surfacelet(scales = 2, direction_levels = [1])
     @test_throws "directional levels must be ≥ 0" Surfacelet(scales = 1, direction_levels = [-1])

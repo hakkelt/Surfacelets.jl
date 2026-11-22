@@ -232,7 +232,7 @@ struct Surfacelet <: AbstractMultiscaleTransform
         all(lv -> all(r -> all(>=(0), r), lv), levels) ||
             throw(ArgumentError("directional levels must be ≥ 0"))
         _pyramid_mode(pyramid_ratio)
-        _cbd_ladder(checkerboard_order)
+        _cbd_ladder(Int(checkerboard_order))
         isodd(diamond_length) && diamond_length >= 3 ||
             throw(ArgumentError("diamond_length must be an odd integer ≥ 3, got $(diamond_length)"))
         kaiser_beta > 0 || throw(ArgumentError("kaiser_beta must be > 0, got $(kaiser_beta)"))
