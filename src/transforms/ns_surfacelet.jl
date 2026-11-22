@@ -239,9 +239,9 @@ end
 
 # The workspace of a call: `workspace` after checking that it was built for `t`
 # and data like `x` (its masks are baked in, so a mismatch would silently
-# transform with the wrong ones), or a new one.
-function _ns_workspace_for(workspace, t::NSSurfacelet, x::AbstractArray)
-    workspace === nothing && return make_workspace(t, x; prewarm = false)
+# transform with the wrong ones), or a new one with at most `tasks` tasks.
+function _ns_workspace_for(workspace, t::NSSurfacelet, x::AbstractArray; tasks::Union{Integer, Nothing} = nothing)
+    workspace === nothing && return make_workspace(t, x; prewarm = false, tasks)
     workspace isa NSSurfaceletWorkspace ||
         throw(ArgumentError("an NSSurfacelet needs an NSSurfaceletWorkspace, got $(typeof(workspace))"))
     return check_workspace(workspace, t, data_eltype(x), size(x))
@@ -574,8 +574,12 @@ time and in that order, so it need not be thread-safe.  `threaded` does not
 apply and is ignored.
 
 This is the form to use at working sizes.  At 256³ `Float32` with `scales = 3` and
-`direction_levels = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming holds a few
-volumes plus the plans.
+`direction_levels = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming
+holds the workspace's buffers: without a `workspace` the call builds a serial
+one (`tasks = 1`), a few half-spectrum volumes plus the plans and masks (see
+[`make_workspace`](@ref make_workspace(::NSSurfacelet, ::AbstractArray)) for the
+count).  A workspace keeps one set of buffers per task, so build the one you
+stream with as `make_workspace(t, x; tasks = 1)`.
 
 # Examples
 ```jldoctest
@@ -596,7 +600,7 @@ true
 ```
 """
 function MultiscaleTransformsBase.analyze(f, t::NSSurfacelet, x::AbstractArray; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
-    ws = _ns_workspace_for(workspace, t, x)
+    ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_forward!(f, x, ws)
 end
 
@@ -612,6 +616,6 @@ one subband at a time and in that order.  `threaded` does not apply and is
 ignored.
 """
 function MultiscaleTransformsBase.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
-    ws = _ns_workspace_for(workspace, t, x)
+    ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_inverse!(f, x, ws)
 end

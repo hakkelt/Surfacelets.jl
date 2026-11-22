@@ -47,7 +47,7 @@ At working sizes the materialized coefficient set does not fit — 3.1 GB at 256
 streaming form that hands you one subband at a time:
 
 ```julia
-ws = make_workspace(t, vol)    # FFT plans and masks, reused by every call
+ws = make_workspace(t, vol; tasks = 1)   # serial: one set of buffers, plans and masks
 
 analyze(t, vol; workspace = ws) do i, band
     # `band` is subband i, valid only until this callback returns

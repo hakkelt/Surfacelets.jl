@@ -90,6 +90,8 @@ end
         one = make_workspace(t, Td, dims; flags = FFTW.ESTIMATE, tasks = Int32(1))
         if ns
             @test length(one.engine.buffers) == 1
+            # A streaming call without a workspace builds a serial one.
+            @test length(Surfacelets._ns_workspace_for(nothing, t, x; tasks = 1).engine.buffers) == 1
         else
             @test one.tasks == 1 && one.pfwd[1] === one.pfwd[2]
         end

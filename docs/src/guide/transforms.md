@@ -114,8 +114,11 @@ println("PR error with workspace: ", maximum(abs, out .- vol))
 At 256³ `Float32` one subband is 64 MB, so `direction_levels = [2, 2, 3]`
 materializes 49 volumes — 3.1 GB — before anything is done with them. The
 streaming form `analyze(f, t, x)` calls `f(i, band)` once per subband (the
-directional subbands first, the lowpass `i = 1` last) and reuses a single
-buffer, holding two volumes plus the plans.
+directional subbands first, the lowpass `i = 1` last) and reuses one buffer,
+holding only the workspace: with a serial workspace (`tasks = 1`, which a
+streaming call without a `workspace` builds) a few half-spectrum volumes plus
+the plans and masks. A workspace keeps one set of buffers per task, so build the
+one you stream with as `make_workspace(t, vol; tasks = 1)`.
 
 ```@example guide
 energy = zeros(nsubbands(t, size(vol)))
