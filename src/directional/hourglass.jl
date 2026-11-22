@@ -225,6 +225,7 @@ end
 # singleton axes and `copyto!` any array of the same length, so a wrongly
 # shaped subband would otherwise be read or written silently.
 function _check_band(band::AbstractArray, dims::NTuple{3, Int}, i)
+    Base.require_one_based_indexing(band)
     size(band) == dims ||
         throw(DimensionMismatch("subband $(i) has size $(size(band)), but the plan is $(dims)"))
     return band
@@ -336,12 +337,14 @@ end
 
 In-place [`hourglass_decompose`](@ref); `dst` is a 3-tuple of arrays of the plan
 size, real for real `volume` and complex for complex `volume`.  A `volume` of
-another precision (or integers) is converted to the bank's.
+another precision (or integers) is converted to the bank's.  `volume` and the
+subbands must be indexed from 1.
 """
 function hourglass_decompose!(
         dst::NTuple{3, <:AbstractArray{<:Real, 3}}, volume::AbstractArray{<:Real, 3},
         fb::HourglassFB
     )
+    Base.require_one_based_indexing(volume)
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
     foreach(i -> _check_band(dst[i], fb.dims, i), 1:3)
     copyto!(fb.rbuf, volume)
@@ -358,6 +361,7 @@ function hourglass_decompose!(
         dst::NTuple{3, <:AbstractArray{<:Complex, 3}}, volume::AbstractArray{<:Complex, 3},
         fb::HourglassFB
     )
+    Base.require_one_based_indexing(volume)
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
     foreach(i -> _check_band(dst[i], fb.dims, i), 1:3)
     # Real and imaginary parts go through the identical real kernel, which keeps
@@ -436,12 +440,14 @@ end
 """
     hourglass_reconstruct!(volume, subbands, fb) -> volume
 
-In-place [`hourglass_reconstruct`](@ref).
+In-place [`hourglass_reconstruct`](@ref).  `volume` and the subbands must be
+indexed from 1.
 """
 function hourglass_reconstruct!(
         volume::AbstractArray{<:Number, 3}, subbands::NTuple{3, <:AbstractArray{<:Number, 3}},
         fb::HourglassFB
     )
+    Base.require_one_based_indexing(volume)
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
     foreach(i -> _check_band(subbands[i], fb.dims, i), 1:3)
     if !fb.tight

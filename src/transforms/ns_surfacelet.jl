@@ -494,6 +494,7 @@ end
 
 # The subbands arrive one at a time, so each size is checked as it comes.
 function _ns_checked_band(band::AbstractArray, ws::NSSurfaceletWorkspace, i::Int)
+    Base.require_one_based_indexing(band)
     size(band) == ws.dims || throw(DimensionMismatch("subband $(i) has size $(size(band)), expected $(ws.dims)"))
     return band
 end
@@ -551,6 +552,7 @@ function MultiscaleTransformsBase.analyze!(
         c::AbstractArray, t::NSSurfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
+    Base.require_one_based_indexing(c, x)
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
     eltype(ws) <: Complex && !(eltype(c) <: Complex) &&
@@ -567,6 +569,7 @@ function MultiscaleTransformsBase.synthesize!(
         x::AbstractArray, t::NSSurfacelet, c::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
+    Base.require_one_based_indexing(x, c)
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
     _ns_engine_arrays(ws, c) || return _ns_inverse!(i -> view(c, :, :, :, i), x, ws)
@@ -586,7 +589,7 @@ in increasing `i` and then the lowpass (`i = 1`), reusing one buffer between
 calls.  `band` is valid only until `f` returns — copy or reduce it there.  The
 analysis runs serially: `f` is called from the calling task, one subband at a
 time and in that order, so it need not be thread-safe.  `threaded` does not
-apply and is ignored.
+apply and is ignored.  `x` must be indexed from 1.
 
 This is the form to use at working sizes.  At 256³ `Float32` with `scales = 3` and
 `direction_levels = [2, 2, 3]` the full coefficient set is 3.1 GB, while streaming
@@ -615,6 +618,7 @@ true
 ```
 """
 function MultiscaleTransformsBase.analyze(f, t::NSSurfacelet, x::AbstractArray; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+    Base.require_one_based_indexing(x)
     ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_forward!(f, x, ws)
 end
@@ -626,11 +630,12 @@ Streaming synthesis into `x`: `f(i)` must return subband `i` of
 [`subband_layout(t, size(x))`](@ref subband_layout).  It is called once per
 subband, the directional subbands in increasing `i` and then the lowpass, so a
 caller holding the subbands on disk or regenerating them never materializes the
-full set.  The synthesis runs serially: `f` is called from the calling task,
+full set.  `x` and every subband `f` returns must be indexed from 1.  The synthesis runs serially: `f` is called from the calling task,
 one subband at a time and in that order.  `threaded` does not apply and is
 ignored.
 """
 function MultiscaleTransformsBase.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+    Base.require_one_based_indexing(x)
     ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_inverse!(f, x, ws)
 end

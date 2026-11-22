@@ -114,22 +114,26 @@ Evaluate a multivariate Bernstein mapping kernel on a DFT grid.  `coeffs` is the
 `(N+1)^d` coefficient tensor from [`mapping_coefficients`](@ref) and `tables` is
 a `d`-tuple of per-axis Bernstein tables from [`bernstein_table`](@ref), one per
 grid axis.  The result is the real, zero-phase frequency response `M(ω)` on the
-product grid, with `|M| ≤ 1` wherever the coefficients are in `[-1, 1]`.
+product grid, with `|M| ≤ 1` wherever the coefficients are in `[-1, 1]`.  `coeffs` and
+the tables must be indexed from 1: entry `[j+1, k]` of a table is Bernstein term `j`.
 
 Evaluated by successive axis contractions rather than by summing `(N+1)^d`
 separable outer products, so the cost is `O(N · ∏ nᵢ)` and not `O(N^d · ∏ nᵢ)`.
 """
 function mapping_response(coeffs::AbstractArray{<:Real, 1}, tables::Tuple{AbstractMatrix{T}}) where {T}
+    Base.require_one_based_indexing(coeffs, tables[1])
     return vec(transpose(tables[1]) * T.(coeffs))
 end
 
 function mapping_response(coeffs::AbstractArray{<:Real, 2}, tables::NTuple{2, AbstractMatrix{T}}) where {T}
+    Base.require_one_based_indexing(coeffs, tables...)
     b1, b2 = tables
     # M[k1, k2] = Σ_{j1, j2} c[j1, j2] b1[j1, k1] b2[j2, k2]
     return transpose(b1) * (T.(coeffs) * b2)
 end
 
 function mapping_response(coeffs::AbstractArray{<:Real, 3}, tables::NTuple{3, AbstractMatrix{T}}) where {T}
+    Base.require_one_based_indexing(coeffs, tables...)
     b1, b2, b3 = tables
     np1 = size(b1, 1)
     n1, n2, n3 = size(b1, 2), size(b2, 2), size(b3, 2)

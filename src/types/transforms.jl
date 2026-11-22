@@ -261,7 +261,10 @@ function Surfacelet(;
 end
 
 _level_entry(L::Integer) = Int(L)
-_level_entry(L::AbstractMatrix{<:Integer}) = Matrix{Int}(L)
+function _level_entry(L::AbstractMatrix{<:Integer})
+    Base.require_one_based_indexing(L)
+    return Matrix{Int}(L)
+end
 _level_entry(L) = throw(ArgumentError("a directional level must be an integer or a 3 × 3 integer matrix, got $(repr(L))"))
 
 function _surf_levels(L::Integer)
@@ -275,6 +278,7 @@ function _surf_levels(L::Integer)
 end
 
 function _surf_levels(L::AbstractMatrix{<:Integer})
+    Base.require_one_based_indexing(L)
     size(L) == (3, 3) || throw(ArgumentError("a level matrix must be 3 × 3, got size $(size(L))"))
     return ntuple(K -> ntuple(m -> m == K ? 0 : Int(L[K, m]), 3), 3)
 end

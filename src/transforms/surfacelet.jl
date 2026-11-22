@@ -433,6 +433,7 @@ function MultiscaleTransformsBase.analyze!(
         c::SubbandVector, t::Surfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
+    Base.require_one_based_indexing(x)
     ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
     _check_coefficients(c, ws)
     return _surfacelet_forward!(c, x, ws, _s_threaded(threaded))
@@ -442,6 +443,7 @@ function MultiscaleTransformsBase.synthesize!(
         x::AbstractArray, t::Surfacelet, c::SubbandVector;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
+    Base.require_one_based_indexing(x)
     ws = _s_workspace_for(workspace, t, data_eltype(x), size(x), x)
     _check_coefficients(c, ws)
     return _surfacelet_inverse!(x, c, ws, _s_threaded(threaded))

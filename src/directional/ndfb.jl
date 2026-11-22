@@ -253,9 +253,11 @@ end
     ndfb_decompose!(dst, volume, fb::NDFB) -> dst
 
 In-place [`ndfb_decompose`](@ref); `dst` is an indexable collection of
-`ndfb_nsubbands(fb)` arrays of the plan size.
+`ndfb_nsubbands(fb)` arrays of the plan size.  `dst`, its arrays and `volume` must be
+indexed from 1.
 """
 function ndfb_decompose!(dst, volume::AbstractArray{<:Number, 3}, fb::NDFB)
+    Base.require_one_based_indexing(dst, volume)
     length(dst) == ndfb_nsubbands(fb) ||
         throw(DimensionMismatch("dst must hold $(ndfb_nsubbands(fb)) subbands"))
     foreach(k -> _check_band(dst[k], fb.fb.dims, k), 1:ndfb_nsubbands(fb))
@@ -297,6 +299,7 @@ true
 """
 function ndfb_decompose(f, volume::AbstractArray{<:Real, 3}, fb::NDFB)
     hg = fb.fb
+    Base.require_one_based_indexing(volume)
     size(volume) == hg.dims || throw(DimensionMismatch("volume size does not match the plan"))
     copyto!(hg.rbuf, volume)
     mul!(hg.spec, hg.fwd, hg.rbuf)
@@ -306,6 +309,7 @@ end
 
 function ndfb_decompose(f, volume::AbstractArray{<:Complex, 3}, fb::NDFB)
     hg = fb.fb
+    Base.require_one_based_indexing(volume)
     size(volume) == hg.dims || throw(DimensionMismatch("volume size does not match the plan"))
     # Both spectra are held at once and each subband is finished before moving
     # on, so streaming stays streaming for complex volumes: two spectra and one
@@ -374,6 +378,7 @@ function ndfb_reconstruct!(
         volume::AbstractArray{<:Number, 3}, subbands::Union{AbstractVector, Tuple},
         fb::NDFB
     )
+    Base.require_one_based_indexing(volume, subbands)
     length(subbands) == ndfb_nsubbands(fb) ||
         throw(DimensionMismatch("expected $(ndfb_nsubbands(fb)) subbands"))
     return ndfb_reconstruct!(k -> subbands[k], volume, fb)
@@ -384,9 +389,11 @@ end
 
 Streaming reconstruction: `f(k)` must return directional subband `k`.  Subbands
 are consumed one at a time and in index order, so a caller holding them on disk
-or regenerating them never materializes the full set.
+or regenerating them never materializes the full set.  `volume` and every subband
+must be indexed from 1.
 """
 function ndfb_reconstruct!(f, volume::AbstractArray{<:Number, 3}, fb::NDFB)
+    Base.require_one_based_indexing(volume)
     size(volume) == fb.fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
     hg = fb.fb
     if !hg.tight
