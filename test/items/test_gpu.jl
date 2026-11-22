@@ -11,7 +11,8 @@
 # scalar-indexing guard.  That rules out JLArrays, which ships no FFT
 # implementation at all, and Metal / oneAPI / OpenCL, which expose their FFTs
 # through their own APIs rather than the AbstractFFTs interface.  CUDA and
-# AMDGPU qualify; on a host with neither, every item below is vacuously true.
+# AMDGPU qualify; on a host with neither, the items record a skip (a failure
+# with SURFACELETS_REQUIRE_GPU=1).
 
 @testmodule GPUBackends begin
     using GPUEnv
@@ -31,6 +32,20 @@
     # All test data below is Float32, so every qualifying backend can run the
     # same test bodies.
     const fft_backends = gpu_backends(; include_cpu_backends = false, supports_fftw = true)
+
+    # Records that an item has no backend to run on: a skip, or with
+    # SURFACELETS_REQUIRE_GPU=1 (a GPU job) a failure.
+    using Test: @test, @test_skip
+    export check_backends
+    function check_backends()
+        isempty(fft_backends) || return nothing
+        if get(ENV, "SURFACELETS_REQUIRE_GPU", "0") == "1"
+            @test !isempty(fft_backends)
+        else
+            @test_skip "no FFT-capable GPU backend"
+        end
+        return nothing
+    end
 end
 
 @testitem "GPU Adapt extension is loaded" tags = [:gpu] setup = [GPUBackends] begin
@@ -40,6 +55,7 @@ end
 
 
 @testitem "GPU 3-D hourglass filter bank matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
@@ -60,6 +76,7 @@ end
 end
 
 @testitem "GPU 3-D directional filter bank matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose, ndfb_reconstruct
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
@@ -81,6 +98,7 @@ end
 end
 
 @testitem "GPU nonsubsampled surfacelet matches CPU" tags = [:gpu] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(202)
@@ -114,6 +132,7 @@ end
 end
 
 @testitem "GPU nonsubsampled surfacelet: complex data" tags = [:gpu] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(203)
@@ -138,6 +157,7 @@ end
 end
 
 @testitem "GPU surfacelet matches CPU" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using GPUEnv, Random
     const Adapt = GPUBackends.Adapt
     Random.seed!(204)
@@ -166,6 +186,7 @@ end
 end
 
 @testitem "GPU surfacelet without a workspace, and complex data" tags = [:gpu, :surfacelet] setup = [GPUBackends] begin
+    GPUBackends.check_backends()
     using GPUEnv, Random
     Random.seed!(205)
     dims = (24, 24, 24)

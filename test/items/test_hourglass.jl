@@ -149,8 +149,8 @@ end
     # Mean absolute deviation of mask 1 from the ideal indicator must fall as the
     # Bernstein order grows (Lu & Do 2008, Fig. 10).
     n = 24
-    function mae(order)
-        fb = make_hourglass(Float64, (n, n, n); bernstein_order = order, halfband_order = 1)
+    function mae(order; tight = true)
+        fb = make_hourglass(Float64, (n, n, n); bernstein_order = order, halfband_order = 1, tight)
         m = hourglass_mask(fb, 1)
         fold(k) = let w = (k - 1) * 2π / n
             min(w, 2π - w)
@@ -169,6 +169,9 @@ end
     e4, e12, e20 = mae(4), mae(12), mae(20)
     @test e12 < e4
     @test e20 < e12
+    # The figures the theory page quotes, for the weights.
+    @test mae(4; tight = false) ≈ 0.095 atol = 0.001
+    @test mae(20; tight = false) ≈ 0.024 atol = 0.001
 end
 
 @testitem "hourglass — exact circular-shift equivariance" tags = [:directional] begin

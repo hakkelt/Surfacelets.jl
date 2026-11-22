@@ -200,9 +200,9 @@ individual asymmetries cancel before the inverse transform.  See
 for the same reason.
 
 `bernstein_order` (the Bernstein order ``N``) controls how sharply the subbands separate.
-Larger ``N`` converges to the ideal indicator; the deviation from it falls
-monotonically, from about 0.095 mean absolute error at ``N = 4`` to 0.024 at
-``N = 20``.
+Larger ``N`` converges to the ideal indicator; the deviation of the weight
+(`tight = false`) from it on a 24³ grid falls monotonically, from about 0.095
+mean absolute error at ``N = 4`` to 0.024 at ``N = 20``.
 
 ## Directional filter bank (NDFB)
 
@@ -476,11 +476,11 @@ deliberately different realization.  What the comparison establishes:
     ``\sum_k V_k^2 = 3`` to machine precision; this package's satisfy
     ``\sum_k V_k^2 = 1``, the same construction scaled by ``\sqrt{3}``.
   * The hourglass geometry agrees.  Over a 32³ grid the two constructions pick
-    the same dominant hourglass at 94.6% of frequencies, with a mean absolute
-    weight difference of 0.037; every disagreement is a near-tie in the
-    reference (median gap 0.005 between the top two weights, against 0.887
-    averaged over all frequencies), so the two differ only in how they round the
-    transition bands.
+    the same dominant hourglass at 94.5% of frequencies, with a mean absolute
+    weight difference of 0.037.  The disagreements lie in the reference's
+    transition bands: at least half of them are exact ties between its top two
+    weights, and the largest gap is 0.47, against 0.887 averaged over all
+    frequencies, so the two differ only in how they round the transition bands.
   * The wedge partition agrees.  Across 80 plane waves at 12 directional
     subbands, the confusion matrix between SurfBox's subband labels and this
     package's is a bijection, 84% of directions match exactly under it, and for

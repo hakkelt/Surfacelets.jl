@@ -14,7 +14,7 @@
 # Bernstein mapping polynomials -- so the masks are compared on geometry
 # (which hourglass dominates a given frequency) rather than value.
 
-@testitem "hourglass matches the SurfBox reference partition" tags = [:directional] begin
+@testitem "hourglass matches the SurfBox reference partition" tags = [:directional, :surfbox] begin
     using Surfacelets: make_hourglass, hourglass_mask, hourglass_weight
     reference_octant() = reshape(
         reinterpret(Float32, read(joinpath(@__DIR__, "..", "reference", "surfbox_hourglass_32.bin"))),
@@ -51,8 +51,9 @@
         k == m ? (@test d < 0.5) : (@test d > 0.9)
     end
 
-    # Geometry: the dominant hourglass agrees at almost every frequency, and
-    # every disagreement is a near-tie in the reference.
+    # Geometry: the dominant hourglass agrees at almost every frequency, and the
+    # disagreements lie in the reference's transition bands: at least half are
+    # exact ties between its top two weights (the docs' theory page quotes these).
     dominant_mine(i) = argmax((w_mine[1][i], w_mine[2][i], w_mine[3][i]))
     dominant_ref(i) = argmax((w_ref[1][i], w_ref[2][i], w_ref[3][i]))
     function ref_gap(i)
@@ -61,7 +62,10 @@
     end
     disagree = [i for i in eachindex(w_mine[1]) if dominant_mine(i) != dominant_ref(i)]
     @test 1 - length(disagree) / length(w_mine[1]) > 0.94
-    @test maximum(ref_gap, disagree) < 0.5
+    gaps = sort(ref_gap.(disagree))
+    @test gaps[cld(length(gaps), 2)] < 1.0e-6
+    @test gaps[end] < 0.48
+    @test sum(ref_gap, eachindex(w_mine[1])) / length(w_mine[1]) ≈ 0.887 atol = 0.001
 
     # Values track the reference closely away from the transition bands.
     mean_abs = sum(k -> sum(abs, w_mine[k] .- w_ref[k]), 1:3) / (3 * length(w_mine[1]))
@@ -94,7 +98,7 @@ end
 # way -- so the test asks whether the two agree on the *partition* of
 # directions, up to relabeling.
 
-@testitem "ndfb matches the SurfBox reference wedge partition" tags = [:directional] begin
+@testitem "ndfb matches the SurfBox reference wedge partition" tags = [:directional, :surfbox] begin
     using Surfacelets: make_ndfb, ndfb_nsubbands, ndfb_decompose
     raw = reshape(
         reinterpret(Float64, read(joinpath(@__DIR__, "..", "reference", "surfbox_directions_32.bin"))),
