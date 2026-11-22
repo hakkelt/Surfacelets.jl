@@ -18,6 +18,9 @@
     @test layout[8] == (scale = 2, direction = 1)
     @test supports_streaming(t) === true
     @test_throws "three axes" subband_layout(t, (16, 16))
+    let t1 = NSSurfacelet(scales = 1), z = complex.(randn(16, 16, 16), randn(16, 16, 16))
+        @test_throws "coefficients of element type Float64, the workspace is for ComplexF64" analyze!(zeros(16, 16, 16, nsubbands(t1, (16, 16, 16))), t1, z)
+    end
     @test_throws "scales must be ≥ 1" NSSurfacelet(scales = 0, direction_levels = Int[])
     @test_throws "length(direction_levels) must equal scales" NSSurfacelet(scales = 2, direction_levels = [1])
     @test_throws "direction_levels entries must be ≥ 0" NSSurfacelet(scales = 1, direction_levels = [-1])

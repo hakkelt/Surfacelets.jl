@@ -540,6 +540,8 @@ function MultiscaleTransformsBase.analyze!(
     )
     ws = _ns_workspace_for(workspace, t, x)
     _ns_check_coefficients(c, t, ws.dims)
+    eltype(ws) <: Complex && !(eltype(c) <: Complex) &&
+        throw(ArgumentError("coefficients of element type $(eltype(c)), the workspace is for $(eltype(ws))"))
     if _ns_engine_arrays(ws, c)
         mask_bank_forward!(_NSStack(c), _ns_engine_input(ws, x), ws.engine; threaded = _ns_threaded(threaded))
     else
