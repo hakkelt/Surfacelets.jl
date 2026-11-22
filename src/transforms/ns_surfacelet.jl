@@ -151,8 +151,9 @@ Keywords:
 - `cache_bandpass`: see below.
 
 Memory: the hourglass response is one `real(T)` array on the rfft grid,
-`(n₁÷2+1) × n₂ × n₃`; the buffers are about `3·tasks + 1` such arrays for
-real data and `4·tasks + 2` for complex data (`9` with one task).  With `cache_bandpass = true` the
+`(n₁÷2+1) × n₂ × n₃`.  The buffers are about `3·tasks + 1` complex arrays of
+that grid (each the size of two responses) for real data, and `4·tasks + 5` for
+complex data.  With `cache_bandpass = true` the
 pyramid's bandpass of each scale is precomputed as well, `t.scales` more such arrays;
 it saves recomputing the non-separable factor `√(1 - ℓⱼ²)` once per hourglass
 and channel in both directions.  Pass `false` to broadcast it from per-axis
