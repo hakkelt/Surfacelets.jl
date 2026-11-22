@@ -5,6 +5,9 @@
     @test t.direction_levels == [1, 2, 2]
     @test t == NSSurfacelet(scales = 3, direction_levels = [1, 2, 2])
     @test hash(t) == hash(NSSurfacelet(scales = 3, direction_levels = Int32[1, 2, 2]))
+    # -0.0 and 0.0 are one transition: equal and hashing alike.
+    @test hash(NSSurfacelet(scales = 1, transition = -0.0)) == hash(NSSurfacelet(scales = 1, transition = 0.0))
+    @test length(Set([NSSurfacelet(scales = 1, transition = -0.0), NSSurfacelet(scales = 1, transition = 0.0)])) == 1
     @test t != NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], tight = false)
     @test t != NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], transition = 0.5)
     @test sprint(show, t) == "NSSurfacelet(scales = 3, direction_levels = [1, 2, 2], bernstein_order = 12, halfband_order = 1, transition = 1.0, tight = true)"

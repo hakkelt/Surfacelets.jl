@@ -95,7 +95,8 @@ struct NSSurfacelet <: AbstractMultiscaleTransform
         bernstein_order >= 1 || throw(ArgumentError("bernstein_order must be ≥ 1, got $(bernstein_order)"))
         halfband_order >= 0 || throw(ArgumentError("halfband_order must be ≥ 0, got $(halfband_order)"))
         transition >= 0 || throw(ArgumentError("transition must be ≥ 0, got $(transition)"))
-        return new(scales, collect(Int, direction_levels), bernstein_order, halfband_order, transition, tight)
+        # `+ 0.0` turns -0.0 into 0.0, so equal transforms hash alike.
+        return new(scales, collect(Int, direction_levels), bernstein_order, halfband_order, Float64(transition) + 0.0, tight)
     end
 end
 
