@@ -337,3 +337,43 @@ end
     @test layout[argmax(energy(fast))].scale == 2
     @test layout[argmax(energy(slow))].scale in (0, 1)
 end
+
+@testitem "NSSurfacelet — workspace channels and stack classification" tags = [:ns_surfacelet] begin
+    using MultiscaleTransformsBase: make_workspace
+    S = Surfacelets
+    t = NSSurfacelet(scales = 1)
+    @test S._nchannels(make_workspace(t, Float64, (16, 16, 16); flags = S.FFTW.ESTIMATE)) == 1
+    @test S._nchannels(make_workspace(t, ComplexF64, (16, 16, 16); flags = S.FFTW.ESTIMATE)) == 2
+
+    stack = zeros(4, 4, 4, 3)
+    @test S._is_stack_of(stack, zeros(4, 4, 4))
+    @test S._is_stack_of(stack, view(stack, :, :, :, 1))
+    @test !S._is_stack_of(view(stack, :, :, :, 1:2), zeros(4, 4, 4))
+    @test !S._is_stack_of(zeros(4, 4), zeros(4, 4, 4))
+end
+
+@testitem "NSSurfacelet — masks on non-Array storage and singleton wedge planes" tags = [:ns_surfacelet] begin
+    S = Surfacelets
+    # The generic bandpass product (device arrays take it) matches the plain product.
+    v() = view(rand(4, 3, 2), :, :, :)
+    m1, m2, band, a1, a2, a3, l1, l2, l3 = (v() for _ in 1:9)
+    M = S._NSBandMask(m1, m2, band, (a1, a2, a3), (l1, l2, l3), 1, false, true)
+    src = v()
+    for add in (false, true)
+        dst = view(ones(4, 3, 2), :, :, :)
+        expected = (add ? ones(4, 3, 2) : zeros(4, 3, 2)) .+ src .* band
+        @test S._ns_band!(dst, src, band, M, add) ≈ expected
+    end
+
+    # Wedge planes that are a column, a scalar, or the full grid.
+    Y = randn(4, 3, 2)
+    full = randn(4, 3, 2)
+    col = randn(4, 1, 1)
+    one1 = randn(1, 1, 1)
+    row = randn(1, 3, 2)
+    for (wa, wb) in ((one1, one1), (one1, col), (col, one1), (full, col), (row, one1), (row, full)), add in (false, true)
+        dst = ones(4, 3, 2)
+        expected = (add ? ones(4, 3, 2) : zeros(4, 3, 2)) .+ Y .* wa .* wb
+        @test S._wedge_mul!(dst, Y, wa, wb, add) ≈ expected
+    end
+end

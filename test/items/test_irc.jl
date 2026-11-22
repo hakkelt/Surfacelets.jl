@@ -191,3 +191,26 @@ end
         @test surfacelet_redundancy(t, (96, 96, 96)) ≈ golden["red_96_$(nm)"][1]
     end
 end
+
+@testitem "Surfacelet scale — coefficient count and helper copies" tags = [:directional] begin
+    S = Surfacelets
+    x = randn(16, 16, 16)
+    lv = S._surf_levels([-1 1 1; 1 -1 1; 1 1 -1])
+    sc = S._SurfScale(size(x), lv, S._ritf_masks(Float64, size(x)), ntuple(K -> S._irc_stages(Float64, ntuple(d -> d == K ? 9 : 16, 3), 16, K, lv[K], 4), 3))
+    work = S._scale_work(sc, x, S.FFTW.ESTIMATE, 1)
+    bands = [zeros(S._surf_subband_size(sc, K)) for K in 1:3 for _ in 1:(1 << sum(lv[K]))]
+    @test S._directional_count([sc]) == sum(length, bands)
+    @test S._directional_count([sc, sc]) == 2 * sum(length, bands)
+
+    src = randn(4, 5, 6)
+    for p in ((2, 1, 3), (3, 1, 2), (2, 3, 1))
+        dst = zeros(size(permutedims(src, p)))
+        @test S._permuted_copy!(dst, src, p) == permutedims(src, p)
+    end
+    @test_throws "not a K-first permutation or its inverse" S._permuted_copy!(zeros(4, 5, 6), src, (1, 2, 3))
+
+    # A source that is not a host array takes the generic broadcast copy.
+    perm = PermutedDimsArray(src, (2, 1, 3))
+    dst = zeros(size(perm))
+    @test S._copy!(dst, perm) == permutedims(src, (2, 1, 3))
+end
