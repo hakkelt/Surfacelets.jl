@@ -148,6 +148,6 @@ AI model, under the direction of the author.
 
 MIT. The decimated surfacelet transform reimplements the construction of SurfBox
 (© Yue Lu and Minh N. Do, MATLAB File Exchange 14485), whose source was consulted
-to reproduce it; SurfBox's notice is retained in [`LICENSE`](LICENSE). The golden
+to reproduce it; SurfBox's notice is retained in [`NOTICE`](NOTICE). The golden
 data under `test/reference/` was produced by running SurfBox. No code is derived
 from the MATLAB Contourlet or Nonsubsampled Contourlet toolboxes.
