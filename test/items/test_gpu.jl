@@ -201,3 +201,18 @@ end
         @test maximum(abs, Array(synthesize(t, c)) .- z) < 1.0f-4
     end
 end
+
+@testitem "GPU workspace from a view of device data" tags = [:gpu] setup = [GPUBackends] begin
+    using GPUEnv
+    GPUBackends.check_backends()
+    x = randn(Float32, 24, 24, 24)
+    for backend in GPUBackends.fft_backends, t in (NSSurfacelet(scales = 1), Surfacelet(scales = 1, direction_levels = [1]))
+        xg = to_gpu(backend, x)
+        # The workspace goes to the view's storage type, not to the view's type.
+        ws = make_workspace(t, view(xg, axes(xg)...); prewarm = false)
+        dw = make_workspace(t, xg; prewarm = false)
+        @test typeof(ws) === typeof(dw)
+        c, d = analyze(t, xg; workspace = ws), analyze(t, xg; workspace = dw)
+        @test all(i -> Array(subband(t, c, i)) ≈ Array(subband(t, d, i)), 1:nsubbands(t, size(x)))
+    end
+end
