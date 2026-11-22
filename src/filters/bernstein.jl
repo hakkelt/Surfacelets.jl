@@ -40,7 +40,7 @@ function bernstein_table(N::Integer, omega::AbstractVector{T}) where {T <: Abstr
     # The binomial row depends only on `N`, so it is built once rather than per
     # frequency: the table is `(N+1) × length(omega)` and `omega` is a grid axis.
     bin = _binomial_row(T, N)
-    @inbounds for (k, w) in enumerate(omega)
+    for (k, w) in enumerate(omega)
         # sin(w/2)² = (1 - cos w)/2 without cancellation at small w.
         x = sin(w / 2)^2
         x = clamp(x, zero(T), one(T))
@@ -98,7 +98,7 @@ function mapping_coefficients(N::Integer, ::Val{d}, group::NTuple{G, Integer}) w
     1 <= G < d || throw(ArgumentError("group must be a proper non-empty subset of 1:d"))
     all(g -> 1 <= g <= d, group) || throw(ArgumentError("group indices out of range"))
     c = Array{Int, d}(undef, ntuple(_ -> Int(N) + 1, d))
-    @inbounds for idx in CartesianIndices(c)
+    for idx in CartesianIndices(c)
         j = Tuple(idx) .- 1
         a = maximum(ntuple(t -> j[group[t]], Val(G)))
         b = maximum(j[t] for t in 1:d if !(t in group))

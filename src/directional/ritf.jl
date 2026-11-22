@@ -60,7 +60,7 @@ function _ritf_diamond(w::AbstractVector{T}, a::T, b::T) where {T}
     α = (a + b) / 2
     β = (a - b) / 2
     ceα = ceβ = coα = coβ = zero(T)
-    @inbounds for (i, u) in enumerate((-half):half)
+    for (i, u) in enumerate((-half):half)
         if iseven(u)
             ceα += w[i] * cos(u * α)
             ceβ += w[i] * cos(u * β)

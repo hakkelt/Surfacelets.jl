@@ -70,7 +70,7 @@ end
 # b(ω) = 2 Σ t_q sin(q ω) over the odd q.
 @inline function _cbd_b(t::AbstractVector, ω::T) where {T}
     s = zero(T)
-    @inbounds for i in eachindex(t)
+    for i in eachindex(t)
         s += T(t[i]) * sin((2i - 1) * ω)
     end
     return 2s

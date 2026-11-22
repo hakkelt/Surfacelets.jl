@@ -58,7 +58,7 @@ function _wedge_masks_plane(
     end
 
     nref, ntr = n[ref], n[tr]
-    @inbounds for (q, wt) in enumerate(wtr), (p, wr) in enumerate(wref)
+    for (q, wt) in enumerate(wtr), (p, wr) in enumerate(wref)
         # Ratio parameterizing direction inside the hourglass.
         s = _wedge_ratio(wr, wt, _self_conjugate_bin(p, nref), _self_conjugate_bin(q, ntr))
         for k in 1:nw

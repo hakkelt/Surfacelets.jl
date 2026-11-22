@@ -302,6 +302,9 @@ end
 # and the cached Bⱼ (or `a1`, `l1`) is a scalar per column.
 function _ns_band!(dst::Array, src::Array, B, M::_NSBandMask{<:Array}, add::Bool)
     m1, m2 = M.m1, M.m2
+    # The unchecked loop reads every array at dst's indices (m2 along axes 2, 3).
+    axes(src) == axes(dst) == axes(m1) == axes(B) && axes(m2, 2) == axes(dst, 2) && axes(m2, 3) == axes(dst, 3) ||
+        throw(DimensionMismatch("bandpass: the spectra and masks do not share the grid $(size(dst))"))
     @inbounds for k in axes(dst, 3), l in axes(dst, 2)
         μ2 = m2[1, l, k]
         d, s, μ1 = view(dst, :, l, k), view(src, :, l, k), view(m1, :, l, k)
@@ -352,6 +355,8 @@ _ns_lowpass!(Y, X, a, add::Bool) = add ? (Y .+= X .* a[1] .* a[2] .* a[3]) : (Y 
 
 function _ns_lowpass!(Y::Array, X::Array, a::NTuple{3, Array}, add::Bool)
     a1, a2, a3 = a
+    axes(X) == axes(Y) && length(a1) == size(Y, 1) && axes(a2, 2) == axes(Y, 2) && axes(a3, 3) == axes(Y, 3) ||
+        throw(DimensionMismatch("lowpass: the spectra and factors do not share the grid $(size(Y))"))
     a1v = vec(a1)
     @inbounds for k in axes(Y, 3), l in axes(Y, 2)
         a23 = a2[1, l, 1] * a3[1, 1, k]
@@ -389,6 +394,10 @@ end
 _wedge_mul!(dst, Y, wa, wb, add::Bool) = add ? (dst .+= Y .* wa .* wb) : (dst .= Y .* wa .* wb)
 
 function _wedge_mul!(dst::Array{T, 3}, Y::Array{T, 3}, wa::Array{R, 3}, wb::Array{R, 3}, add::Bool) where {T, R}
+    # The unchecked loop reads each plane along an axis of dst's length or a singleton one.
+    fits(w) = all(d -> size(w, d) in (1, size(dst, d)), 1:3)
+    axes(Y) == axes(dst) && fits(wa) && fits(wb) ||
+        throw(DimensionMismatch("wedge: the spectra and planes do not share the grid $(size(dst))"))
     @inbounds for k in axes(dst, 3), j in axes(dst, 2)
         a = view(wa, :, min(j, size(wa, 2)), min(k, size(wa, 3)))
         b = view(wb, :, min(j, size(wb, 2)), min(k, size(wb, 3)))

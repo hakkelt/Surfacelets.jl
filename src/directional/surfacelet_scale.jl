@@ -281,6 +281,7 @@ _block_copy!(dst::_HostBlock, src::_HostArray) = _loop_copy!(dst, src)
 _block_copy!(dst::_HostArray, src::_HostBlock) = _loop_copy!(dst, src)
 
 function _loop_copy!(dst::AbstractArray{T, 3}, src::AbstractArray{T, 3}) where {T}
+    axes(dst) == axes(src) || throw(DimensionMismatch("block copy: axes $(axes(dst)) and $(axes(src)) differ"))
     @inbounds for I in CartesianIndices(dst)
         dst[I] = src[I]
     end
