@@ -153,7 +153,8 @@ end
 """
     ndfb_nsubbands(fb::NDFB) -> Int
 
-Number of directional subbands, `3 * 2^levels`.
+Number of directional subbands, `3 * 2^levels` for the `levels` given to
+[`make_ndfb`](@ref).
 """
 ndfb_nsubbands(fb::NDFB) = 3 * (1 << sum(fb.levels))
 
@@ -162,7 +163,23 @@ ndfb_nsubbands(fb::NDFB) = 3 * (1 << sum(fb.levels))
 
 Linear index of the subband refining `hourglass` (1-3) at wedge `p` of its first
 transverse plane and wedge `q` of its second.  Subbands are ordered hourglass
-first, then `p`, then `q`.
+first, then `p`, then `q`.  Wedges are numbered from 1; the two planes have
+`na` and `nb` wedges with `na * nb = 2^levels`, and an index outside `1:na`,
+`1:nb` or `1:3` throws an `ArgumentError`.
+
+# Examples
+
+```jldoctest
+julia> using Surfacelets: make_ndfb, ndfb_subband_index, ndfb_subband_triple
+
+julia> fb = make_ndfb(Float64, (16, 16, 16); levels = 2, bernstein_order = 6);
+
+julia> idx = ndfb_subband_index(fb, 2, 1, 2)
+6
+
+julia> ndfb_subband_triple(fb, idx)
+(2, 1, 2)
+```
 """
 function ndfb_subband_index(fb::NDFB, hourglass::Integer, p::Integer, q::Integer)
     na, nb = _wedge_counts(fb)
@@ -272,7 +289,7 @@ end
 
 Streaming decomposition: calls `f(idx, subband)` once per directional subband,
 reusing a single scratch buffer between calls.  `subband` is only valid until
-`f` returns — copy or reduce it there.
+`f` returns — copy or reduce it there.  Returns `nothing`.
 
 This is the form to use on real volumes: it holds one subband at a time instead
 of `3 * 2^levels` of them.

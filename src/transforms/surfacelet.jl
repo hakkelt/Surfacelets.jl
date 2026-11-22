@@ -201,7 +201,21 @@ end
 """
     surfacelet_redundancy(t::Surfacelet, dims) -> Float64
 
-Coefficients of `t` on a volume of size `dims`, divided by the number of voxels.
+Number of coefficients `t` produces on a volume of size `dims` (all subbands,
+the lowpass included), divided by the number of voxels.  `dims` is a 3-tuple of
+volume sizes that `t` accepts; see [`make_workspace`](@ref
+make_workspace(::Surfacelet, ::AbstractArray)) for the size constraints.
+
+# Examples
+
+```jldoctest
+julia> using Surfacelets
+
+julia> t = Surfacelet(direction_levels = [1, 2]);
+
+julia> surfacelet_redundancy(t, (48, 48, 48)) > 1
+true
+```
 """
 function surfacelet_redundancy(t::Surfacelet, dims::Dims)
     return sum(prod, _surf_layout_sizes(t, _check_volume(dims))) / prod(dims)
