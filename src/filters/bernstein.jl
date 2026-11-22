@@ -166,18 +166,22 @@ flatter at `x = ±1` at the cost of a steeper polynomial.
 function halfband_split(x::T, m::Integer) where {T <: Real}
     m = Int(m)
     m >= 0 || throw(ArgumentError("polynomial order must be ≥ 0"))
-    u = (one(T) + x) / 2
-    v = (one(T) - x) / 2
-    s = zero(T)
-    # binomial(m+k, k) by the recurrence `c_{k+1} = c_k · (m+k+1) ÷ (k+1)`, which
-    # is exact in integers: this runs once per voxel per subband, and
-    # `binomial`'s overflow checking is not free at that rate.
-    c = 1
-    @inbounds for k in 0:m
-        s += T(c) * v^k
-        c = c * (m + k + 1) ÷ (k + 1)
+    # In at least Float64, binomial(m+k, k) by the recurrence
+    # `c_{k+1} = c_k · (m+k+1) / (k+1)`: exact while it stays below 2⁵³ (m ≤ 26),
+    # and neither it nor the sum overflows up to m ≈ 500.  The sum is formed
+    # first and scaled last; the masks rely on this order to stay even in
+    # frequency to rounding.
+    F = promote_type(float(T), Float64)
+    u = (one(F) + x) / 2
+    v = (one(F) - x) / 2
+    iszero(u) && return zero(float(T))
+    s = zero(F)
+    c = one(F)
+    for k in 0:m
+        s += c * v^k
+        c = c * (m + k + 1) / (k + 1)
     end
-    return u^(m + 1) * s
+    return float(T)(u^(m + 1) * s)
 end
 
 # Soft step from 0 to 1 across `[-1, 1]`, flat outside it: `halfband_split` on a

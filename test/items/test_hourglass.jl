@@ -45,6 +45,15 @@ end
         end
     end
     @test_throws ArgumentError Surfacelets.halfband_split(0.0, -1)
+    # High orders: no overflow, so f₀ stays in [0, 1] and rises toward 1 with m
+    # for x > 0; Float32 and integer arguments agree with Float64.
+    f = [Surfacelets.halfband_split(0.5, m) for m in 0:60]
+    @test issorted(f) && all(v -> 0 <= v <= 1, f)
+    @test Surfacelets.halfband_split(0.5f0, 40) ≈ Float32(f[41])
+    @test Surfacelets.halfband_split(1, 40) === 1.0 && Surfacelets.halfband_split(-1.0, 60) === 0.0
+    for m in (31, 45, 60), x in range(-1, 1; length = 9)
+        @test abs(Surfacelets.halfband_split(x, m) + Surfacelets.halfband_split(-x, m) - 1) < 1.0e-12
+    end
 end
 
 @testitem "hourglass — weights are a partition of unity in [0,1]" tags = [:directional] begin
