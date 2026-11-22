@@ -111,3 +111,19 @@ end
         @test_throws "three axes" make_workspace(t, Td, (16, 16); flags = FFTW.ESTIMATE, tasks = 1, tune = false, prewarm = false)
     end
 end
+
+@testitem "workspaces and banks show compactly" tags = [:ns_surfacelet, :surfacelet] begin
+    using Surfacelets: make_hourglass, make_ndfb
+    ws = make_workspace(NSSurfacelet(scales = 1), Float32, (16, 16, 16); prewarm = false, tasks = 2)
+    sw = make_workspace(Surfacelet(scales = 1, direction_levels = [1]), Float64, (12, 12, 12); prewarm = false)
+    h = make_hourglass(Float64, (8, 8, 8); bernstein_order = 6)
+    n = make_ndfb(Float64, (8, 8, 8); levels = 1)
+    @test startswith(repr(ws), "NSSurfaceletWorkspace{Float32}(16×16×16, NSSurfacelet(scales = 1")
+    @test endswith(repr(ws), "tasks = 2)")
+    @test startswith(repr(sw), "SurfaceletWorkspace{Float64}(12×12×12, Surfacelet(scales = 1")
+    @test repr(h) == "HourglassFB{Float64}((8, 8, 8), bernstein_order = 6, halfband_order = 1, tight = true)"
+    @test startswith(repr(n), "NDFB{Float64}((8, 8, 8), levels = ")
+    for x in (ws, sw, h, n)
+        @test length(repr(MIME"text/plain"(), x)) < 300
+    end
+end

@@ -79,6 +79,9 @@ MultiscaleTransformsBase.transform(ws::NSSurfaceletWorkspace) = ws.transform
 Base.eltype(::Type{<:NSSurfaceletWorkspace{Td}}) where {Td} = Td
 Base.size(ws::NSSurfaceletWorkspace) = ws.dims
 
+Base.show(io::IO, ws::NSSurfaceletWorkspace) =
+    print(io, "NSSurfaceletWorkspace{", eltype(ws), "}(", join(ws.dims, "×"), ", ", ws.transform, ", tasks = ", something(ws.tasks, "nothing"), ")")
+
 _nchannels(::NSSurfaceletWorkspace{<:Real}) = 1
 _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 

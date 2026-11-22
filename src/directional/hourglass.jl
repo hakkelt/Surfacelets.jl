@@ -99,6 +99,9 @@ end
 
 Base.eltype(::HourglassFB{T}) where {T} = T
 
+Base.show(io::IO, fb::HourglassFB) =
+    print(io, "HourglassFB{", eltype(fb), "}(", fb.dims, ", bernstein_order = ", fb.bernstein_order, ", halfband_order = ", fb.halfband_order, ", tight = ", fb.tight, ")")
+
 # FFTW thread count for the `threaded` keyword.  The default (`nothing`) uses every
 # Julia thread: an FFT here is always a big enough chunk of work to be worth
 # splitting.  The plan is made inside `with_fftw_threads`, so a restriction opened

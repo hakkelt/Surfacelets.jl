@@ -62,6 +62,9 @@ MultiscaleTransformsBase.transform(ws::SurfaceletWorkspace) = ws.transform
 Base.eltype(::Type{<:SurfaceletWorkspace{Td}}) where {Td} = Td
 Base.size(ws::SurfaceletWorkspace) = ws.dims
 
+Base.show(io::IO, ws::SurfaceletWorkspace) =
+    print(io, "SurfaceletWorkspace{", eltype(ws), "}(", join(ws.dims, "×"), ", ", ws.transform, ", tasks = ", ws.tasks, ")")
+
 # The workspace around `pyramid` and `scales`, with buffers like `proto` (host or
 # device) for `tasks` tasks.  Host FFT plans use `flags`; the block plans run on
 # one FFTW thread each, the full-volume plans on `tasks` or, in a serial call, one.

@@ -51,6 +51,9 @@ end
 
 Base.eltype(::NDFB{T}) where {T} = T
 
+Base.show(io::IO, fb::NDFB) =
+    print(io, "NDFB{", eltype(fb), "}(", fb.fb.dims, ", levels = ", fb.levels, ", bernstein_order = ", fb.fb.bernstein_order, ", halfband_order = ", fb.fb.halfband_order, ", tight = ", fb.fb.tight, ")")
+
 """
     make_ndfb([T = Float64,] dims; levels = 2, bernstein_order = 12, halfband_order = 1, tight = true,
               transition = 1.0, threaded = nothing, flags = FFTW.MEASURE) -> NDFB
