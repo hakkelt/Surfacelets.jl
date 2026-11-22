@@ -64,9 +64,8 @@ end
             m = ndfb_mask(fb, idx)
             # On the two self-conjugate planes of the rfft grid the mask has to
             # be even in the remaining two axes on its own.
-            for i in (1, n ÷ 2 + 1), j in 1:n, k in 1:n
-                @test m[i, j, k] ≈ m[i, neg(j), neg(k)] atol = 1.0e-13
-            end
+            odd = maximum(abs(m[i, j, k] - m[i, neg(j), neg(k)]) for i in (1, n ÷ 2 + 1), j in 1:n, k in 1:n)
+            @test odd <= 1.0e-13
         end
     end
 end
