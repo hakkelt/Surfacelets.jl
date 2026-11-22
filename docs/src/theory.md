@@ -11,8 +11,8 @@ contourlet transform with an extra axis.  Its directional stage carves the
 spectrum into hourglass-shaped regions around the three frequency axes — from
 Bernstein mapping kernels in the nonsubsampled transform, from SurfBox's
 diamond kernels in the decimated one — a partition with no separable-lattice
-description, so there is no quincunx lattice, no shear index remap and no ladder
-filter anywhere in it.  Lu and Do prove that the *hourglass* partition — the
+description, so there is no quincunx lattice and no shear index remap in it, and
+the nonsubsampled transform's directional stage has no ladder filter either.  Lu and Do prove that the *hourglass* partition — the
 first stage, which splits the spectrum into ``N`` hourglasses around the
 frequency axes — cannot be achieved by a critically sampled filter bank above
 two dimensions, so that stage has an unavoidable redundancy of ``N``.  The
@@ -440,14 +440,11 @@ itself.  A sign-sensitive quantity like the wedge ratio ``\omega_2/\omega_1`` of
 the nonsubsampled NDFB therefore comes out with opposite signs at two bins that
 are each other's negation, which makes a masked spectrum non-Hermitian.
 
-That trap bit `ndfb`, and stayed invisible for a while.  With the masks
-applied once and reconstruction a plain sum, the individual asymmetries cancel
-before any inverse transform: ``\sum_k W_k X = X`` whatever each ``W_k`` does at
-Nyquist, so perfect reconstruction held while the masks were not even.  Turning
-on `tight` makes synthesis reapply the masks, which requires each subband to
-survive an `irfft`/`rfft` round trip, which requires the mask to be even on the
-two self-conjugate planes of the rfft grid.  It was not, and reconstruction
-failed by 0.27.
+With the masks applied once and reconstruction a plain sum, such asymmetries
+cancel before any inverse transform: ``\sum_k W_k X = X`` whatever each ``W_k``
+does at Nyquist.  The `tight` bank reapplies the masks on synthesis, which
+requires each subband to survive an `irfft`/`rfft` round trip, and so requires
+every mask to be even on the two self-conjugate planes of the rfft grid.
 
 `_wedge_ratio` fixes the sign from the first coordinate that can carry one:
 ``\omega_\mathrm{ref}`` when it is neither 0 nor ``\pi``, and
@@ -469,8 +466,7 @@ their reconstruction, the pyramid in all three modes, and `Surfdec` / `Surfrec`
 end to end at 48³ (mode 1.5) and 64³ (mode 2).  All agree to about
 ``10^{-13}`` of the array norm.  The redundancy matches SurfBox's own count at
 96³: 4.0046 with 24 subbands per scale over three scales and 3.9259 with 96 over
-two — flat in the direction count, against 15–46 for the axis-aligned support
-boxes this transform used before IRC.
+two — flat in the direction count.
 
 **The nonsubsampled transform is checked on its partition**
 (`test/items/test_surfbox_reference.jl`), since its Bernstein hourglass is a

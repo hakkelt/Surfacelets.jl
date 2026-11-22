@@ -28,8 +28,12 @@ transform is invariant under circular shifts.
 - `bernstein_order` — order `N` of the Bernstein mapping kernels of the
   hourglass bank; larger sharpens the boundaries between directional subbands.
 - `halfband_order` — order `m` of the 1-D halfband split polynomial.
-- `transition` — width of the overlap between neighboring wedges, as a fraction
-  of the wedge width.
+- `transition` — the half-width of the soft step at each wedge boundary, as a
+  fraction of the wedge width: `0` gives hard boundaries, `0.5` lets the two
+  steps of a wedge meet at its center, and `1` (the default) ramps across a whole
+  wedge on either side of each boundary, so no wedge has a flat passband — a
+  plane wave at the center of a wedge keeps about 71 % of its energy there at
+  two directional levels.
 - `tight` — when `true` (the default) the directional masks are `√W`, which
   makes the whole transform a Parseval frame: `‖Sx‖ = ‖x‖` and the inverse is
   the adjoint.  When `false` they are the weights themselves and the

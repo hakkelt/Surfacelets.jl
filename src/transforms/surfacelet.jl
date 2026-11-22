@@ -31,7 +31,9 @@
 Everything a [`Surfacelet`](@ref) transform needs for one volume size, element
 type and array type: the pyramid profiles, hourglass masks and checkerboard
 filter slices, and the spectra, block buffers and FFT plans the transform runs
-in, so that `analyze!` and `synthesize!` allocate nothing.  Build with
+in, so that `analyze!` and `synthesize!` allocate only array headers and the
+threads' tasks: a few kilobytes per call (about 2 KB serial and 11 KB with four
+tasks for a two-scale 24³ transform).  Build with
 [`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray)) and pass it
 as `workspace` (or in place of the transform).
 

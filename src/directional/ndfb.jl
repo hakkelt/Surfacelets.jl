@@ -285,7 +285,7 @@ julia> ndfb_decompose(x, fb) do i, band
            energy[i] = sum(abs2, band)
        end;
 
-julia> abs(sum(energy) / sum(abs2, x) - 1) < 2.0
+julia> sum(energy) ≈ sum(abs2, x)
 true
 ```
 """
