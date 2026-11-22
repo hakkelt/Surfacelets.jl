@@ -57,6 +57,8 @@
 
 Precomputed 3-D nonsubsampled hourglass filter bank for one volume size and real
 precision `T` (its `eltype`).  Build with [`make_hourglass`](@ref).
+A bank's buffers serve one call at a time: tasks that run decompositions or
+reconstructions concurrently need a bank each.
 
 Holds the two mapping-kernel frequency responses (`m1` on the 3-D rfft grid,
 `m2` on the 2-D `(ω₂, ω₃)` grid) rather than the three subband masks, which are
@@ -122,6 +124,9 @@ FIR realization corresponds to filters of support up to 61³ — here it costs
 nothing but a slightly longer design step).  `halfband_order` is the order `m` of the 1-D
 halfband split polynomial; larger `m` flattens the response near the passband
 centers.  Neither affects perfect reconstruction, which is exact for any choice.
+
+A bank's buffers serve one call at a time: tasks that run decompositions or
+reconstructions concurrently need a bank each.
 
 `tight` selects how the three weights become filters.  With `tight = true` (the
 default) the masks are `√W_i`, so the bank is a Parseval frame — analysis
@@ -303,7 +308,7 @@ Split `volume` into the three hourglass subbands.  Every subband keeps the full
 size of the input — the bank is nonsubsampled, so the decomposition is exactly
 equivariant under circular shifts and the redundancy is 3 (`N` in `N`-D, which
 Lu & Do show is unavoidable: hourglass partitioning cannot be critically sampled
-above 2-D).
+above 2-D).  It runs in `fb`'s buffers, so `fb` serves one call at a time.
 
 # Examples
 ```jldoctest

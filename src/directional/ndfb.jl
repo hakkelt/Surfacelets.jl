@@ -37,7 +37,8 @@
 
 3-D nonsubsampled directional filter bank of real precision `T` (its `eltype`):
 [`HourglassFB`](@ref) followed by a wedge refinement of each hourglass.  Build
-with [`make_ndfb`](@ref).
+with [`make_ndfb`](@ref).  A bank's buffers serve one call at a time: tasks that run decompositions or
+reconstructions concurrently need a bank each.
 """
 struct NDFB{T <: AbstractFloat, A3 <: AbstractArray{T, 3}, FB <: HourglassFB{T}}
     fb::FB
@@ -60,7 +61,8 @@ Base.show(io::IO, fb::NDFB) =
     make_ndfb([T = Float64,] n1, n2, n3; kwargs...) -> NDFB
 
 Build a 3-D NDFB producing `3 * 2^levels` directional subbands, each the full
-size of the input.
+size of the input.  A bank's buffers serve one call at a time: tasks that run decompositions or
+reconstructions concurrently need a bank each.
 
 `levels` is the total refinement depth `L`; it is split as evenly as possible
 between the two transverse planes of each hourglass (`l_a = ceil(L/2)`,
@@ -109,6 +111,9 @@ planning a new one.  The hourglass stage depends only on the volume size, so a
 multiscale transform can plan it once and vary only the wedge refinement per
 scale — the wedge masks are matrices, so an extra scale costs kilobytes.
 `levels`, `halfband_order` and `transition` are those of [`make_ndfb`](@ref).
+
+The returned bank runs in `fb`'s buffers, as does every other bank built on
+`fb`: at most one of them may be in use at a time.
 """
 function ndfb_sharing(
         fb::HourglassFB{T};
@@ -231,7 +236,8 @@ _mask_accumulate!(acc, fb::NDFB, spec, i::Int, p::Int, q::Int) =
 """
     ndfb_decompose(volume, fb::NDFB) -> Vector
 
-All `3 * 2^levels` directional subbands, each the size of `volume`.
+All `3 * 2^levels` directional subbands, each the size of `volume`.  It runs in
+`fb`'s buffers, so `fb` serves one call at a time.
 
 Memory warning: at 256³ `Float32` a single subband is 64 MB, so `levels = 3`
 (24 subbands) materializes 1.5 GB.  Use the callback form below to process
