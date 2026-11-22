@@ -213,19 +213,21 @@ function _volume_scratch!(fb::HourglassFB)
     return c
 end
 
-# Load one subband into a real scratch buffer.  A bare `copyto!` accepts any
-# array of the same total length, silently reconstructing from a wrongly shaped
-# subband, so the shape is checked here — the plain-sum path gets the same check
-# for free from broadcasting.
-function _load_subband!(dst::AbstractArray{T, 3}, band::AbstractArray) where {T}
-    size(dst) == size(band) || throw(
-        DimensionMismatch("subband size $(size(band)) does not match the plan $(size(dst))")
-    )
-    return copyto!(dst, band)
+# Subband `i`, checked to have the plan's size `dims`: broadcasting accepts
+# singleton axes and `copyto!` any array of the same length, so a wrongly
+# shaped subband would otherwise be read or written silently.
+function _check_band(band::AbstractArray, dims::NTuple{3, Int}, i)
+    size(band) == dims ||
+        throw(DimensionMismatch("subband $(i) has size $(size(band)), but the plan is $(dims)"))
+    return band
 end
 
+# The element type a bank of real type T gives data of element type Td.
+_bank_eltype(::Type{<:Real}, ::Type{T}) where {T} = T
+_bank_eltype(::Type{<:Complex}, ::Type{T}) where {T} = Complex{T}
+
 # Load the real and imaginary parts of `volume` into the two spectra.
-function _load_complex_spectra!(fb::HourglassFB{T}, volume::AbstractArray{Complex{T}, 3}) where {T}
+function _load_complex_spectra!(fb::HourglassFB, volume::AbstractArray{<:Complex, 3})
     spec2, _ = _complex_scratch!(fb)
     @. fb.rbuf = real(volume)
     mul!(fb.spec, fb.fwd, fb.rbuf)
@@ -316,22 +318,24 @@ julia> maximum(abs, hourglass_reconstruct(s, fb) .- x) < 1e-10
 true
 ```
 """
-function hourglass_decompose(volume::AbstractArray{<:Number, 3}, fb::HourglassFB)
-    out = ntuple(_ -> similar(volume), 3)
+function hourglass_decompose(volume::AbstractArray{<:Number, 3}, fb::HourglassFB{T}) where {T}
+    out = ntuple(_ -> similar(volume, _bank_eltype(eltype(volume), T)), 3)
     return hourglass_decompose!(out, volume, fb)
 end
 
 """
     hourglass_decompose!(dst, volume, fb) -> dst
 
-In-place [`hourglass_decompose`](@ref); `dst` is a 3-tuple of arrays matching
-the plan size and the element type of `volume`.
+In-place [`hourglass_decompose`](@ref); `dst` is a 3-tuple of arrays of the plan
+size, real for real `volume` and complex for complex `volume`.  A `volume` of
+another precision (or integers) is converted to the bank's.
 """
 function hourglass_decompose!(
-        dst::NTuple{3, <:AbstractArray{T, 3}}, volume::AbstractArray{T, 3},
-        fb::HourglassFB{T}
-    ) where {T <: AbstractFloat}
+        dst::NTuple{3, <:AbstractArray{<:Real, 3}}, volume::AbstractArray{<:Real, 3},
+        fb::HourglassFB
+    )
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
+    foreach(i -> _check_band(dst[i], fb.dims, i), 1:3)
     copyto!(fb.rbuf, volume)
     mul!(fb.spec, fb.fwd, fb.rbuf)
     for i in 1:3
@@ -343,10 +347,11 @@ function hourglass_decompose!(
 end
 
 function hourglass_decompose!(
-        dst::NTuple{3, <:AbstractArray{Complex{T}, 3}}, volume::AbstractArray{Complex{T}, 3},
-        fb::HourglassFB{T}
-    ) where {T <: AbstractFloat}
+        dst::NTuple{3, <:AbstractArray{<:Complex, 3}}, volume::AbstractArray{<:Complex, 3},
+        fb::HourglassFB
+    )
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
+    foreach(i -> _check_band(dst[i], fb.dims, i), 1:3)
     # Real and imaginary parts go through the identical real kernel, which keeps
     # `T(x + i·y) == T(x) + i·T(y)` exact.  Both spectra are held at once so each
     # subband is finished before moving to the next.
@@ -415,8 +420,8 @@ sum, with no transforms.  When it is true the same `√W` masks are applied on t
 way back, so each subband costs a forward transform and the sum is completed by
 one inverse.
 """
-function hourglass_reconstruct(subbands::NTuple{3, <:AbstractArray{Td, 3}}, fb::HourglassFB) where {Td}
-    out = similar(subbands[1])
+function hourglass_reconstruct(subbands::NTuple{3, <:AbstractArray{<:Number, 3}}, fb::HourglassFB{T}) where {T}
+    out = similar(subbands[1], _bank_eltype(eltype(subbands[1]), T))
     return hourglass_reconstruct!(out, subbands, fb)
 end
 
@@ -426,10 +431,11 @@ end
 In-place [`hourglass_reconstruct`](@ref).
 """
 function hourglass_reconstruct!(
-        volume::AbstractArray{Td, 3}, subbands::NTuple{3, <:AbstractArray{Td, 3}},
+        volume::AbstractArray{<:Number, 3}, subbands::NTuple{3, <:AbstractArray{<:Number, 3}},
         fb::HourglassFB
-    ) where {Td}
+    )
     size(volume) == fb.dims || throw(DimensionMismatch("volume size does not match the plan"))
+    foreach(i -> _check_band(subbands[i], fb.dims, i), 1:3)
     if !fb.tight
         s1, s2, s3 = subbands
         @. volume = s1 + s2 + s3
@@ -438,15 +444,13 @@ function hourglass_reconstruct!(
     return _hourglass_synthesize!(volume, subbands, fb)
 end
 
-function _hourglass_synthesize!(
-        volume::AbstractArray{T, 3}, subbands, fb::HourglassFB{T}
-    ) where {T <: AbstractFloat}
+function _hourglass_synthesize!(volume::AbstractArray{<:Real, 3}, subbands, fb::HourglassFB)
     # `work` is the buffer the inverse plan consumes and nothing else uses during
     # synthesis, so the masked spectra accumulate straight into it.
     acc = fb.work
     fill!(acc, zero(eltype(acc)))
     for i in 1:3
-        _load_subband!(fb.rbuf, subbands[i])
+        copyto!(fb.rbuf, subbands[i])
         mul!(fb.spec, fb.fwd, fb.rbuf)
         _mask_accumulate!(acc, fb, fb.spec, i)
     end
@@ -455,9 +459,7 @@ function _hourglass_synthesize!(
     return volume
 end
 
-function _hourglass_synthesize!(
-        volume::AbstractArray{Complex{T}, 3}, subbands, fb::HourglassFB{T}
-    ) where {T <: AbstractFloat}
+function _hourglass_synthesize!(volume::AbstractArray{<:Complex, 3}, subbands, fb::HourglassFB)
     # Real and imaginary parts take the identical real kernel, as everywhere
     # else in the 3-D stack, so `T(x + i·y) == T(x) + i·T(y)` stays exact.
     spec2, rbuf2 = _complex_scratch!(fb)

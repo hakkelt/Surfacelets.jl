@@ -217,11 +217,29 @@ end
 end
 
 @testitem "hourglass — argument validation" tags = [:directional] begin
-    using Surfacelets: make_hourglass, hourglass_decompose
+    using Surfacelets: make_hourglass, hourglass_decompose, hourglass_reconstruct
     @test_throws ArgumentError make_hourglass(Float64, (0, 4, 4))
     @test_throws ArgumentError make_hourglass(Float64, (8, 8, 8); bernstein_order = 0)
     fb = make_hourglass(Float64, (8, 8, 8); bernstein_order = 4)
     @test_throws DimensionMismatch hourglass_decompose(randn(8, 8, 4), fb)
+    # Subbands of the wrong shape are rejected, by both syntheses and both
+    # element types, rather than broadcast or copied by length.
+    using Surfacelets: hourglass_decompose!, hourglass_reconstruct!
+    x = randn(8, 8, 8)
+    for tight in (false, true), T in (Float64, ComplexF64)
+        b = make_hourglass(Float64, (8, 8, 8); bernstein_order = 4, tight)
+        s = hourglass_decompose(T.(x), b)
+        @test_throws "subband 3 has size (8, 8, 1), but the plan is (8, 8, 8)" hourglass_reconstruct!(zeros(T, 8, 8, 8), (s[1], s[2], s[3][:, :, 1:1]), b)
+        @test_throws "subband 1 has size (4, 16, 8)" hourglass_decompose!(ntuple(_ -> zeros(T, 4, 16, 8), 3), T.(x), b)
+    end
+    # Other precisions and integers are converted to the bank's.
+    ref = hourglass_decompose(x, fb)
+    x32 = Float32.(x)
+    @test all(hourglass_decompose(x32, fb) .≈ hourglass_decompose(Float64.(x32), fb))
+    xi = rand(-5:5, 8, 8, 8)
+    @test all(hourglass_decompose(xi, fb) .≈ hourglass_decompose(Float64.(xi), fb))
+    @test eltype(hourglass_decompose(xi, fb)[1]) == Float64
+    @test hourglass_reconstruct(Tuple(Float32.(s) for s in ref), fb) ≈ hourglass_reconstruct(Tuple(Float64.(Float32.(s)) for s in ref), fb)
 end
 
 @testitem "public functions take any integer type" tags = [:filters] begin

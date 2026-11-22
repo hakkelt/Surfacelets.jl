@@ -224,6 +224,22 @@ end
     fb = make_ndfb(Float64, (8, 8, 8); levels = 1, bernstein_order = 4)
     @test_throws DimensionMismatch ndfb_decompose(randn(8, 8, 4), fb)
     @test_throws DimensionMismatch ndfb_decompose((i, b) -> nothing, randn(4, 8, 8), fb)
+    using Surfacelets: ndfb_decompose!, ndfb_reconstruct, ndfb_reconstruct!, ndfb_nsubbands
+    x = randn(8, 8, 8)
+    n = ndfb_nsubbands(fb)
+    for tight in (false, true), T in (Float64, ComplexF64)
+        b = make_ndfb(Float64, (8, 8, 8); levels = 1, bernstein_order = 4, tight)
+        s = ndfb_decompose(T.(x), b)
+        bad = [s[1:(end - 1)]; [s[end][:, :, 1:1]]]
+        @test_throws "subband $(n) has size (8, 8, 1), but the plan is (8, 8, 8)" ndfb_reconstruct!(zeros(T, 8, 8, 8), bad, b)
+        @test_throws "subband 1 has size (4, 16, 8)" ndfb_decompose!([zeros(T, 4, 16, 8) for _ in 1:n], T.(x), b)
+    end
+    # Other precisions and integers are converted to the bank's.
+    xi = rand(-5:5, 8, 8, 8)
+    @test all(ndfb_decompose(xi, fb) .≈ ndfb_decompose(Float64.(xi), fb))
+    @test all(ndfb_decompose(Float32.(x), fb) .≈ ndfb_decompose(Float64.(Float32.(x)), fb))
+    s = ndfb_decompose(x, fb)
+    @test ndfb_reconstruct([Float32.(b) for b in s], fb) ≈ ndfb_reconstruct([Float64.(Float32.(b)) for b in s], fb)
 end
 
 @testitem "directional building blocks are public, not exported" tags = [:directional] begin

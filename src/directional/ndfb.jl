@@ -234,8 +234,8 @@ Memory warning: at 256³ `Float32` a single subband is 64 MB, so `levels = 3`
 (24 subbands) materializes 1.5 GB.  Use the callback form below to process
 subbands one at a time instead.
 """
-function ndfb_decompose(volume::AbstractArray{Td, 3}, fb::NDFB) where {Td}
-    out = [similar(volume) for _ in 1:ndfb_nsubbands(fb)]
+function ndfb_decompose(volume::AbstractArray{<:Number, 3}, fb::NDFB{T}) where {T}
+    out = [similar(volume, _bank_eltype(eltype(volume), T)) for _ in 1:ndfb_nsubbands(fb)]
     ndfb_decompose!(out, volume, fb)
     return out
 end
@@ -244,11 +244,12 @@ end
     ndfb_decompose!(dst, volume, fb::NDFB) -> dst
 
 In-place [`ndfb_decompose`](@ref); `dst` is an indexable collection of
-`ndfb_nsubbands(fb)` arrays.
+`ndfb_nsubbands(fb)` arrays of the plan size.
 """
-function ndfb_decompose!(dst, volume::AbstractArray{Td, 3}, fb::NDFB) where {Td}
+function ndfb_decompose!(dst, volume::AbstractArray{<:Number, 3}, fb::NDFB)
     length(dst) == ndfb_nsubbands(fb) ||
         throw(DimensionMismatch("dst must hold $(ndfb_nsubbands(fb)) subbands"))
+    foreach(k -> _check_band(dst[k], fb.fb.dims, k), 1:ndfb_nsubbands(fb))
     ndfb_decompose(volume, fb) do idx, band
         copyto!(dst[idx], band)
     end
@@ -285,7 +286,7 @@ julia> abs(sum(energy) / sum(abs2, x) - 1) < 2.0
 true
 ```
 """
-function ndfb_decompose(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T <: AbstractFloat}
+function ndfb_decompose(f, volume::AbstractArray{<:Real, 3}, fb::NDFB)
     hg = fb.fb
     size(volume) == hg.dims || throw(DimensionMismatch("volume size does not match the plan"))
     copyto!(hg.rbuf, volume)
@@ -294,9 +295,7 @@ function ndfb_decompose(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T <:
     return nothing
 end
 
-function ndfb_decompose(
-        f, volume::AbstractArray{Complex{T}, 3}, fb::NDFB{T}
-    ) where {T <: AbstractFloat}
+function ndfb_decompose(f, volume::AbstractArray{<:Complex, 3}, fb::NDFB)
     hg = fb.fb
     size(volume) == hg.dims || throw(DimensionMismatch("volume size does not match the plan"))
     # Both spectra are held at once and each subband is finished before moving
@@ -352,8 +351,8 @@ are a partition of unity and this is a plain sum, and when it is tight the same
 `√W` masks are reapplied, costing a forward transform per subband and one
 inverse for the lot.
 """
-function ndfb_reconstruct(subbands, fb::NDFB)
-    out = similar(first(subbands))
+function ndfb_reconstruct(subbands, fb::NDFB{T}) where {T}
+    out = similar(first(subbands), _bank_eltype(eltype(first(subbands)), T))
     return ndfb_reconstruct!(out, subbands, fb)
 end
 
@@ -384,7 +383,7 @@ function ndfb_reconstruct!(f, volume::AbstractArray{<:Number, 3}, fb::NDFB)
     if !hg.tight
         fill!(volume, zero(eltype(volume)))
         for k in 1:ndfb_nsubbands(fb)
-            b = f(k)
+            b = _check_band(f(k), hg.dims, k)
             @. volume += b
         end
         return volume
@@ -392,7 +391,7 @@ function ndfb_reconstruct!(f, volume::AbstractArray{<:Number, 3}, fb::NDFB)
     return _ndfb_synthesize!(f, volume, fb)
 end
 
-function _ndfb_synthesize!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T <: AbstractFloat}
+function _ndfb_synthesize!(f, volume::AbstractArray{<:Real, 3}, fb::NDFB)
     hg = fb.fb
     # `work` is the buffer the inverse plan consumes and nothing else uses during
     # synthesis, so the masked spectra accumulate straight into it — no separate
@@ -400,7 +399,7 @@ function _ndfb_synthesize!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T
     acc = hg.work
     fill!(acc, zero(eltype(acc)))
     _walk_subbands(fb) do idx, i, p, q
-        _load_subband!(hg.rbuf, f(idx))
+        copyto!(hg.rbuf, _check_band(f(idx), hg.dims, idx))
         mul!(hg.spec, hg.fwd, hg.rbuf)
         _mask_accumulate!(acc, fb, hg.spec, i, p, q)
         nothing
@@ -410,9 +409,7 @@ function _ndfb_synthesize!(f, volume::AbstractArray{T, 3}, fb::NDFB{T}) where {T
     return volume
 end
 
-function _ndfb_synthesize!(
-        f, volume::AbstractArray{Complex{T}, 3}, fb::NDFB{T}
-    ) where {T <: AbstractFloat}
+function _ndfb_synthesize!(f, volume::AbstractArray{<:Complex, 3}, fb::NDFB)
     hg = fb.fb
     # Two accumulators, one per half of the complex volume; `spec` is the scratch
     # both forward transforms land in.  Both accumulators are consumed by the
@@ -422,7 +419,7 @@ function _ndfb_synthesize!(
     fill!(acc, zero(eltype(acc)))
     fill!(acc2, zero(eltype(acc2)))
     _walk_subbands(fb) do idx, i, p, q
-        band = f(idx)
+        band = _check_band(f(idx), hg.dims, idx)
         @. hg.rbuf = real(band)
         mul!(hg.spec, hg.fwd, hg.rbuf)
         _mask_accumulate!(acc, fb, hg.spec, i, p, q)
