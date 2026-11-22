@@ -5,9 +5,21 @@ volumes, in a nonsubsampled (shift-invariant) and a decimated form.*
 
 ## Installation
 
+Surfacelets.jl and its dependencies MultiscaleFilterBanks.jl and
+MultiscaleTransformsBase.jl are not registered yet. Clone the three repositories
+side by side and develop them into your environment:
+
+```bash
+git clone https://github.com/hakkelt/MultiscaleTransformsBase.jl MultiscaleTransformsBase
+git clone https://github.com/hakkelt/MultiscaleFilterBanks.jl MultiscaleFilterBanks
+git clone https://github.com/hakkelt/Surfacelets.jl Surfacelets
+```
+
 ```julia
 using Pkg
-Pkg.add("Surfacelets")
+Pkg.develop([PackageSpec(path = "MultiscaleTransformsBase"),
+             PackageSpec(path = "MultiscaleFilterBanks"),
+             PackageSpec(path = "Surfacelets")])
 ```
 
 ## Quick start
@@ -22,6 +34,24 @@ coeffs = analyze(t, vol)
 rec    = synthesize(t, coeffs)
 subband(t, coeffs, 2)          # the first directional subband; subband 1 is the lowpass
 subband_layout(t, size(vol))   # what each subband is
+```
+
+The same calls on a small volume, checked when the documentation is built:
+
+```jldoctest
+julia> using Surfacelets
+
+julia> vol = [sin(i + 2j) * cos(k) for i in 1:16, j in 1:16, k in 1:16];
+
+julia> t = NSSurfacelet(scales = 2, direction_levels = [1, 2]);
+
+julia> coeffs = analyze(t, vol);
+
+julia> size(coeffs)
+(16, 16, 16, 19)
+
+julia> maximum(abs, synthesize(t, coeffs) .- vol) < 1e-10
+true
 ```
 
 At working sizes the materialized coefficient set does not fit — at 256³

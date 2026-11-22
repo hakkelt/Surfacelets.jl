@@ -15,13 +15,15 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
-        "Guide" => [
-            "Transforms" => "guide/transforms.md",
+        "How-to guides" => [
+            "Use the transforms" => "guide/transforms.md",
         ],
-        "Background" => [
+        "Explanation" => [
             "Theory" => "theory.md",
         ],
-        "API Reference" => "api.md",
+        "Reference" => [
+            "API" => "api.md",
+        ],
     ],
     checkdocs = :public,
 )

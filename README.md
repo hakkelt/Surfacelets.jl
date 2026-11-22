@@ -23,9 +23,21 @@ and compressed-sensing reconstruction.
 
 ## Installation
 
+Surfacelets.jl and its dependencies MultiscaleFilterBanks.jl and
+MultiscaleTransformsBase.jl are not registered yet. Clone the three repositories
+side by side and develop them into your environment:
+
+```bash
+git clone https://github.com/hakkelt/MultiscaleTransformsBase.jl MultiscaleTransformsBase
+git clone https://github.com/hakkelt/MultiscaleFilterBanks.jl MultiscaleFilterBanks
+git clone https://github.com/hakkelt/Surfacelets.jl Surfacelets
+```
+
 ```julia
 using Pkg
-Pkg.add("Surfacelets")
+Pkg.develop([PackageSpec(path = "MultiscaleTransformsBase"),
+             PackageSpec(path = "MultiscaleFilterBanks"),
+             PackageSpec(path = "Surfacelets")])
 ```
 
 ## Quick start
