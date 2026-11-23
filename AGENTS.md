@@ -23,10 +23,10 @@ the nonsubsampled transform.
 
 The nonsubsampled transform's pyramid is the raised-cosine one
 (the nonsubsampled variant in `pyramid/fourier_pyramid.jl`), so with `tight = true` the transform is a
-Parseval frame and its inverse is its adjoint; keep it that way. An à trous
-(CDF 9/7) pyramid and a semi-translation-invariant transform were removed after
-a denoising comparison: the former is not tight and lost at equal redundancy,
-the latter was weakest on short-axis (x, y, t) data.
+Parseval frame and its inverse is its adjoint; keep it that way. Do not add an
+à trous (CDF 9/7) pyramid or a semi-translation-invariant transform: in a
+denoising comparison the former (not tight) lost at equal redundancy, and the
+latter was weakest on short-axis (x, y, t) data.
 
 Coefficients are arrays: the nonsubsampled transform stacks its subbands as
 `(dims..., n)` and the engine writes the slices in place (`_NSStack`); the
@@ -48,8 +48,8 @@ the hourglass axis halved; the `1/N` rides on the hourglass mask.
 - **Commit Message Formatting**: Follow the "Conventional Commits" format with the
   structure `type(scope): subject` and a detailed description (including
   performance numbers or context) separated by a blank line. For simple commits
-  affecting only a couple lines, a detailed description is optional. Always append
-  a co-author line referencing yourself.
+  affecting only a couple lines, a detailed description is optional. End with an
+  `Assisted-by: <agent name and version> <email>` trailer, not `Co-Authored-By:`.
 - **Committing Changes**: ONLY commit code upon explicit instruction from the user.
 
 ## Naming
@@ -77,8 +77,7 @@ level has no `3d` tag, because the package name already says it.
   sub-millisecond. A `Dict` of plan objects only adds a lock and a type-unstable
   cache. Use `FFTW.MEASURE` for repeated transforms, `FFTW.ESTIMATE` when a plan
   is used once and first-call latency matters.
-- **Formatting.** Runic is mandatory — run `runic src/` before committing.
-- **Static analysis.** Run ReLint after Runic before committing:
+- **Formatting and static analysis.** Runic, then ReLint, before committing:
   ```bash
   runic src/
   JULIA_LOAD_PATH="@relint:@stdlib" julia --startup-file=no scripts/relint.jl src/
@@ -93,8 +92,8 @@ level has no `3d` tag, because the package name already says it.
 - Tag taxonomy: `:filters`, `:pyramid`, `:directional`,
   `:ns_surfacelet`, `:surfacelet`, `:surfbox`, `:quality`, `:jet`, `:docs`, `:gpu`.
 - Seed every random input (`Random.seed!(42)`); never rely on global RNG state.
-- **Directional tests must assert the *index* of the subband a plane wave lands
-  in.** See the design decision on perfect reconstruction below.
+- Directional tests assert the *index* of the subband a plane wave lands in
+  (see the design decisions).
 
 ---
 
@@ -119,9 +118,12 @@ benchpkg Surfacelets --path . --rev=master,HEAD --script=benchmark/benchmarks.jl
 All generated output (test runs, coverage, benchmark JSON, profiles) goes under
 `.temp/`, which is git-ignored.
 
-**First checkout**: CI resolves `MultiscaleFilterBanks.jl` from the registry. To
-develop against a sibling checkout, run `julia --project=. dev/bootstrap.jl`
-once; it `Pkg.develop`s the checkout into every environment of the workspace.
+Build the documentation with `julia --threads=2 --project=docs docs/make.jl`.
+
+**First checkout**: `MultiscaleTransformsBase.jl` and `MultiscaleFilterBanks.jl`
+are expected as sibling checkouts. MTB comes in through `[sources]`; for MFB run
+`julia --project=. dev/bootstrap.jl` once, which `Pkg.develop`s it into every
+environment of the workspace.
 
 ---
 
@@ -162,8 +164,7 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   weights are a partition of unity, so synthesis is either a plain sum or the same
   masks reapplied, depending on `tight`. Consequence worth remembering: **PR alone
   proves nothing about wedge geometry.** A wrong directional partition still
-  reconstructs perfectly. Directional tests must assert the *index* of the subband
-  a plane wave lands in.
+  reconstructs perfectly; see the plane-wave rule under Testing.
 - **The directional bank is a Parseval frame by default.** The three hourglass
   weights are a partition of unity for any `bernstein_order`/`halfband_order`, and so are the wedge
   weights, so the products are too. `tight = true` (the default on
@@ -177,13 +178,13 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   **The normalization makes mask evenness load-bearing.** A plain sum hides an
   asymmetric mask — `Σ W_k X = X` regardless — but reapplying `√W` requires each
   subband to survive an `irfft`/`rfft` round trip, which requires the mask to be
-  even on the self-conjugate planes of the rfft grid. It was not, and PR failed by
-  0.27 with no error. `_wedge_ratio` now fixes the sign from the first coordinate
-  that can carry one; `ndfb — masks are even in frequency` pins it.
+  even on the self-conjugate planes of the rfft grid; an asymmetric mask breaks PR
+  without any error. `_wedge_ratio` fixes the sign from the first coordinate that
+  can carry one; `ndfb — masks are even in frequency` pins it.
 - **The directional stages are validated against SurfBox.** SurfBox (Lu and Do's
-  reference implementation, MATLAB File Exchange 14485) is available and runs under
-  `module load matlab`. `test/reference/` holds golden data extracted from it plus
-  the MATLAB scripts that regenerate it, and `test/items/test_surfbox_reference.jl`
+  reference implementation, MATLAB File Exchange 14485). `test/reference/` holds
+  golden data extracted from it plus the MATLAB scripts that regenerate it (only
+  regeneration needs MATLAB), and `test/items/test_surfbox_reference.jl`
   checks this package against it. The agreement is on *geometry*, not coefficients:
   94.6% of frequencies pick the same dominant hourglass (every disagreement a
   near-tie), and across 80 plane waves the wedge labellings are related by a
@@ -193,17 +194,3 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   1e-13 of the array norm at every stage, and its redundancy matches SurfBox's own
   count (4.0046 at 96³ with 24 subbands per scale over three scales).
 
-## Development
-
-```bash
-julia --project=test test/runtests.jl               # all tests
-julia --project=test test/runtests.jl :directional  # filter by tag or item name
-julia --threads=2 --project=docs docs/make.jl       # build the documentation
-
-runic src/
-JULIA_LOAD_PATH="@relint:@stdlib" julia --startup-file=no scripts/relint.jl src/
-```
-
-To work against a local checkout of MultiscaleFilterBanks.jl, put it next to
-this one and run `julia --project=. dev/bootstrap.jl` once; it `Pkg.develop`s
-the sibling checkout into every environment of the workspace.
