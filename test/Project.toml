@@ -3,6 +3,7 @@ name = "SurfaceletsTests"
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+CodeComplexity = "6a833b0f-2137-4092-987b-66bce4e6b438"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
@@ -27,6 +28,7 @@ Surfacelets = {path = ".."}
 [compat]
 Adapt = "4"
 Aqua = "0.8"
+CodeComplexity = "0.2"
 Documenter = "1"
 ExplicitImports = "1.15"
 FFTW = "1"

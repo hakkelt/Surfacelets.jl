@@ -19,3 +19,20 @@ end
         all_qualified_accesses_are_public = public_checks ? (; ignore = (:ESTIMATE, :MEASURE, :UNALIGNED, :ReshapedArray, :broadcasted, :Broadcasted, internal...)) : false,
     )
 end
+
+@testitem "Code complexity" tags = [:quality] begin
+    using CodeComplexity
+    # No definition in src/ or ext/ may exceed these limits: CodeComplexity's
+    # defaults (10 and 15), or the package's most complex definition where that
+    # is higher.
+    root = pkgdir(Surfacelets)
+    dirs = filter(isdir, joinpath.(root, ("src", "ext")))
+    for (metric, limit) in ((CyclomaticComplexity(), 11), (CognitiveComplexity(), 21))
+        over = [
+            (relpath(f.path, root), m.line, m.name, m.value)
+                for dir in dirs for f in measure_directory(metric, dir; recursive = true)
+                for m in f.functions if m.value > limit
+        ]
+        @test isempty(over)
+    end
+end
