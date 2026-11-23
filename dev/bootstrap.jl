@@ -20,14 +20,20 @@ end
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 
-for env in (ROOT, joinpath(ROOT, "test"), joinpath(ROOT, "docs"), joinpath(ROOT, "benchmark"))
+# The test environment is left out: `Pkg.test` takes the developed paths from
+# the root manifest, and on Julia 1.10 developed copies in the test manifest as
+# well make it fail ("can not merge projects").
+for env in (ROOT, joinpath(ROOT, "docs"), joinpath(ROOT, "benchmark"))
     isfile(joinpath(env, "Project.toml")) || continue
-    @info "developing AbstractMultiscaleTransforms and MultiscaleFilterBanks into" env
+    @info "developing the sibling checkouts into" env
+    # Julia 1.10 also needs this package itself developed into the other
+    # environments, which list it.
+    paths = env == ROOT || VERSION >= v"1.11" ? SIBLINGS : [SIBLINGS; ROOT]
     # Julia ≥ 1.11 also writes the paths into `[sources]`; keep the tracked file.
     project = joinpath(env, "Project.toml")
     tracked = read(project, String)
     Pkg.activate(env)
-    Pkg.develop([PackageSpec(path = dir) for dir in SIBLINGS])
+    Pkg.develop([PackageSpec(path = dir) for dir in paths])
     write(project, tracked)
 end
 
