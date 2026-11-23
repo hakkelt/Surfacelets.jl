@@ -44,6 +44,10 @@ number of hourglasses, 3 in 3-D [1].
 
 ## Nonsubsampled transform
 
+Every filter of the nonsubsampled transform is a mask on the DFT grid, and
+MultiscaleFilterBanks.jl's mask-bank engine applies them;
+[How the engine computes](https://hakkelt.github.io/MultiscaleFilterBanks.jl/dev/engine/) explains its analysis and synthesis.
+
 ### Pyramid
 
 The pyramid is Lu and Do's frequency-domain pyramid [1, Section VI-A] without

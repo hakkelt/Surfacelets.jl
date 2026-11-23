@@ -45,6 +45,17 @@ jobs:
 
       - uses: julia-actions/cache@v3
 
+      # AbstractMultiscaleTransforms is not registered and the code needs the
+      # development version of MultiscaleFilterBanks: clone both next to this
+      # repository and develop them (see dev/bootstrap.jl).
+      - name: Check out AbstractMultiscaleTransforms and MultiscaleFilterBanks
+        run: |
+          git clone --depth 1 https://github.com/hakkelt/AbstractMultiscaleTransforms.jl ../AbstractMultiscaleTransforms
+          git clone --depth 1 https://github.com/hakkelt/MultiscaleFilterBanks.jl ../MultiscaleFilterBanks
+
+      - name: Develop the sibling checkouts
+        run: julia --project=. dev/bootstrap.jl
+
       - uses: julia-actions/julia-runtest@v1
         env:
           JULIA_NUM_THREADS: "2"
