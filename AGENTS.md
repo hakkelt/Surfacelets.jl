@@ -192,3 +192,18 @@ once; it `Pkg.develop`s the checkout into every environment of the workspace.
   (`test/items/test_irc.jl`): it is SurfBox's IRC construction, agrees to about
   1e-13 of the array norm at every stage, and its redundancy matches SurfBox's own
   count (4.0046 at 96³ with 24 subbands per scale over three scales).
+
+## Development
+
+```bash
+julia --project=test test/runtests.jl               # all tests
+julia --project=test test/runtests.jl :directional  # filter by tag or item name
+julia --threads=2 --project=docs docs/make.jl       # build the documentation
+
+runic src/
+JULIA_LOAD_PATH="@relint:@stdlib" julia --startup-file=no scripts/relint.jl src/
+```
+
+To work against a local checkout of MultiscaleFilterBanks.jl, put it next to
+this one and run `julia --project=. dev/bootstrap.jl` once; it `Pkg.develop`s
+the sibling checkout into every environment of the workspace.

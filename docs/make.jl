@@ -20,6 +20,7 @@ makedocs(;
         ],
         "Explanation" => [
             "Theory" => "theory.md",
+            "Properties of the transforms" => "properties.md",
         ],
         "Reference" => [
             "API" => "api.md",

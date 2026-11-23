@@ -4,6 +4,8 @@
 CurrentModule = Surfacelets
 ```
 
+Every public name of Surfacelets.jl, by topic.
+
 ## Module
 
 ```@docs
@@ -17,10 +19,10 @@ Surfacelets re-exports the interface of
 `analyze`, `analyze!`, `synthesize`, `synthesize!`, `make_workspace`,
 `transform`, `similar_coefficients`, `subband_layout`, `nsubbands`, `subband`,
 `SubbandVector`, `SubbandLayout`, `AbstractMultiscaleTransform` and
-`AbstractTransformWorkspace`.  Every verb also takes a workspace in place of the
-transform: `analyze(ws, x)`, `analyze!(c, ws, x)`, `synthesize(ws, c)`,
-`synthesize!(x, ws, c)`.  The methods specific to the two transforms are listed
-with them below.
+`AbstractTransformWorkspace`. Every function that takes a transform also takes
+a workspace in its place: `analyze(ws, x)`, `analyze!(c, ws, x)`,
+`synthesize(ws, c)`, `synthesize!(x, ws, c)`. The methods specific to the two
+transforms are listed with them below.
 
 ## Nonsubsampled surfacelet transform
 
@@ -48,9 +50,10 @@ checkerboard_orders
 
 ## Directional filter bank
 
-Public but not exported (call them as `Surfacelets.make_ndfb` etc., or bring
-them in with `using Surfacelets: make_ndfb, ndfb_decompose`): the directional
-stage on its own, without the pyramid.
+The directional stage of the nonsubsampled transform on its own, without the
+pyramid. These names are public but not exported: call them as
+`Surfacelets.make_ndfb`, or import them with
+`using Surfacelets: make_ndfb, ndfb_decompose`.
 
 ```@docs
 HourglassFB
@@ -75,11 +78,10 @@ ndfb_reconstruct
 ndfb_reconstruct!
 ```
 
-## Filter design internals
+## Hourglass filter design
 
-Public but not exported (call them as `Surfacelets.bernstein_table` etc.) —
-these are the pieces the hourglass bank is built from, useful if you want to
-design your own mapping kernels.
+The Bernstein mapping kernels the hourglass bank is built from, for designing
+other kernels. Public but not exported, like the names in the section above.
 
 ```@docs
 bernstein_table

@@ -1,7 +1,16 @@
 # Surfacelets.jl
 
-*The surfacelet transform in Julia: a multiscale, multidirectional transform for
-volumes, in a nonsubsampled (shift-invariant) and a decimated form.*
+Surfacelets.jl computes 3-D surfacelet transforms. A surfacelet transform splits
+a volume by scale, like a 3-D wavelet transform, and each scale further by
+direction. Each directional subband then holds the surfaces of one scale and one
+orientation, so volumes with smooth surfaces, such as organs in an MRI or CT
+scan, have sparse representations. The package has two transforms:
+
+- [`NSSurfacelet`](@ref), the nonsubsampled transform: every subband has the
+  size of the volume, the transform commutes with circular shifts, and it is a
+  Parseval frame (it preserves energy, and its inverse is its adjoint).
+- [`Surfacelet`](@ref), Lu and Do's decimated transform: about 4 coefficients
+  per voxel whatever the number of directions, but not shift invariant.
 
 ## Installation
 
@@ -22,21 +31,7 @@ Pkg.develop([PackageSpec(path = "MultiscaleTransformsBase"),
              PackageSpec(path = "Surfacelets")])
 ```
 
-## Quick start
-
-```julia
-using Surfacelets
-
-vol    = randn(Float32, 128, 128, 128)
-t      = NSSurfacelet(scales = 3, direction_levels = [2, 2, 3])   # 48 directional subbands
-
-coeffs = analyze(t, vol)
-rec    = synthesize(t, coeffs)
-subband(t, coeffs, 2)          # the first directional subband; subband 1 is the lowpass
-subband_layout(t, size(vol))   # what each subband is
-```
-
-The same calls on a small volume, checked when the documentation is built:
+## Example
 
 ```jldoctest
 julia> using Surfacelets
@@ -47,96 +42,29 @@ julia> t = NSSurfacelet(scales = 2, direction_levels = [1, 2]);
 
 julia> coeffs = analyze(t, vol);
 
-julia> size(coeffs)
+julia> size(coeffs)   # the lowpass and 6 + 12 directional subbands
 (16, 16, 16, 19)
+
+julia> subband_layout(t, size(vol))[2]
+(scale = 1, direction = 1)
 
 julia> maximum(abs, synthesize(t, coeffs) .- vol) < 1e-10
 true
 ```
 
-At working sizes the materialized coefficient set does not fit — at 256³
-`Float32` with these settings it is 3.1 GB — so the nonsubsampled transform also
-has a streaming form that hands you one subband at a time:
+## Where to go next
 
-```julia
-ws = make_workspace(t, vol; tasks = 1)   # serial: one set of buffers, plans and masks
+- [How to use the transforms](@ref guide): choosing a transform, workspaces,
+  streaming large volumes, threads and GPUs.
+- [Theory](@ref theory): how the transforms are built.
+- [Properties of the transforms](@ref properties): what they guarantee,
+  checked when this documentation is built.
+- [API reference](@ref api).
 
-analyze(t, vol; workspace = ws) do i, band
-    # `band` is subband i; it is valid only until this callback returns —
-    # copy or reduce it here
-end
-```
-
-The decimated counterpart, [`Surfacelet`](@ref), is Lu and Do's
-surfacelet transform, reproducing their reference toolbox SurfBox to rounding
-error. Every subband sits on its own decimated grid — about 4 coefficients per
-voxel, whatever the number of directions — at the cost of shift invariance.
-Sizes must suit its pyramid (see [`make_workspace`](@ref make_workspace(::Surfacelet, ::AbstractArray)) for the rule; 192³ fits):
-
-```julia
-vol    = randn(Float32, 192, 192, 192)
-st     = Surfacelet(scales = 3, direction_levels = [2, 2, 3])
-sws    = make_workspace(st, vol)
-sc     = analyze(st, vol; workspace = sws)
-vol_r  = synthesize(st, sc; workspace = sws)
-```
-
-## What is here
-
-| | [`NSSurfacelet`](@ref) | [`Surfacelet`](@ref) |
-|---|---|---|
-| Subband sizes | all equal to the input | decimated, one grid per subband |
-| Redundancy | `1 + Σ_j 3·2^{L_j}` (49 at `direction_levels = [2, 2, 3]`) | ≈ 4 (`pyramid_ratio = 1.5`), flat in the direction count |
-| Shift invariance | exact | no — decimation breaks it |
-| Frame | tight (Parseval) | biorthogonal, perfect reconstruction |
-| Streaming form | yes, one subband at a time | not needed, the set fits |
-| GPU | Adapt-based | Adapt-based |
-| Use for | analysis, shift-invariant denoising | sparsifying transform in reconstruction |
-
-Both split each scale into `3 · 2^L` directional subbands: three hourglass-shaped
-regions aligned with the frequency axes, each cut into `2^L` wedges. The
-directional stage is available on its own as [`Surfacelets.make_hourglass`](@ref)
-and [`Surfacelets.make_ndfb`](@ref), public but not exported.
-
-## Relation to the contourlet transform
-
-The surfacelet transform is **not** a contourlet transform with an extra axis.
-Its first directional stage splits the spectrum into three hourglasses around
-the frequency axes — a partition with no quincunx-lattice description, which Lu
-and Do prove cannot be critically sampled above two dimensions, so a redundancy
-of at least 3 is structural. The nonsubsampled transform builds it from
-Bernstein mapping kernels; the decimated one then refines each hourglass with
-iterated resampled checkerboard filter banks — ladder filters and shears, as in
-a contourlet DFB, but on the planes of each hourglass and critically sampled.
-See [Theory](@ref theory).
-
-The 2-D contourlet and nonsubsampled contourlet transforms live in
-[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl), and 2-D and 3-D
-shearlet transforms in [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl);
-the packages share their interface, defined in
+The package shares its interface (`analyze`, `synthesize`, `make_workspace`,
+`subband_layout` and the rest), defined in
 [MultiscaleTransformsBase.jl](https://github.com/hakkelt/MultiscaleTransformsBase.jl)
-and re-exported here, and the threading and mask-bank engine of
-[MultiscaleFilterBanks.jl](https://github.com/hakkelt/MultiscaleFilterBanks.jl).
-
-## Multithreading and GPU
-
-The transforms run in parallel over Julia's threads unless `threaded = false`:
-the nonsubsampled transform computes its subbands in parallel, the decimated
-transform splits each scale's blocks among the threads.  The streaming forms
-are the exception: they run serially, calling the callback from the calling
-task one subband at a time, in order, and ignore `threaded`.
-
-The transforms run on GPU backends with an FFT library: CUDA.jl (NVIDIA),
-AMDGPU.jl (AMD) and Metal.jl (Apple silicon, `Float32` only); the test suite
-runs on CUDA. OpenCL.jl is supported but much slower than the CPU, because it
-has no FFT: FFTW runs the FFTs on the CPU on `CLArray`s in shared virtual memory
-(OpenCL.jl's default on devices that support it). Move a workspace to the device
-with `Adapt`:
-
-```julia
-using CUDA, Adapt, Surfacelets
-
-x   = CuArray(vol)
-ws  = make_workspace(t, x)    # built on the host, moved to the device
-c   = analyze(t, x; workspace = ws)
-```
+and re-exported here, with
+[Contourlets.jl](https://github.com/hakkelt/Contourlets.jl) (2-D contourlet
+transforms) and [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl) (2-D and
+3-D shearlet transforms).
