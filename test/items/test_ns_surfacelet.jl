@@ -1,5 +1,5 @@
 @testitem "NSSurfacelet — construction, validation and equality" tags = [:ns_surfacelet] begin
-    using MultiscaleTransformsBase: supports_streaming
+    using AbstractMultiscaleTransforms: supports_streaming
     t = NSSurfacelet(scales = 3, direction_levels = [1, 2, 2])
     @test t.scales == 3
     @test t.direction_levels == [1, 2, 2]
@@ -339,7 +339,7 @@ end
 end
 
 @testitem "NSSurfacelet — workspace channels and stack classification" tags = [:ns_surfacelet] begin
-    using MultiscaleTransformsBase: make_workspace
+    using AbstractMultiscaleTransforms: make_workspace
     S = Surfacelets
     t = NSSurfacelet(scales = 1)
     @test S._nchannels(make_workspace(t, Float64, (16, 16, 16); flags = S.FFTW.ESTIMATE)) == 1

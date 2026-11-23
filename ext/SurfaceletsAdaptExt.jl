@@ -9,7 +9,7 @@ module SurfaceletsAdaptExt
 # array unchanged.  What the device needs is the data moved across and the FFT
 # plans rebuilt, which is exactly what these methods do — hence `Adapt` is the
 # only weak dependency, with no GPUArrays or KernelAbstractions in sight.  The
-# coefficients are plain arrays (nonsubsampled) or MultiscaleTransformsBase's
+# coefficients are plain arrays (nonsubsampled) or AbstractMultiscaleTransforms's
 # `SubbandVector`s (decimated), which adapt without methods here.
 
 using Surfacelets: Surfacelets, HourglassFB, NDFB, NSSurfaceletWorkspace, SurfaceletWorkspace

@@ -1,5 +1,5 @@
 @testitem "Surfacelet — construction, validation and equality" tags = [:surfacelet] begin
-    using MultiscaleTransformsBase: supports_streaming
+    using AbstractMultiscaleTransforms: supports_streaming
     t = Surfacelet(scales = 2, direction_levels = [1, 2])
     @test t.scales == 2
     @test t == Surfacelet(scales = 2, direction_levels = Int8[1, 2])

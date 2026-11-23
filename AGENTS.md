@@ -8,9 +8,9 @@ is `my-adapt-ext` (anything under `ext/`).
 ## API notes
 
 The transforms are `NSSurfacelet` and `Surfacelet`, transform objects of
-MultiscaleTransformsBase (`analyze` / `synthesize`, `make_workspace`,
+AbstractMultiscaleTransforms (`analyze` / `synthesize`, `make_workspace`,
 `subband_layout` / `subband`; re-exported).  Each transform type runs its
-conformance tests (`MultiscaleTransformsBase.Testing.test_transform`).
+conformance tests (`AbstractMultiscaleTransforms.Testing.test_transform`).
 
 The nonsubsampled transform is also **streaming**: `analyze(t, vol; workspace = ws) do i, band ... end`
 hands each subband to a callback (`band` is valid only until it returns), because the
@@ -120,7 +120,7 @@ All generated output (test runs, coverage, benchmark JSON, profiles) goes under
 
 Build the documentation with `julia --threads=2 --project=docs docs/make.jl`.
 
-**First checkout**: `MultiscaleTransformsBase.jl` and `MultiscaleFilterBanks.jl`
+**First checkout**: `AbstractMultiscaleTransforms.jl` and `MultiscaleFilterBanks.jl`
 are expected as sibling checkouts. MTB comes in through `[sources]`; for MFB run
 `julia --project=. dev/bootstrap.jl` once, which `Pkg.develop`s it into every
 environment of the workspace.

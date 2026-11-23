@@ -2,7 +2,7 @@
     Surfacelets
 
 Three-dimensional nonsubsampled and decimated surfacelet transforms, as
-transform objects of [MultiscaleTransformsBase](https://github.com/hakkelt/MultiscaleTransformsBase.jl),
+transform objects of [AbstractMultiscaleTransforms](https://github.com/hakkelt/AbstractMultiscaleTransforms.jl),
 whose interface this package re-exports.
 
 ## Quick reference
@@ -45,7 +45,7 @@ using MultiscaleFilterBanks: MultiscaleFilterBanks,
     MaskBankEngine, MaskBank, MaskItem,
     mask_bank_forward!, mask_bank_inverse!, mask_bank_stream_forward!, mask_bank_stream_inverse!
 
-using MultiscaleTransformsBase: MultiscaleTransformsBase, AbstractMultiscaleTransform, AbstractTransformWorkspace,
+using AbstractMultiscaleTransforms: AbstractMultiscaleTransforms, AbstractMultiscaleTransform, AbstractTransformWorkspace,
     analyze, analyze!, synthesize, synthesize!, make_workspace, transform, similar_coefficients,
     subband_layout, nsubbands, subband, SubbandVector, SubbandLayout, check_workspace
 
@@ -82,7 +82,7 @@ export
     Surfacelet, SurfaceletWorkspace,
     surfacelet_redundancy, checkerboard_orders,
 
-    # The interface (MultiscaleTransformsBase)
+    # The interface (AbstractMultiscaleTransforms)
     AbstractMultiscaleTransform, AbstractTransformWorkspace,
     analyze, analyze!, synthesize, synthesize!, make_workspace, transform, similar_coefficients,
     subband_layout, nsubbands, subband, SubbandVector, SubbandLayout

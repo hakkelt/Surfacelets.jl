@@ -28,18 +28,18 @@ denoising and compressed-sensing reconstruction.
 ## Installation
 
 Surfacelets.jl and its dependencies MultiscaleFilterBanks.jl and
-MultiscaleTransformsBase.jl are not registered yet. Clone the three repositories
+AbstractMultiscaleTransforms.jl are not registered yet. Clone the three repositories
 side by side and develop them into your environment:
 
 ```bash
-git clone https://github.com/hakkelt/MultiscaleTransformsBase.jl MultiscaleTransformsBase
+git clone https://github.com/hakkelt/AbstractMultiscaleTransforms.jl AbstractMultiscaleTransforms
 git clone https://github.com/hakkelt/MultiscaleFilterBanks.jl MultiscaleFilterBanks
 git clone https://github.com/hakkelt/Surfacelets.jl Surfacelets
 ```
 
 ```julia
 using Pkg
-Pkg.develop([PackageSpec(path = "MultiscaleTransformsBase"),
+Pkg.develop([PackageSpec(path = "AbstractMultiscaleTransforms"),
              PackageSpec(path = "MultiscaleFilterBanks"),
              PackageSpec(path = "Surfacelets")])
 ```
@@ -61,7 +61,7 @@ subband_layout(t, size(vol))[2]    # (scale = 1, direction = 1)
 The [documentation](https://hakkelt.github.io/Surfacelets.jl/stable/) covers
 the decimated transform, workspaces, streaming large volumes, threads and GPUs,
 and the theory. Surfacelets.jl shares its interface, defined in
-[MultiscaleTransformsBase.jl](https://github.com/hakkelt/MultiscaleTransformsBase.jl),
+[AbstractMultiscaleTransforms.jl](https://github.com/hakkelt/AbstractMultiscaleTransforms.jl),
 with [Contourlets.jl](https://github.com/hakkelt/Contourlets.jl) (2-D) and
 [Shearlets.jl](https://github.com/hakkelt/Shearlets.jl) (2-D and 3-D).
 

@@ -60,7 +60,7 @@ struct SurfaceletWorkspace{Td <: Number, T, L <: FourierPyramidLevel{T}, C <: _S
     rcoef::R                # complex data: real coefficients of one channel; `nothing` otherwise
 end
 
-MultiscaleTransformsBase.transform(ws::SurfaceletWorkspace) = ws.transform
+AbstractMultiscaleTransforms.transform(ws::SurfaceletWorkspace) = ws.transform
 Base.eltype(::Type{<:SurfaceletWorkspace{Td}}) where {Td} = Td
 Base.size(ws::SurfaceletWorkspace) = ws.dims
 
@@ -123,7 +123,7 @@ _pick_plan(p::Tuple, threaded::Bool) = threaded ? p[1] : p[2]
 # themselves are split among tasks (`_foreach_block`).
 _fftw_single_threaded(f::F, proto::AbstractArray) where {F} = proto isa Array ? with_fftw_threads(f, 1) : f()
 
-function MultiscaleTransformsBase.make_workspace(
+function AbstractMultiscaleTransforms.make_workspace(
         t::Surfacelet, ::Type{T0}, dims::Dims{3};
         flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
         prewarm::Bool = true
@@ -148,7 +148,7 @@ function _surfacelet_host_workspace(t::Surfacelet, ::Type{T0}, dims::Dims{3}, fl
     return _surfacelet_workspace(Td, dims, t, pyramid, scales, Array{T, 3}(undef, 0, 0, 0), flags, tasks)
 end
 
-MultiscaleTransformsBase.make_workspace(
+AbstractMultiscaleTransforms.make_workspace(
     ::Surfacelet, ::Type{<:Number}, dims::Dims;
     flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false, prewarm::Bool = true
 ) = throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
@@ -189,7 +189,7 @@ Keywords:
   device, for a device `x`), so that the first call is compiled and its buffers
   are touched.  `Adapt.adapt` of a workspace does not run it.
 """
-function MultiscaleTransformsBase.make_workspace(
+function AbstractMultiscaleTransforms.make_workspace(
         t::Surfacelet, x::AbstractArray;
         flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
         prewarm::Bool = true
@@ -298,7 +298,7 @@ What each subband of `t` is: the lowpass first, as
 with the wedges in SurfBox's order.  Hourglass `K` keeps axis `K` at the scale's
 full length and decimates the other two.
 """
-function MultiscaleTransformsBase.subband_layout(t::Surfacelet, dims::Dims)
+function AbstractMultiscaleTransforms.subband_layout(t::Surfacelet, dims::Dims)
     _surf_layout_sizes(t, _check_volume(dims))
     layout = [(scale = 0, hourglass = 0, wedge = 0)]
     for j in 1:t.scales, K in 1:3, w in 1:(1 << sum(t.levels[j][K]))
@@ -307,7 +307,7 @@ function MultiscaleTransformsBase.subband_layout(t::Surfacelet, dims::Dims)
     return layout
 end
 
-MultiscaleTransformsBase.nsubbands(t::Surfacelet, dims::Dims) = (_surf_layout_sizes(t, _check_volume(dims)); 1 + sum(j -> _nsubbands(t.levels[j]), 1:t.scales))
+AbstractMultiscaleTransforms.nsubbands(t::Surfacelet, dims::Dims) = (_surf_layout_sizes(t, _check_volume(dims)); 1 + sum(j -> _nsubbands(t.levels[j]), 1:t.scales))
 
 # ── Driver ────────────────────────────────────────────────────────────────────
 
@@ -432,18 +432,18 @@ end
     similar_coefficients(t::Surfacelet, x::AbstractArray) -> SubbandVector
 
 Uninitialized coefficients of `t` for volumes like `x`: a `SubbandVector`
-(MultiscaleTransformsBase) of element type `float(eltype(x))` stored in an array like `x` (host or device),
+(AbstractMultiscaleTransforms) of element type `float(eltype(x))` stored in an array like `x` (host or device),
 with the subbands of [`subband_layout`](@ref subband_layout(::Surfacelet, ::Dims)),
 the lowpass first.
 """
-function MultiscaleTransformsBase.similar_coefficients(t::Surfacelet, x::AbstractArray)
+function AbstractMultiscaleTransforms.similar_coefficients(t::Surfacelet, x::AbstractArray)
     dims = _check_volume(size(x))
     return SubbandVector{data_eltype(x)}(undef, SubbandLayout(_surf_layout_sizes(t, dims), dims), x)
 end
 
-MultiscaleTransformsBase.subband(::Surfacelet, c::SubbandVector, i::Integer) = subband(c, i)
+AbstractMultiscaleTransforms.subband(::Surfacelet, c::SubbandVector, i::Integer) = subband(c, i)
 
-function MultiscaleTransformsBase.analyze!(
+function AbstractMultiscaleTransforms.analyze!(
         c::SubbandVector, t::Surfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
@@ -453,7 +453,7 @@ function MultiscaleTransformsBase.analyze!(
     return _surfacelet_forward!(c, x, ws, _s_threaded(threaded))
 end
 
-function MultiscaleTransformsBase.synthesize!(
+function AbstractMultiscaleTransforms.synthesize!(
         x::AbstractArray, t::Surfacelet, c::SubbandVector;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )

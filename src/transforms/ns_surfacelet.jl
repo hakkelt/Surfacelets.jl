@@ -75,7 +75,7 @@ struct NSSurfaceletWorkspace{
     cbuf::Vector{D}                             # complex data: the subband a streaming callback gets; else empty
 end
 
-MultiscaleTransformsBase.transform(ws::NSSurfaceletWorkspace) = ws.transform
+AbstractMultiscaleTransforms.transform(ws::NSSurfaceletWorkspace) = ws.transform
 Base.eltype(::Type{<:NSSurfaceletWorkspace{Td}}) where {Td} = Td
 Base.size(ws::NSSurfaceletWorkspace) = ws.dims
 
@@ -85,7 +85,7 @@ Base.show(io::IO, ws::NSSurfaceletWorkspace) =
 _nchannels(::NSSurfaceletWorkspace{<:Real}) = 1
 _nchannels(::NSSurfaceletWorkspace{<:Complex}) = 2
 
-function MultiscaleTransformsBase.make_workspace(
+function AbstractMultiscaleTransforms.make_workspace(
         t::NSSurfacelet, ::Type{T0}, dims::Dims{3};
         flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
         prewarm::Bool = true, cache_bandpass::Bool = true
@@ -122,7 +122,7 @@ function _ns_host_workspace(
     return _ns_workspace(Td, dims, t, m1, m2, wedges, pa, pl, band, proto, flags, ntasks)
 end
 
-MultiscaleTransformsBase.make_workspace(
+AbstractMultiscaleTransforms.make_workspace(
     ::NSSurfacelet, ::Type{<:Number}, dims::Dims;
     flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
     prewarm::Bool = true, cache_bandpass::Bool = true
@@ -162,7 +162,7 @@ vectors instead, so that everything per-scale is vectors and planes.
 Throws an `ArgumentError` when `dims` is too small for `t.scales` scales: a scale
 whose bandpass would be identically zero.
 """
-function MultiscaleTransformsBase.make_workspace(
+function AbstractMultiscaleTransforms.make_workspace(
         t::NSSurfacelet, x::AbstractArray;
         flags::Integer = FFTW.MEASURE, tasks::Union{Integer, Nothing} = nothing, tune::Bool = false,
         prewarm::Bool = true, cache_bandpass::Bool = true
@@ -501,7 +501,7 @@ end
 
 # ── Interface ─────────────────────────────────────────────────────────────────
 
-MultiscaleTransformsBase.supports_streaming(::NSSurfacelet) = true
+AbstractMultiscaleTransforms.supports_streaming(::NSSurfacelet) = true
 
 _check_volume(dims::Dims{3}) = dims
 _check_volume(dims::Dims) = throw(ArgumentError("the surfacelet transforms take volumes (three axes), got size $(dims)"))
@@ -515,7 +515,7 @@ finest), each as `(scale = j, direction = k)` with `k` in `1:3·2^t.direction_le
 turn, and inside each the wedges in `Surfacelets.ndfb_subband_index` order.
 Every subband has size `dims`.
 """
-function MultiscaleTransformsBase.subband_layout(t::NSSurfacelet, dims::Dims)
+function AbstractMultiscaleTransforms.subband_layout(t::NSSurfacelet, dims::Dims)
     _check_volume(dims)
     layout = [(scale = 0, direction = 0)]
     for j in 1:t.scales, k in 1:_ns_nbands(t, j)
@@ -524,7 +524,7 @@ function MultiscaleTransformsBase.subband_layout(t::NSSurfacelet, dims::Dims)
     return layout
 end
 
-MultiscaleTransformsBase.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.scales))
+AbstractMultiscaleTransforms.nsubbands(t::NSSurfacelet, dims::Dims) = (_check_volume(dims); 1 + sum(j -> _ns_nbands(t, j), 1:t.scales))
 
 """
     similar_coefficients(t::NSSurfacelet, x::AbstractArray) -> AbstractArray
@@ -534,13 +534,13 @@ size `(size(x)..., nsubbands(t, size(x)))` and element type `float(eltype(x))`,
 whose slice `[:, :, :, i]` is subband `i` of
 [`subband_layout`](@ref subband_layout(::NSSurfacelet, ::Dims)), the lowpass first.
 """
-function MultiscaleTransformsBase.similar_coefficients(t::NSSurfacelet, x::AbstractArray)
+function AbstractMultiscaleTransforms.similar_coefficients(t::NSSurfacelet, x::AbstractArray)
     dims = _check_volume(size(x))
     return similar(x, data_eltype(x), (dims..., nsubbands(t, dims)))
 end
 
-MultiscaleTransformsBase.subband(::NSSurfacelet, c::AbstractArray{<:Any, 4}, i::Integer) = view(c, :, :, :, i)
-MultiscaleTransformsBase.signal_size(::NSSurfacelet, c::AbstractArray{<:Any, 4}) = size(c)[1:3]
+AbstractMultiscaleTransforms.subband(::NSSurfacelet, c::AbstractArray{<:Any, 4}, i::Integer) = view(c, :, :, :, i)
+AbstractMultiscaleTransforms.signal_size(::NSSurfacelet, c::AbstractArray{<:Any, 4}) = size(c)[1:3]
 
 function _ns_check_coefficients(c::AbstractArray, t::NSSurfacelet, dims::NTuple{3, Int})
     expect = (dims..., nsubbands(t, dims))
@@ -548,7 +548,7 @@ function _ns_check_coefficients(c::AbstractArray, t::NSSurfacelet, dims::NTuple{
     return c
 end
 
-function MultiscaleTransformsBase.analyze!(
+function AbstractMultiscaleTransforms.analyze!(
         c::AbstractArray, t::NSSurfacelet, x::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
@@ -565,7 +565,7 @@ function MultiscaleTransformsBase.analyze!(
     return c
 end
 
-function MultiscaleTransformsBase.synthesize!(
+function AbstractMultiscaleTransforms.synthesize!(
         x::AbstractArray, t::NSSurfacelet, c::AbstractArray;
         workspace = nothing, threaded::Union{Bool, Nothing} = nothing
     )
@@ -617,7 +617,7 @@ julia> sum(energy) ≈ sum(abs2, x)
 true
 ```
 """
-function MultiscaleTransformsBase.analyze(f, t::NSSurfacelet, x::AbstractArray; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+function AbstractMultiscaleTransforms.analyze(f, t::NSSurfacelet, x::AbstractArray; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
     Base.require_one_based_indexing(x)
     ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_forward!(f, x, ws)
@@ -634,7 +634,7 @@ full set.  `x` and every subband `f` returns must be indexed from 1.  The synthe
 one subband at a time and in that order.  `threaded` does not apply and is
 ignored.
 """
-function MultiscaleTransformsBase.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
+function AbstractMultiscaleTransforms.synthesize!(f, x::AbstractArray, t::NSSurfacelet; workspace = nothing, threaded::Union{Bool, Nothing} = nothing)
     Base.require_one_based_indexing(x)
     ws = _ns_workspace_for(workspace, t, x; tasks = 1)
     return _ns_inverse!(f, x, ws)

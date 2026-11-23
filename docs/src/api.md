@@ -15,7 +15,7 @@ Surfacelets
 ## The interface
 
 Surfacelets re-exports the interface of
-[MultiscaleTransformsBase](https://github.com/hakkelt/MultiscaleTransformsBase.jl):
+[AbstractMultiscaleTransforms](https://github.com/hakkelt/AbstractMultiscaleTransforms.jl):
 `analyze`, `analyze!`, `synthesize`, `synthesize!`, `make_workspace`,
 `transform`, `similar_coefficients`, `subband_layout`, `nsubbands`, `subband`,
 `SubbandVector`, `SubbandLayout`, `AbstractMultiscaleTransform` and

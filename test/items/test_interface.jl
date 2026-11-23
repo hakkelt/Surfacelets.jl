@@ -1,5 +1,5 @@
 @testitem "NSSurfacelet — interface conformance" tags = [:ns_surfacelet] begin
-    using MultiscaleTransformsBase.Testing: test_transform
+    using AbstractMultiscaleTransforms.Testing: test_transform
     using Random
     t = NSSurfacelet(scales = 2, direction_levels = [1, 2], bernstein_order = 6)
     test_transform(t, randn(Xoshiro(1), 16, 12, 20); wrong_size = (8, 8, 8))
@@ -13,7 +13,7 @@
 end
 
 @testitem "Surfacelet — interface conformance" tags = [:surfacelet] begin
-    using MultiscaleTransformsBase.Testing: test_transform
+    using AbstractMultiscaleTransforms.Testing: test_transform
     using Random
     t = Surfacelet(scales = 2, direction_levels = [1, 2])
     x = randn(Xoshiro(7), 48, 24, 36)

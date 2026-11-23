@@ -1,6 +1,6 @@
 @testitem "Generic axes — transforms" tags = [:quality] begin
     using OffsetArrays: OffsetArray
-    using MultiscaleTransformsBase: analyze, analyze!, synthesize, synthesize!, similar_coefficients, subband
+    using AbstractMultiscaleTransforms: analyze, analyze!, synthesize, synthesize!, similar_coefficients, subband
     using Random
 
     offset(a) = OffsetArray(a, (ntuple(_ -> 2, ndims(a))))
